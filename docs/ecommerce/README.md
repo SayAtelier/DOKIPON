@@ -1,6 +1,6 @@
 # GemArc Commerce — 设计到实现映射说明
 
-> 本文件由 `docs/GemArc-5D-Design-Atlas-v5.4` 改造而来。原图谱集（Design Atlas）描述的是「GemArc 5D Flutter Workbench」——一个架构设计/推演工作台。
+> 本文件由 `docs/gemarc-5d-design-atlas/`（v8.2.0，DEGRADED / NOT FULLY ACCEPTED）对应的设计合约抽出。原交付物是浏览器里跑的 Atlas app + 4 份日语设计书。
 > 本仓库把它**收敛为电商交易系统**：保留 0D–5D 设计方法论、IPA 需求/基本/详细设计、状态机与 Saga、幂等/Outbox、安全威胁模型，
 > 去掉纯工作台专属的 3D 楼层投影/因果实验室 UI，把它落成可运行的 BFF + 领域服务 + Flutter 三端（App / Web / LINE MINI App）。
 

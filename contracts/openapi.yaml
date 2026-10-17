@@ -6,8 +6,8 @@ info:
   description: |
     Contract for the GemArc Commerce storefront backend.
 
-    Converted from `docs/GemArc-5D-Design-Atlas-v5.4/reference-models/commerce_openapi.yaml`,
-    which was itself a design-only artifact. This file describes what the
+    Converted from `docs/gemarc-5d-design-atlas/reference-models/commerce_openapi.yaml`,
+    which itself was a design-only artifact of the v5.4 era. This file describes what the
     Rust services in `services/` actually serve.
 
     Semantics that are load-bearing and must not drift:
