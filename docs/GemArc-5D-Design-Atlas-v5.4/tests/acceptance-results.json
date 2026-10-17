@@ -1,0 +1,68 @@
+{
+  "url": "offline inline index.html (browser policy blocks file and localhost navigation)",
+  "results": [
+    {
+      "name": "index direct file open",
+      "pass": true,
+      "info": "GemArc 5D — Flutter 跨端动态设计图谱"
+    },
+    {
+      "name": "requirements and trace",
+      "pass": true,
+      "info": "13 requirements and LINE acceptance"
+    },
+    {
+      "name": "graph Node Edge UML ER evidence",
+      "pass": true,
+      "info": "19 design nodes, 26 edges; UML ER evidence"
+    },
+    {
+      "name": "spatial focus floor rotation",
+      "pass": true,
+      "info": "3 floors / 9 selectable rooms"
+    },
+    {
+      "name": "workflow canvas semantic validation",
+      "pass": true,
+      "info": "7 workflow nodes 8 edges validated"
+    },
+    {
+      "name": "5D causal recalculation 4 branches",
+      "pass": true,
+      "info": "success, failed, recovered, boundary & delta re-computed"
+    },
+    {
+      "name": "case library filters and 5D jump",
+      "pass": true,
+      "info": "144 categories, 16 recovery and case navigation"
+    },
+    {
+      "name": "IPA document reading",
+      "pass": true,
+      "info": "33 docs embedded offline"
+    },
+    {
+      "name": "Flutter LINE and RTM",
+      "pass": true,
+      "info": "4 platforms and 13 RTM mappings"
+    },
+    {
+      "name": "global search shortcut",
+      "pass": true,
+      "info": "global search opens case"
+    },
+    {
+      "name": "all 144 deterministic cases and graph integrity",
+      "pass": true,
+      "info": "{'success': 32, 'failed': 96, 'recovered': 16}; stable 19 nodes 26 edges"
+    },
+    {
+      "name": "mobile breakpoint navigation",
+      "pass": true,
+      "info": "390px responsive navigation"
+    }
+  ],
+  "total": 12,
+  "passed": 12,
+  "errors": []
+}

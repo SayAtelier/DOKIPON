@@ -1,0 +1,17 @@
+{
+  "schema": "gemarc.causal-spatial-binding/v1",
+  "coordinateSystem": "LHC",
+  "flowNodeToGraphNode": {
+    "gateway": "f-transport",
+    "webclient": "f-web",
+    "catalog": "f-catalog-repo",
+    "inventory": "f-checkout-state",
+    "payment": "f-payment-boundary",
+    "orders": "f-orders-ui",
+    "notifier": "f-orders-ui",
+    "account": "f-session",
+    "store": "f-storage"
+  },
+  "bindingGrade": "Designed",
+  "unboundPolicy": "display-unbound; never create graph nodes/edges implicitly"
+}

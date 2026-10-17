@@ -1,0 +1,227 @@
+{
+  "schema": "gemarc.workflow/v1",
+  "identity": {
+    "id": "checkout-proposal",
+    "revision": 1,
+    "name": "结算与恢复 · 假设模型"
+  },
+  "semantics": {
+    "verification": "Hypothetical",
+    "nodes": [
+      {
+        "id": "w-start",
+        "label": "开始结算",
+        "type": "start",
+        "input": [],
+        "output": [
+          "out"
+        ],
+        "config": {}
+      },
+      {
+        "id": "w-inventory",
+        "label": "检查库存",
+        "type": "task",
+        "input": [
+          "in"
+        ],
+        "output": [
+          "ok",
+          "fail"
+        ],
+        "config": {
+          "retry": 0
+        }
+      },
+      {
+        "id": "w-payment",
+        "label": "支付授权",
+        "type": "task",
+        "input": [
+          "in"
+        ],
+        "output": [
+          "ok",
+          "fail"
+        ],
+        "config": {
+          "timeoutMs": 3000
+        }
+      },
+      {
+        "id": "w-order",
+        "label": "创建订单",
+        "type": "task",
+        "input": [
+          "in"
+        ],
+        "output": [
+          "out"
+        ],
+        "config": {
+          "idempotent": true
+        }
+      },
+      {
+        "id": "w-notify",
+        "label": "发送通知",
+        "type": "task",
+        "input": [
+          "in"
+        ],
+        "output": [
+          "out"
+        ],
+        "config": {
+          "retry": 2
+        }
+      },
+      {
+        "id": "w-error",
+        "label": "失败 / 补偿",
+        "type": "task",
+        "input": [
+          "in"
+        ],
+        "output": [
+          "out"
+        ],
+        "config": {
+          "strategy": "compensate"
+        }
+      },
+      {
+        "id": "w-end",
+        "label": "流程终态",
+        "type": "end",
+        "input": [
+          "in"
+        ],
+        "output": [],
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "id": "we1",
+        "sourceId": "w-start",
+        "targetId": "w-inventory",
+        "sourcePort": "out",
+        "targetPort": "in",
+        "type": "sequence",
+        "condition": null
+      },
+      {
+        "id": "we2",
+        "sourceId": "w-inventory",
+        "targetId": "w-payment",
+        "sourcePort": "ok",
+        "targetPort": "in",
+        "type": "conditional",
+        "condition": "stock > 0"
+      },
+      {
+        "id": "we3",
+        "sourceId": "w-inventory",
+        "targetId": "w-error",
+        "sourcePort": "fail",
+        "targetPort": "in",
+        "type": "conditional",
+        "condition": "stock <= 0"
+      },
+      {
+        "id": "we4",
+        "sourceId": "w-payment",
+        "targetId": "w-order",
+        "sourcePort": "ok",
+        "targetPort": "in",
+        "type": "conditional",
+        "condition": "authorized === true"
+      },
+      {
+        "id": "we5",
+        "sourceId": "w-payment",
+        "targetId": "w-error",
+        "sourcePort": "fail",
+        "targetPort": "in",
+        "type": "conditional",
+        "condition": "authorized === false"
+      },
+      {
+        "id": "we6",
+        "sourceId": "w-order",
+        "targetId": "w-notify",
+        "sourcePort": "out",
+        "targetPort": "in",
+        "type": "sequence",
+        "condition": null
+      },
+      {
+        "id": "we7",
+        "sourceId": "w-notify",
+        "targetId": "w-end",
+        "sourcePort": "out",
+        "targetPort": "in",
+        "type": "sequence",
+        "condition": null
+      },
+      {
+        "id": "we8",
+        "sourceId": "w-error",
+        "targetId": "w-end",
+        "sourcePort": "out",
+        "targetPort": "in",
+        "type": "sequence",
+        "condition": null
+      }
+    ]
+  },
+  "presentation": {
+    "nodes": [
+      {
+        "id": "w-start",
+        "x": 90,
+        "y": 195
+      },
+      {
+        "id": "w-inventory",
+        "x": 325,
+        "y": 195
+      },
+      {
+        "id": "w-payment",
+        "x": 575,
+        "y": 115
+      },
+      {
+        "id": "w-order",
+        "x": 835,
+        "y": 95
+      },
+      {
+        "id": "w-notify",
+        "x": 1090,
+        "y": 95
+      },
+      {
+        "id": "w-error",
+        "x": 835,
+        "y": 375
+      },
+      {
+        "id": "w-end",
+        "x": 1350,
+        "y": 195
+      }
+    ]
+  },
+  "provenance": {
+    "source": "demo-hypothesis",
+    "repository": null
+  },
+  "validation": {
+    "valid": true,
+    "errors": [],
+    "warnings": []
+  }
+}

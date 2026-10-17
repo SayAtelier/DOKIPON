@@ -1,0 +1,62 @@
+{
+  "passed": 14,
+  "total": 14,
+  "checks": [
+    {
+      "name": "0D is internal (no 0D nav / view)",
+      "pass": true
+    },
+    {
+      "name": "1D prompt screen usable",
+      "pass": true
+    },
+    {
+      "name": "1D contains stable traced IDs",
+      "pass": true
+    },
+    {
+      "name": "1D scope regenerates",
+      "pass": true
+    },
+    {
+      "name": "1D stage regenerates",
+      "pass": true
+    },
+    {
+      "name": "1D export and copy controls",
+      "pass": true
+    },
+    {
+      "name": "2D node-edge independent diagram",
+      "pass": true
+    },
+    {
+      "name": "3D scene initialized",
+      "pass": true
+    },
+    {
+      "name": "4D same graph and event scene",
+      "pass": true
+    },
+    {
+      "name": "5D same graph with independent edge picking",
+      "pass": true
+    },
+    {
+      "name": "5D normal/fail/recovery deterministic",
+      "pass": true
+    },
+    {
+      "name": "144 case model terminals correct",
+      "pass": true
+    },
+    {
+      "name": "41 embedded design docs include latest universal prompt",
+      "pass": true
+    },
+    {
+      "name": "no script exception",
+      "pass": true
+    }
+  ]
+}

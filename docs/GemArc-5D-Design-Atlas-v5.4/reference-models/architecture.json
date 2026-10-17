@@ -1,0 +1,617 @@
+{
+  "schema": "gemarc.architecture/v1",
+  "site": {
+    "name": "Feliture",
+    "url": "https://feliture.shop/",
+    "checkedAt": "2026-10-17",
+    "provenance": "Public website HTML / accessible content; source repository not supplied",
+    "git": {
+      "branch": null,
+      "commit": null,
+      "repository": null
+    }
+  },
+  "nodes": [
+    {
+      "id": "site",
+      "name": "Feliture 公共站点",
+      "kind": "System",
+      "zone": "Experience",
+      "description": "公开网站入口；仅公开页面可验证",
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-home"
+      ],
+      "layer": "surface",
+      "parentId": null,
+      "properties": {
+        "url": "https://feliture.shop/"
+      }
+    },
+    {
+      "id": "home",
+      "name": "首页 / Home",
+      "kind": "Page",
+      "zone": "Experience",
+      "description": "活动主题、排行、新品与商品卡片",
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-home"
+      ],
+      "layer": "surface",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "categories",
+      "name": "商品分类",
+      "kind": "Navigation",
+      "zone": "Experience",
+      "description": "导航可访问内衣、套装、家居服等分类",
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-categories"
+      ],
+      "layer": "surface",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "listing",
+      "name": "分类 / 商品列表",
+      "kind": "Page",
+      "zone": "Experience",
+      "description": "导航提供分类商品入口；具体实现未知",
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-categories"
+      ],
+      "layer": "surface",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "product",
+      "name": "商品详情入口",
+      "kind": "Page",
+      "zone": "Experience",
+      "description": "从展示的商品卡片进入商品页面",
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-product"
+      ],
+      "layer": "surface",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "wishlist",
+      "name": "收藏入口",
+      "kind": "Page",
+      "zone": "Experience",
+      "description": "导航中存在收藏列表入口；存储实现未知",
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-wishlist"
+      ],
+      "layer": "surface",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "account",
+      "name": "我的账户（说明）",
+      "kind": "Page",
+      "zone": "Customer",
+      "description": "FAQ 描述订单及配送信息可在账户页查询",
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-account"
+      ],
+      "layer": "surface",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "help",
+      "name": "使用指南 / FAQ",
+      "kind": "Content",
+      "zone": "Customer",
+      "description": "公开FAQ包含配送与售后答疑",
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-help"
+      ],
+      "layer": "surface",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "size",
+      "name": "尺码指南",
+      "kind": "Content",
+      "zone": "Customer",
+      "description": "FAQ 引用尺寸指南",
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-size"
+      ],
+      "layer": "surface",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "support",
+      "name": "LINE 客服渠道",
+      "kind": "External",
+      "zone": "Customer",
+      "description": "FAQ 指向官方 LINE 客服",
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-support"
+      ],
+      "layer": "surface",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "webclient",
+      "name": "Web Client",
+      "kind": "Component",
+      "zone": "Application",
+      "description": "仅为分析用的客户端抽象；实现未知",
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "gateway",
+      "name": "Commerce API",
+      "kind": "Service",
+      "zone": "Application",
+      "description": "假设的商城 API 边界；未验证",
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "catalog",
+      "name": "Catalog Service",
+      "kind": "Service",
+      "zone": "Domain",
+      "description": "假设商品检索服务；未验证",
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "inventory",
+      "name": "Inventory Service",
+      "kind": "Service",
+      "zone": "Domain",
+      "description": "假设库存检查服务；未验证",
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "checkout",
+      "name": "Checkout Service",
+      "kind": "Service",
+      "zone": "Domain",
+      "description": "假设结算编排服务；未验证",
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "payment",
+      "name": "Payment Provider",
+      "kind": "External",
+      "zone": "Integration",
+      "description": "支付提供商抽象；未验证",
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "orders",
+      "name": "Order Service",
+      "kind": "Service",
+      "zone": "Domain",
+      "description": "假设订单处理服务；未验证",
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "notifier",
+      "name": "Notification Worker",
+      "kind": "Service",
+      "zone": "Integration",
+      "description": "假设邮件发送模块；未验证",
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis",
+      "properties": {},
+      "parentId": "site"
+    },
+    {
+      "id": "store",
+      "name": "Data Store",
+      "kind": "Database",
+      "zone": "Data",
+      "description": "假设持久化边界；数据库类型未知",
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis",
+      "properties": {},
+      "parentId": "site"
+    }
+  ],
+  "edges": [
+    {
+      "id": "l1",
+      "sourceId": "site",
+      "targetId": "home",
+      "type": "contains",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-home"
+      ],
+      "layer": "surface"
+    },
+    {
+      "id": "l2",
+      "sourceId": "home",
+      "targetId": "categories",
+      "type": "navigates",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-categories"
+      ],
+      "layer": "surface"
+    },
+    {
+      "id": "l3",
+      "sourceId": "categories",
+      "targetId": "listing",
+      "type": "navigates",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-categories"
+      ],
+      "layer": "surface"
+    },
+    {
+      "id": "l4",
+      "sourceId": "home",
+      "targetId": "product",
+      "type": "navigates",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-product"
+      ],
+      "layer": "surface"
+    },
+    {
+      "id": "l5",
+      "sourceId": "home",
+      "targetId": "wishlist",
+      "type": "links",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-wishlist"
+      ],
+      "layer": "surface"
+    },
+    {
+      "id": "l6",
+      "sourceId": "help",
+      "targetId": "account",
+      "type": "describes",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-account"
+      ],
+      "layer": "surface"
+    },
+    {
+      "id": "l7",
+      "sourceId": "help",
+      "targetId": "size",
+      "type": "links",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-size"
+      ],
+      "layer": "surface"
+    },
+    {
+      "id": "l8",
+      "sourceId": "help",
+      "targetId": "support",
+      "type": "links",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-support"
+      ],
+      "layer": "surface"
+    },
+    {
+      "id": "l9",
+      "sourceId": "site",
+      "targetId": "help",
+      "type": "contains",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Observed",
+      "evidenceIds": [
+        "evidence-help"
+      ],
+      "layer": "surface"
+    },
+    {
+      "id": "x1",
+      "sourceId": "webclient",
+      "targetId": "gateway",
+      "type": "request",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis"
+    },
+    {
+      "id": "x2",
+      "sourceId": "gateway",
+      "targetId": "catalog",
+      "type": "calls",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis"
+    },
+    {
+      "id": "x3",
+      "sourceId": "gateway",
+      "targetId": "checkout",
+      "type": "calls",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis"
+    },
+    {
+      "id": "x4",
+      "sourceId": "checkout",
+      "targetId": "inventory",
+      "type": "checks",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis"
+    },
+    {
+      "id": "x5",
+      "sourceId": "checkout",
+      "targetId": "payment",
+      "type": "authorizes",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis"
+    },
+    {
+      "id": "x6",
+      "sourceId": "checkout",
+      "targetId": "orders",
+      "type": "creates",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis"
+    },
+    {
+      "id": "x7",
+      "sourceId": "orders",
+      "targetId": "notifier",
+      "type": "emits",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis"
+    },
+    {
+      "id": "x8",
+      "sourceId": "orders",
+      "targetId": "store",
+      "type": "persists",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis"
+    },
+    {
+      "id": "x9",
+      "sourceId": "catalog",
+      "targetId": "store",
+      "type": "reads",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis"
+    },
+    {
+      "id": "x10",
+      "sourceId": "inventory",
+      "targetId": "store",
+      "type": "reads",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis"
+    },
+    {
+      "id": "x11",
+      "sourceId": "orders",
+      "targetId": "inventory",
+      "type": "reserves",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis"
+    },
+    {
+      "id": "x12",
+      "sourceId": "notifier",
+      "targetId": "orders",
+      "type": "looks-up",
+      "directed": true,
+      "condition": null,
+      "weight": null,
+      "properties": {},
+      "verification": "Hypothetical",
+      "evidenceIds": [],
+      "layer": "hypothesis"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "evidence-home",
+      "kind": "PublicWebsite",
+      "url": "https://feliture.shop/",
+      "claim": "首页和 TOPICS、RANKING、NEW ITEMS、商品展示",
+      "checkedAt": "2026-10-17"
+    },
+    {
+      "id": "evidence-categories",
+      "kind": "PublicWebsite",
+      "url": "https://feliture.shop/",
+      "claim": "导航菜单展示ブラ＆ショーツセット、ブラジャー、ショーツ等分类",
+      "checkedAt": "2026-10-17"
+    },
+    {
+      "id": "evidence-product",
+      "kind": "PublicWebsite",
+      "url": "https://feliture.shop/",
+      "claim": "首页展示商品名称、价格与商品入口",
+      "checkedAt": "2026-10-17"
+    },
+    {
+      "id": "evidence-wishlist",
+      "kind": "PublicWebsite",
+      "url": "https://feliture.shop/",
+      "claim": "导航包含お気に入りリスト入口",
+      "checkedAt": "2026-10-17"
+    },
+    {
+      "id": "evidence-account",
+      "kind": "PublicWebsite",
+      "url": "https://feliture.shop/",
+      "claim": "FAQ 指出マイアカウント可查询订单及配送信息",
+      "checkedAt": "2026-10-17"
+    },
+    {
+      "id": "evidence-help",
+      "kind": "PublicWebsite",
+      "url": "https://feliture.shop/",
+      "claim": "页面包含FAQ、使用指南及退换货说明",
+      "checkedAt": "2026-10-17"
+    },
+    {
+      "id": "evidence-size",
+      "kind": "PublicWebsite",
+      "url": "https://feliture.shop/",
+      "claim": "FAQ 链接到サイズガイド",
+      "checkedAt": "2026-10-17"
+    },
+    {
+      "id": "evidence-support",
+      "kind": "PublicWebsite",
+      "url": "https://feliture.shop/",
+      "claim": "FAQ 指向 LINE 客服入口",
+      "checkedAt": "2026-10-17"
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+{
+  "count": 23,
+  "passed": 23,
+  "failed": 0,
+  "results": [
+    {
+      "case": "offline inline HTML no remote fetch/script dependencies",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "design data 19 nodes / 26 edges",
+      "pass": true,
+      "result": "(144, 19, 26)"
+    },
+    {
+      "case": "44? available documentation and engineering model",
+      "pass": true,
+      "result": "(41, 42)"
+    },
+    {
+      "case": "canonical graph stable endpoints",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "left handed camera +X visible right at zero yaw",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "world coordinate positions consistent",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "3D canvas visible with pick table",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "3D node hit test yields stable graph id",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "3D edge picking can select its own ID",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "3D orbit left-handed drag gesture",
+      "pass": true,
+      "result": "58.170004272460936"
+    },
+    {
+      "case": "3D floor selection changes scene view",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "3D scene reset restores camera",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "4D embeds the SAME spatial graph model",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "4D step advances event and updates 3D node",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "5D embeds same full 3D graph",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "5D causation has normal / failed / recovered terminals",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "5D guard intervention changes terminal",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "5D scene active binding matches event",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "AI blueprint 42 fullstack designed cases",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "full stack detailed case clickable",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "AI design docs accessible from blueprint",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "all 144 model cases expected terminal",
+      "pass": true,
+      "result": "True"
+    },
+    {
+      "case": "no JS page errors",
+      "pass": true,
+      "result": "True"
+    }
+  ]
+}
