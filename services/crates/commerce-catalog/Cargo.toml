@@ -1,0 +1,19 @@
+[package]
+name = "commerce-catalog"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Catalog: products, categories, SKU/price/version, localizations"
+
+[dependencies]
+axum = { workspace = true }
+tower = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+commerce-core = { path = "../commerce-core" }

@@ -1,0 +1,645 @@
+openapi: 3.1.0
+
+info:
+  title: GemArc Commerce API
+  version: 0.1.0
+  description: |
+    Contract for the GemArc Commerce storefront backend.
+
+    Converted from `docs/GemArc-5D-Design-Atlas-v5.4/reference-models/commerce_openapi.yaml`,
+    which was itself a design-only artifact. This file describes what the
+    Rust services in `services/` actually serve.
+
+    Semantics that are load-bearing and must not drift:
+      * `Idempotency-Key` is required on every write, scoped to (actor, operation).
+        Same key + same payload replays the stored response; same key + different
+        payload is 409.
+      * Money is `{amountMinor: int64, currency: ISO-4217}`. No floating point.
+      * `payment_unknown` is NOT failure and NOT success. It is resolved only by
+        reconciliation; a client must re-read status, never re-submit.
+      * Errors are `application/problem+json` extended with `code`, `traceId`, `retryable`.
+  license:
+    name: Apache-2.0
+
+servers:
+  - url: http://127.0.0.1:8080
+    description: local BFF
+
+tags:
+  - name: storefront
+  - name: catalog
+  - name: cart
+  - name: checkout
+  - name: orders
+  - name: identity
+
+security:
+  - sessionHeader: []
+
+paths:
+  /v1/storefront:
+    get:
+      tags: [storefront]
+      operationId: storefront.get
+      summary: Channel-appropriate boot configuration.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ChannelHeader'
+      responses:
+        '200':
+          description: Storefront configuration.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Storefront' }
+
+  /v1/products:
+    get:
+      tags: [catalog]
+      operationId: catalog.list
+      summary: Cursor-paginated products, filtered by channel.
+      security: []
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: locale
+          in: query
+          schema: { type: string, default: ja }
+        - name: categoryId
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/ChannelHeader'
+      responses:
+        '200':
+          description: A page of products.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductPage' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /v1/products/{productId}:
+    get:
+      tags: [catalog]
+      operationId: catalog.detail
+      summary: Authoritative price and version for one product.
+      security: []
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Product detail.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductDetail' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '410': { $ref: '#/components/responses/Problem' }
+
+  /v1/carts/{cartId}:
+    get:
+      tags: [cart]
+      operationId: cart.get
+      parameters:
+        - $ref: '#/components/parameters/CartIdPath'
+      responses:
+        '200':
+          description: The cart.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403':
+          description: The cart belongs to another session.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/carts/{cartId}/items/{sku}:
+    patch:
+      tags: [cart]
+      operationId: cart.update
+      summary: Optimistic-concurrency, idempotent cart mutation.
+      parameters:
+        - $ref: '#/components/parameters/CartIdPath'
+        - name: sku
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity, expectedVersion]
+              additionalProperties: false
+              properties:
+                quantity:
+                  type: integer
+                  minimum: 0
+                  maximum: 99
+                  description: '0 removes the line.'
+                expectedVersion:
+                  type: integer
+                  minimum: 1
+                  description: Optimistic lock. A stale value yields 409, never a silent overwrite.
+                clientUnitAmountMinor:
+                  type: integer
+                  description: |
+                    Display-only hint. Ignored for money math — the server
+                    recomputes every total from the authoritative catalogue price.
+      responses:
+        '200':
+          description: The updated cart.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: Version conflict or idempotency-key reuse with a different payload.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/checkouts:
+    post:
+      tags: [checkout]
+      operationId: checkout.submit
+      summary: Start a checkout Saga.
+      description: |
+        Returns 201 when the order reached `confirmed` synchronously, and 202
+        when it is still processing (`payment_unknown` or `confirming`).
+
+        **A client must not resubmit this call to make progress.** Read
+        `GET /v1/checkouts/{checkoutId}` instead. Resubmitting risks a double
+        charge when the first attempt actually captured.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CheckoutRequest' }
+      responses:
+        '201':
+          description: Confirmed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckoutSnapshot' }
+        '202':
+          description: Accepted and pending reconciliation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckoutSnapshot' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /v1/checkouts/{checkoutId}:
+    get:
+      tags: [checkout]
+      operationId: checkout.status
+      summary: Authoritative checkout status. Owner-scoped.
+      parameters:
+        - name: checkoutId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Current status.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckoutSnapshot' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /v1/orders:
+    get:
+      tags: [orders]
+      operationId: orders.list
+      summary: Orders belonging to the calling session only.
+      responses:
+        '200':
+          description: Order summaries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/OrderSummary' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /v1/orders/{orderId}:
+    get:
+      tags: [orders]
+      operationId: orders.detail
+      summary: Order plus its state-transition timeline. Owner-scoped.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Order detail.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderDetail' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/orders/{orderId}/reconcile:
+    post:
+      tags: [checkout]
+      operationId: checkout.reconcile
+      summary: Resolve a `payment_unknown` checkout with the provider's verdict.
+      description: Server-only. This is the sole exit from `payment_unknown`.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [authorized]
+              properties:
+                authorized: { type: boolean }
+      responses:
+        '200':
+          description: Final state after reconciliation.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state: { $ref: '#/components/schemas/CheckoutStatus' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /v1/sessions/line:
+    post:
+      tags: [identity]
+      operationId: identity.liff
+      summary: Exchange a LINE id_token for a short-lived session.
+      description: |
+        The server verifies issuer, audience, signature, expiry and nonce.
+        The token is never stored, never echoed, and never used as an
+        authorization signal on the client side.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id_token]
+              properties:
+                id_token: { type: string }
+                nonce: { type: string }
+                channel: { $ref: '#/components/schemas/Channel' }
+      responses:
+        '200':
+          description: A session.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+
+  /v1/sessions/guest:
+    post:
+      tags: [identity]
+      operationId: identity.guest
+      summary: Anonymous session for browsing (LINE external browser, not logged in).
+      description: A guest can browse the catalogue but cannot check out.
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel: { $ref: '#/components/schemas/Channel' }
+      responses:
+        '200':
+          description: A guest session.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+
+components:
+  securitySchemes:
+    sessionHeader:
+      type: apiKey
+      in: header
+      name: X-Session-Id
+      description: Opaque, short-lived session identifier issued by the identity service.
+
+  parameters:
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+      description: |
+        Scoped to (actor, operation). The client must reuse the same key for a
+        transport-level retry of the same logical operation.
+    ChannelHeader:
+      name: X-Channel
+      in: header
+      required: false
+      schema: { type: string, enum: [web, app, line], default: web }
+      description: Required in practice — the server filters content per channel.
+    CartIdPath:
+      name: cartId
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    Problem:
+      description: RFC 9457 problem details, extended.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, code, detail, traceId, retryable]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        code:
+          type: string
+          description: Stable machine-readable code, e.g. `cart.version_conflict`.
+        detail: { type: string }
+        traceId: { type: string }
+        retryable:
+          type: boolean
+          description: Drives client retry policy. Never true for authorization failures.
+
+    Money:
+      type: object
+      required: [amountMinor, currency]
+      properties:
+        amountMinor:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The amount in the currency's smallest unit.
+        currency:
+          type: string
+          enum: [JPY, USD, EUR, CNY, TWD]
+
+    Channel:
+      type: string
+      enum: [web, app, line]
+
+    CheckoutStatus:
+      type: string
+      description: |
+        `payment_unknown` is neither failure nor success: the provider did not
+        answer and the server is reconciling. Clients must keep polling.
+      enum:
+        - new
+        - reserving
+        - stock_reserved
+        - awaiting_payment
+        - payment_unknown
+        - confirming
+        - confirmed
+        - rejected
+        - cancelled
+        - unknown
+
+    Availability:
+      type: string
+      enum: [in_stock, low_stock, out_of_stock, made_to_order]
+
+    StockPolicy:
+      type: string
+      enum: [unbounded, reserved, made_to_order]
+
+    ChannelEligibility:
+      type: object
+      description: Which surfaces may show this product.
+      properties:
+        web: { type: boolean }
+        app: { type: boolean }
+        line_mini_app: { type: boolean }
+
+    ProductSummary:
+      type: object
+      required: [productId, sku, title, price, availability]
+      properties:
+        productId: { type: string }
+        sku: { type: string }
+        title:
+          type: string
+          description: Already localized server-side, with a ja → any fallback.
+        price: { $ref: '#/components/schemas/Money' }
+        availability: { $ref: '#/components/schemas/Availability' }
+
+    ProductPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ProductSummary' }
+        next_cursor: { type: [string, 'null'] }
+
+    ProductDetail:
+      type: object
+      required: [productId, sku, price, version, stockPolicy, availability, channelEligibility]
+      properties:
+        productId: { type: string }
+        sku: { type: string }
+        titleI18n:
+          type: object
+          additionalProperties: { type: string }
+        descriptionI18n:
+          type: object
+          additionalProperties: { type: string }
+        categoryId: { type: string }
+        published: { type: boolean }
+        price: { $ref: '#/components/schemas/Money' }
+        version:
+          type: integer
+          minimum: 1
+          description: A cart holding an older version must be re-priced at checkout.
+        stockPolicy: { $ref: '#/components/schemas/StockPolicy' }
+        availability: { $ref: '#/components/schemas/Availability' }
+        channelEligibility: { $ref: '#/components/schemas/ChannelEligibility' }
+
+    CartItem:
+      type: object
+      required: [sku, quantity, unit_amount_snapshot, currency]
+      properties:
+        sku: { type: string }
+        quantity: { type: integer, minimum: 1 }
+        unit_amount_snapshot:
+          type: integer
+          minimum: 0
+          description: Display only. Never used to charge the customer.
+        currency: { type: string }
+
+    Cart:
+      type: object
+      required: [cartId, version, items]
+      properties:
+        cartId: { type: string }
+        owner_id: { type: [string, 'null'] }
+        version:
+          type: integer
+          minimum: 1
+          description: Optimistic lock; incremented on every accepted mutation.
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CartItem' }
+        expires_at_ms: { type: integer }
+
+    OrderLineInput:
+      type: object
+      required: [sku, quantity]
+      properties:
+        sku: { type: string }
+        quantity: { type: integer, minimum: 1, maximum: 99 }
+        unit_amount_minor:
+          type: integer
+          minimum: 0
+          description: |
+            Ignored for billing. The server resolves the price from the
+            catalogue. Supplying a tampered value changes nothing about what
+            the customer is charged.
+
+    CheckoutRequest:
+      type: object
+      required: [lines, paymentMethodRef]
+      additionalProperties: false
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/OrderLineInput' }
+        paymentMethodRef:
+          type: string
+          description: |
+            Provider token only. Raw card details must never be sent to or
+            handled by this system.
+
+    CheckoutSnapshot:
+      type: object
+      required: [checkoutId, status]
+      properties:
+        checkoutId: { type: string }
+        orderId: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/CheckoutStatus' }
+        terminal: { type: boolean }
+        awaitingReconciliation:
+          type: boolean
+          description: True while the provider verdict is still outstanding.
+
+    OrderSummary:
+      type: object
+      required: [orderId, state, total]
+      properties:
+        orderId: { type: string }
+        state: { $ref: '#/components/schemas/CheckoutStatus' }
+        total: { $ref: '#/components/schemas/Money' }
+        awaitingReconciliation: { type: boolean }
+
+    TrailEntry:
+      type: object
+      required: [sequence, event, from, to]
+      properties:
+        sequence: { type: integer, minimum: 1 }
+        event: { type: string }
+        from: { $ref: '#/components/schemas/CheckoutStatus' }
+        to: { $ref: '#/components/schemas/CheckoutStatus' }
+
+    OrderDetail:
+      type: object
+      required: [orderId, state, lines, total]
+      properties:
+        orderId: { type: string }
+        state: { $ref: '#/components/schemas/CheckoutStatus' }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              sku: { type: string }
+              quantity: { type: integer }
+              unit_amount_minor: { type: integer }
+        total: { $ref: '#/components/schemas/Money' }
+        reservationId: { type: [string, 'null'] }
+        awaitingReconciliation: { type: boolean }
+        timeline:
+          type: array
+          description: The full state-transition trail.
+          items: { $ref: '#/components/schemas/TrailEntry' }
+
+    Session:
+      type: object
+      required: [sessionId, kind]
+      properties:
+        sessionId: { type: string }
+        kind:
+          type: string
+          enum: [guest, line_user]
+        channel: { $ref: '#/components/schemas/Channel' }
+        expires_at_ms: { type: integer }
+
+    Storefront:
+      type: object
+      required: [channel, catalog, checkout, capabilities]
+      properties:
+        channel: { $ref: '#/components/schemas/Channel' }
+        catalog:
+          type: object
+          properties:
+            listUrl: { type: string }
+            defaultLocale: { type: string }
+            supportedLocales:
+              type: array
+              items: { type: string }
+        checkout:
+          type: object
+          properties:
+            requiresIdempotencyKey: { type: boolean }
+            statusPollIntervalMs: { type: integer }
+            maxPollAttempts: { type: integer }
+        capabilities:
+          type: object
+          properties:
+            nativeShare: { type: boolean }
+            pushNotifications: { type: boolean }
+            externalBrowserOpen: { type: boolean }

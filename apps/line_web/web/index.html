@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="description" content="GemArc Commerce — LINE MINI App">
+  <meta name="theme-color" content="#06c755">
+
+  <!-- A LINE MINI App needs working privacy-policy and provider URLs before
+       review. These are placeholders so the build is honest about what is
+       still missing. [证据等级: Hypothetical] -->
+  <meta name="liff-app:privacy-policy-url" content="">
+  <meta name="liff-app:provider-name" content="">
+
+  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="manifest" href="manifest.json">
+
+  <title>GemArc Commerce</title>
+
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #ffffff; }
+    /*
+     * The LINE client renders this app in a WebView with its own header. Keep
+     * content clear of the top inset and honour the safe area so the Flutter
+     * Navigator does not collide with the LINE header (LIFF-008).
+     */
+    #gemarc-boot {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font: 14px/1.6 -apple-system, "Helvetica Neue", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+      color: #6b7280; background: #ffffff;
+    }
+    .gemarc-boot-inner { text-align: center; padding: 24px; max-width: 320px; }
+    .gemarc-spinner {
+      width: 24px; height: 24px; margin: 0 auto 12px;
+      border: 2px solid #e5e7eb; border-top-color: #06c755; border-radius: 50%;
+      animation: gemarc-spin 800ms linear infinite;
+    }
+    @keyframes gemarc-spin { to { transform: rotate(360deg); } }
+    .gemarc-boot-note { font-size: 12px; color: #9ca3af; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div id="gemarc-boot">
+    <div class="gemarc-boot-inner">
+      <div class="gemarc-spinner"></div>
+      <div>ストアを準備しています…</div>
+      <div class="gemarc-boot-note">Preparing the storefront…</div>
+    </div>
+  </div>
+
+  <!--
+    Load order matters: the LIFF bridge defines window.__gemarcLiff* before
+    Flutter boots, so the first Dart frame already knows the channel state.
+  -->
+  <script src="liff_bridge.js"></script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

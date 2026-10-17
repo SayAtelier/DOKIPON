@@ -1,0 +1,28 @@
+[package]
+name = "commerce-bff"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Edge/BFF: session auth, rate limit, correlation, end-client response shaping"
+
+[dependencies]
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+anyhow = { workspace = true }
+commerce-core = { path = "../commerce-core" }
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+http-body-util = { workspace = true }
