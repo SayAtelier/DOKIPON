@@ -1,0 +1,21 @@
+{
+  "baselineImmutable": true,
+  "scenarioOnly": true,
+  "interventionExample": {
+    "injected": {
+      "kind": "Validator",
+      "edgeId": "e04",
+      "behavior": "reject",
+      "portType": "CommerceMessage",
+      "stateMachine": "finite"
+    }
+  },
+  "rewriteExample": {
+    "old": "e04",
+    "replacement": [
+      "e04.A",
+      "e04.B"
+    ]
+  },
+  "runtimeEditsExportedFrom": "5D toolbar → Export scenario delta"
+}

@@ -1,0 +1,118 @@
+TAP version 13
+# Subtest: all graph ids and workflow paths valid
+ok 1 - all graph ids and workflow paths valid
+  ---
+  duration_ms: 0.900328
+  type: 'test'
+  ...
+# Subtest: deterministic replay
+ok 2 - deterministic replay
+  ---
+  duration_ms: 2.636336
+  type: 'test'
+  ...
+# Subtest: normal completes
+ok 3 - normal completes
+  ---
+  duration_ms: 0.301976
+  type: 'test'
+  ...
+# Subtest: payment_unknown is not success or confirmed failure
+ok 4 - payment_unknown is not success or confirmed failure
+  ---
+  duration_ms: 0.242115
+  type: 'test'
+  ...
+# Subtest: inventory is guarded
+ok 5 - inventory is guarded
+  ---
+  duration_ms: 0.252931
+  type: 'test'
+  ...
+# Subtest: controlled retry recovers
+ok 6 - controlled retry recovers
+  ---
+  duration_ms: 0.250668
+  type: 'test'
+  ...
+# Subtest: unrelated module disable yields no false causation
+ok 7 - unrelated module disable yields no false causation
+  ---
+  duration_ms: 1.322825
+  type: 'test'
+  ...
+# Subtest: disable active module blocks
+ok 8 - disable active module blocks
+  ---
+  duration_ms: 0.468927
+  type: 'test'
+  ...
+# Subtest: disable active edge blocks
+ok 9 - disable active edge blocks
+  ---
+  duration_ms: 0.573054
+  type: 'test'
+  ...
+# Subtest: inserting valid validator rewrites edge, branches, original unchanged
+ok 10 - inserting valid validator rewrites edge, branches, original unchanged
+  ---
+  duration_ms: 1.161191
+  type: 'test'
+  ...
+# Subtest: safe input constraints on injected element
+ok 11 - safe input constraints on injected element
+  ---
+  duration_ms: 0.673315
+  type: 'test'
+  ...
+# Subtest: same combined intervention produces same event trace
+ok 12 - same combined intervention produces same event trace
+  ---
+  duration_ms: 0.58327
+  type: 'test'
+  ...
+# Subtest: every node and edge has a meaningful name
+ok 13 - every node and edge has a meaningful name
+  ---
+  duration_ms: 0.910363
+  type: 'test'
+  ...
+# Subtest: rewritten graph edges retain distinct readable names
+ok 14 - rewritten graph edges retain distinct readable names
+  ---
+  duration_ms: 0.177548
+  type: 'test'
+  ...
+# Subtest: labels avoid overlapping and staying outside viewport
+ok 15 - labels avoid overlapping and staying outside viewport
+  ---
+  duration_ms: 1.55136
+  type: 'test'
+  ...
+# Subtest: all mode reveals colliding names rather than making up identifiers
+ok 16 - all mode reveals colliding names rather than making up identifiers
+  ---
+  duration_ms: 0.344539
+  type: 'test'
+  ...
+# Subtest: out-of-camera labels are hidden instead of pinned to wrong object
+ok 17 - out-of-camera labels are hidden instead of pinned to wrong object
+  ---
+  duration_ms: 0.125229
+  type: 'test'
+  ...
+# Subtest: long CJK node names wrap without duplicated prefixes or box overflow
+ok 18 - long CJK node names wrap without duplicated prefixes or box overflow
+  ---
+  duration_ms: 0.35755
+  type: 'test'
+  ...
+1..18
+# tests 18
+# suites 0
+# pass 18
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 65.989046

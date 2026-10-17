@@ -1,0 +1,192 @@
+{
+  "project": "GemArc 5D DOKIPON Atlas",
+  "version": "8.2.0",
+  "entry": "index.html",
+  "quality": "DEGRADED / NOT FULLY ACCEPTED",
+  "files": {
+    "MASTER_PROMPT_v8_2_adaptive_labels.yaml": {
+      "sha256": "da0c30ce8c4750fc1e8d024222984d137da175d4d4f2e5bcb228088faff27be5",
+      "bytes": 64082
+    },
+    "QA_FINAL.md": {
+      "sha256": "dbc3440a1b35410a8cc1667d3802a409fc970125e7f054bf8ffe3fcb3bd392cc",
+      "bytes": 5173
+    },
+    "README.md": {
+      "sha256": "11b69a8da0d685c4ee6107d9e1e4bc6c24a1a482d04bf922ef000806c3687281",
+      "bytes": 4925
+    },
+    "build.py": {
+      "sha256": "8da3b01dc17c99ad5240a99b0ac677e32c039156ab323c632d63e9969a50dc88",
+      "bytes": 1335
+    },
+    "dist/index.html": {
+      "sha256": "370f1843137e92f231966d90e408a7c70cf2e11d8ff0b64bc9521a1f2fbce97b",
+      "bytes": 91470
+    },
+    "docs/AI_IMPLEMENTATION_HANDOFF.md": {
+      "sha256": "8bf7c438de33af6bc1a01ce460430e11311b3be1a8d862d265487d8f341b559e",
+      "bytes": 992
+    },
+    "docs/UX_DESIGN_SYSTEM.md": {
+      "sha256": "cada71e3136539676d7f084f9ebbdd31125a01d0e1033a04052b3285435848ca",
+      "bytes": 2405
+    },
+    "docs/ja-JP/01_要件定義書.md": {
+      "sha256": "2efb39f2ee14623a09e12109cde5a7cc162d6fda0e8c1f09d9af09923b0241ad",
+      "bytes": 2327
+    },
+    "docs/ja-JP/02_基本設計書.md": {
+      "sha256": "0e5a4c0b68764fae6f154b460ace17c4d46e82c2a8df087fcbf8ee7700dff0a7",
+      "bytes": 2240
+    },
+    "docs/ja-JP/03_詳細設計書.md": {
+      "sha256": "61c6350314b276cfe7ef439821c22dd324f2d359dc13817d77a1a28bcf2407a8",
+      "bytes": 2098
+    },
+    "docs/ja-JP/04_テスト設計書.md": {
+      "sha256": "e03c09287184a3ad9cd0d199efc7b69faa3963fb11a7d6258a7411fc63058ff0",
+      "bytes": 1020
+    },
+    "index.html": {
+      "sha256": "370f1843137e92f231966d90e408a7c70cf2e11d8ff0b64bc9521a1f2fbce97b",
+      "bytes": 91470
+    },
+    "models/architecture.json": {
+      "sha256": "38abff763fed1629f038afd2cebac7d0ee7ea444ccd65b0fdd3f1c4eba696329",
+      "bytes": 16946
+    },
+    "models/cases.json": {
+      "sha256": "e7cc1ce592070a3d165ae2d3493e9357142798449772283dc52ddf528ac079ed",
+      "bytes": 1053
+    },
+    "models/diagrams.json": {
+      "sha256": "61c74d2832be85d7f1730fcded6846a689876a20bd53b86c83fd4f8f0b187810",
+      "bytes": 540
+    },
+    "models/evidence.json": {
+      "sha256": "cf342d97179ebcbd87f723d602b2e78c5fd2d1e01c8ac8c877bb3dbeb2247192",
+      "bytes": 5102
+    },
+    "models/graph-deltas.json": {
+      "sha256": "2da624c5c9adea1d2ce47cdac5ee710d471323c30dcdf92fc1af55a8eafb979e",
+      "bytes": 429
+    },
+    "models/interventions.json": {
+      "sha256": "3af9b3ec6897389d8522e3c35f90cea07eea862c01afa768ce43e46b0421998c",
+      "bytes": 206
+    },
+    "models/prompts.json": {
+      "sha256": "d8850d3101a1e9899dcc6a72a0c2ba6d989219a78797c9453f021c6f113c5cf7",
+      "bytes": 1298
+    },
+    "models/rules.json": {
+      "sha256": "6a3328063b3a996da7d74038ad551bbbeab09ea50ff7324366364b7d3d6d5b6b",
+      "bytes": 215
+    },
+    "models/schema.json": {
+      "sha256": "82194436c772f2cb13cc3618e1dae668f9502cf16afc95805ff62b3b2b193b16",
+      "bytes": 1025
+    },
+    "models/spatial.json": {
+      "sha256": "2f13e6f5ba11d551eb7c565c70ff6dc8fffa2e41b71513edd5c66c4e68c3ea9c",
+      "bytes": 653
+    },
+    "models/traceability.json": {
+      "sha256": "d603633d3ba5a1db9dc0597c375fcb4a04ddfb667c220bbaf12f785333dffbcf",
+      "bytes": 1373
+    },
+    "models/workflows.json": {
+      "sha256": "595fbb1289060272992addf342cc69872f8ccf3898c36542f5aaad7849c422d9",
+      "bytes": 402
+    },
+    "source/engine.js": {
+      "sha256": "34ba942a42d677a23a56375f801f40e8b2b5ce9e552f98648c86576a0c1baf9e",
+      "bytes": 6586
+    },
+    "source/labels.js": {
+      "sha256": "1e60294a272ce85c5b444558d10a20f107cd8539e6b56d5baedbf0e303deeb68",
+      "bytes": 3898
+    },
+    "source/style.css": {
+      "sha256": "bebef85aee7d85a893e975a120109a3189939d8e432507a113f9a0d210016f50",
+      "bytes": 13797
+    },
+    "source/template.html": {
+      "sha256": "41ca9a46f215f64982aa9bf50a27703620805a50a3c91ad5d133fb28db6379c6",
+      "bytes": 8324
+    },
+    "source/viewer.js": {
+      "sha256": "ea8d476aaaf7f9794d71ed17d2a135e09ed29f491d3d71cc6f5240e539c39ec7",
+      "bytes": 46067
+    },
+    "tests/browser_output.txt": {
+      "sha256": "a5c9b0acf14de3649f2e14b71e85463b04c029a80a624a215a26d9d871c774ed",
+      "bytes": 1047
+    },
+    "tests/browser_results.json": {
+      "sha256": "e326199e3d368a6e6fc7e34b30a6e1ea64c5e4df2f0b17ac9b3df0759d24b82c",
+      "bytes": 1046
+    },
+    "tests/browser_screenshot.png": {
+      "sha256": "be42ab4972412b753d17199d0e1ea061f3ae62c51b9bf5305ef78841247f81c0",
+      "bytes": 319280
+    },
+    "tests/browser_test.py": {
+      "sha256": "51bc050ec3f2c3cb6726d30be548200cf6cdf2f8d1d293189ea10faf18b8311e",
+      "bytes": 3907
+    },
+    "tests/engine.test.cjs": {
+      "sha256": "d819c1827c6e835c81c8b48deedb19454582ac32d55f6238bc4c12483bd10ffa",
+      "bytes": 2758
+    },
+    "tests/label_browser_output.txt": {
+      "sha256": "0ea23584d08d63434a3d8de75ce56feba39ff0466605908f670fba52b38a2f63",
+      "bytes": 1494
+    },
+    "tests/label_browser_test.py": {
+      "sha256": "3b02eac66308d784bb2e41b4cd6fcf11ca37bcef56bbf519bf7b99e69500533b",
+      "bytes": 4753
+    },
+    "tests/label_causal.png": {
+      "sha256": "e7bf593e4679e06f17d8333b34435ff3cdb29368328c7581459f90557387c2fb",
+      "bytes": 362325
+    },
+    "tests/label_desktop.png": {
+      "sha256": "10f9c7db5398b2c2cac88d19c1c915536fdeaf8cff552fac730bcf711507478d",
+      "bytes": 308112
+    },
+    "tests/label_mobile.png": {
+      "sha256": "217e89c443206c3dd0784099682fde416a054dc926d8d6184bc9cd8500a17841",
+      "bytes": 95208
+    },
+    "tests/label_results.json": {
+      "sha256": "d2ff2c7149daa50d7b6b6dd9b8145db7133e0ba46779fc5cb8359576e4fa5d67",
+      "bytes": 1493
+    },
+    "tests/labels.test.cjs": {
+      "sha256": "de04217defe3cd84a1c1d380d0e37b1359a140409f5dd072484000084d110e69",
+      "bytes": 2301
+    },
+    "tests/mobile_screenshot.png": {
+      "sha256": "8c8b421561308d2f98ee896de924eac5ee486b7a3561d0e559304838b8949521",
+      "bytes": 89312
+    },
+    "tests/release_checks.py": {
+      "sha256": "ff008cf4d37e41d1e75dd0ed357041de62b55009b543d7ad175def034903b763",
+      "bytes": 1754
+    },
+    "tests/release_output.txt": {
+      "sha256": "d2114c7898a3f8bd840031b8087410bdd81d0ff79dcf5ba067e41aafa5f29aaa",
+      "bytes": 246
+    },
+    "tests/release_results.json": {
+      "sha256": "68d25c6586b85abf2b98545343697d5ffded91840fe778ce700dc244dc29e0df",
+      "bytes": 245
+    },
+    "tests/unit_output.txt": {
+      "sha256": "90c1e0ae0aeacce1d239c20e987afbad8a1d92dab71a7c67af795fc72894ca74",
+      "bytes": 2969
+    }
+  }
+}

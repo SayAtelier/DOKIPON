@@ -1,0 +1,119 @@
+[
+  {
+    "id": "ev.web",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "apps/shop_web/lib/main.dart",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/apps/shop_web/lib/main.dart"
+  },
+  {
+    "id": "ev.app",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "apps/shop_app/lib/main.dart",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/apps/shop_app/lib/main.dart"
+  },
+  {
+    "id": "ev.line",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "apps/line_web/lib/main.dart",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/apps/line_web/lib/main.dart"
+  },
+  {
+    "id": "ev.bff",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "services/crates/commerce-bff/src/main.rs",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/services/crates/commerce-bff/src/main.rs"
+  },
+  {
+    "id": "ev.identity",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "services/crates/commerce-identity/src/main.rs",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/services/crates/commerce-identity/src/main.rs"
+  },
+  {
+    "id": "ev.catalog",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "services/crates/commerce-catalog/src/main.rs",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/services/crates/commerce-catalog/src/main.rs"
+  },
+  {
+    "id": "ev.cart",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "services/crates/commerce-cart/src/main.rs",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/services/crates/commerce-cart/src/main.rs"
+  },
+  {
+    "id": "ev.inventory",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "services/crates/commerce-inventory/src/main.rs",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/services/crates/commerce-inventory/src/main.rs"
+  },
+  {
+    "id": "ev.order",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "services/crates/commerce-order/src/main.rs",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/services/crates/commerce-order/src/main.rs"
+  },
+  {
+    "id": "ev.payment",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "services/crates/commerce-payment-adapter/src/main.rs",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/services/crates/commerce-payment-adapter/src/main.rs"
+  },
+  {
+    "id": "ev.core",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "services/crates/commerce-core/Cargo.toml",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/services/crates/commerce-core/Cargo.toml"
+  },
+  {
+    "id": "ev.api",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "contracts/openapi.yaml",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/contracts/openapi.yaml"
+  },
+  {
+    "id": "ev.contract",
+    "sourceKind": "GitHubSource",
+    "repository": "SayAtelier/DOKIPON",
+    "commitSha": "1756173c04ddb11306a357927d05b1cc4ceac872",
+    "filePath": "contracts/openapi.yaml",
+    "verification": "Implemented",
+    "url": "https://github.com/SayAtelier/DOKIPON/blob/1756173c04ddb11306a357927d05b1cc4ceac872/contracts/openapi.yaml"
+  }
+]

@@ -1,0 +1,57 @@
+[package]
+name = "commerce-mocks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Deterministic mocks for the unmocked test-design cases: PSP, event broker, Postgres-shaped API, LINE identity, LINE WebView device farm"
+
+# IMPORTANT: this crate is a TEST FIXTURE, not a product dependency.
+# Nothing in services/ may depend on it. It exists so the `[Designed]` cases in
+# docs/ecommerce/05-test/テスト設計書.md §3 can be executed.
+
+[[bin]]
+name = "mock-psp"
+path = "src/bin/psp.rs"
+
+[[bin]]
+name = "mock-broker"
+path = "src/bin/broker.rs"
+
+[[bin]]
+name = "mock-postgres"
+path = "src/bin/postgres.rs"
+
+[[bin]]
+name = "mock-line-identity"
+path = "src/bin/line_identity.rs"
+
+[[bin]]
+name = "mock-liff-webview"
+path = "src/bin/liff_webview.rs"
+
+[[bin]]
+name = "mock-ledger"
+path = "src/bin/ledger.rs"
+
+[lib]
+name = "commerce_mocks"
+path = "src/lib.rs"
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+sha2 = "0.10"
+rand = "0.8"
+base64 = "0.22"
+commerce-core = { path = "../commerce-core" }
+
+[dev-dependencies]
+http-body-util = { workspace = true }

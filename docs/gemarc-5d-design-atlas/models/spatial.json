@@ -1,0 +1,41 @@
+{
+  "coordinateSystem": "Left-Handed semantic axes; implemented using camera vectors in raw WebGL",
+  "meaning": {
+    "+X": "right",
+    "+Y": "up",
+    "+Z": "forward"
+  },
+  "buildings": [
+    "Client",
+    "API",
+    "Domain",
+    "Platform"
+  ],
+  "floors": [
+    "Presentation",
+    "Application",
+    "Domain",
+    "Infrastructure"
+  ],
+  "rooms": [
+    "Cart",
+    "Catalog",
+    "Contract",
+    "Gateway",
+    "Identity",
+    "Inventory",
+    "LINE",
+    "Mobile",
+    "Order",
+    "Payment",
+    "Shared",
+    "Web"
+  ],
+  "architectureViews": [
+    "Logical",
+    "Deployment",
+    "Data",
+    "Security"
+  ],
+  "semanticNotPhysical": true
+}

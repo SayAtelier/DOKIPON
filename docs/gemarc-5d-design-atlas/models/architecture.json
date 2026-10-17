@@ -1,0 +1,694 @@
+{
+  "project": "DOKIPON Commerce",
+  "revision": "1756173c04ddb11306a357927d05b1cc4ceac872",
+  "nodes": [
+    {
+      "id": "n.web",
+      "kind": "Component",
+      "name": "Flutter Web",
+      "sourceName": "shop_web",
+      "building": "Client",
+      "floor": "Presentation",
+      "room": "Web",
+      "role": "Interface",
+      "verification": "Implemented",
+      "description": "Web 客户端入口",
+      "evidenceIds": [
+        "ev.web"
+      ],
+      "sourcePath": "apps/shop_web/lib/main.dart",
+      "ports": [
+        {
+          "id": "p.web.in",
+          "type": "CommerceMessage",
+          "direction": "in"
+        },
+        {
+          "id": "p.web.out",
+          "type": "CommerceMessage",
+          "direction": "out"
+        }
+      ]
+    },
+    {
+      "id": "n.app",
+      "kind": "Component",
+      "name": "Flutter App",
+      "sourceName": "shop_app",
+      "building": "Client",
+      "floor": "Presentation",
+      "room": "Mobile",
+      "role": "Interface",
+      "verification": "Implemented",
+      "description": "Android / iOS 项目",
+      "evidenceIds": [
+        "ev.app"
+      ],
+      "sourcePath": "apps/shop_app/lib/main.dart",
+      "ports": [
+        {
+          "id": "p.app.in",
+          "type": "CommerceMessage",
+          "direction": "in"
+        },
+        {
+          "id": "p.app.out",
+          "type": "CommerceMessage",
+          "direction": "out"
+        }
+      ]
+    },
+    {
+      "id": "n.line",
+      "kind": "Component",
+      "name": "LINE Web",
+      "sourceName": "line_web",
+      "building": "Client",
+      "floor": "Presentation",
+      "room": "LINE",
+      "role": "Interface",
+      "verification": "Implemented",
+      "description": "LINE 客户端项目",
+      "evidenceIds": [
+        "ev.line"
+      ],
+      "sourcePath": "apps/line_web/lib/main.dart",
+      "ports": [
+        {
+          "id": "p.line.in",
+          "type": "CommerceMessage",
+          "direction": "in"
+        },
+        {
+          "id": "p.line.out",
+          "type": "CommerceMessage",
+          "direction": "out"
+        }
+      ]
+    },
+    {
+      "id": "n.bff",
+      "kind": "Component",
+      "name": "Commerce BFF",
+      "sourceName": "commerce-bff",
+      "building": "API",
+      "floor": "Application",
+      "room": "Gateway",
+      "role": "Processor",
+      "verification": "Implemented",
+      "description": "外部请求接入",
+      "evidenceIds": [
+        "ev.bff"
+      ],
+      "sourcePath": "services/crates/commerce-bff/src/main.rs",
+      "ports": [
+        {
+          "id": "p.bff.in",
+          "type": "CommerceMessage",
+          "direction": "in"
+        },
+        {
+          "id": "p.bff.out",
+          "type": "CommerceMessage",
+          "direction": "out"
+        }
+      ]
+    },
+    {
+      "id": "n.identity",
+      "kind": "Component",
+      "name": "Identity",
+      "sourceName": "commerce-identity",
+      "building": "Domain",
+      "floor": "Domain",
+      "room": "Identity",
+      "role": "Security",
+      "verification": "Implemented",
+      "description": "身份服务",
+      "evidenceIds": [
+        "ev.identity"
+      ],
+      "sourcePath": "services/crates/commerce-identity/src/main.rs",
+      "ports": [
+        {
+          "id": "p.identity.in",
+          "type": "CommerceMessage",
+          "direction": "in"
+        },
+        {
+          "id": "p.identity.out",
+          "type": "CommerceMessage",
+          "direction": "out"
+        }
+      ]
+    },
+    {
+      "id": "n.catalog",
+      "kind": "Component",
+      "name": "Catalog",
+      "sourceName": "commerce-catalog",
+      "building": "Domain",
+      "floor": "Domain",
+      "room": "Catalog",
+      "role": "Storage",
+      "verification": "Implemented",
+      "description": "商品服务",
+      "evidenceIds": [
+        "ev.catalog"
+      ],
+      "sourcePath": "services/crates/commerce-catalog/src/main.rs",
+      "ports": [
+        {
+          "id": "p.catalog.in",
+          "type": "CommerceMessage",
+          "direction": "in"
+        },
+        {
+          "id": "p.catalog.out",
+          "type": "CommerceMessage",
+          "direction": "out"
+        }
+      ]
+    },
+    {
+      "id": "n.cart",
+      "kind": "Component",
+      "name": "Cart",
+      "sourceName": "commerce-cart",
+      "building": "Domain",
+      "floor": "Domain",
+      "room": "Cart",
+      "role": "Processor",
+      "verification": "Implemented",
+      "description": "购物车服务",
+      "evidenceIds": [
+        "ev.cart"
+      ],
+      "sourcePath": "services/crates/commerce-cart/src/main.rs",
+      "ports": [
+        {
+          "id": "p.cart.in",
+          "type": "CommerceMessage",
+          "direction": "in"
+        },
+        {
+          "id": "p.cart.out",
+          "type": "CommerceMessage",
+          "direction": "out"
+        }
+      ]
+    },
+    {
+      "id": "n.inventory",
+      "kind": "Component",
+      "name": "Inventory",
+      "sourceName": "commerce-inventory",
+      "building": "Domain",
+      "floor": "Domain",
+      "room": "Inventory",
+      "role": "Storage",
+      "verification": "Implemented",
+      "description": "库存服务",
+      "evidenceIds": [
+        "ev.inventory"
+      ],
+      "sourcePath": "services/crates/commerce-inventory/src/main.rs",
+      "ports": [
+        {
+          "id": "p.inventory.in",
+          "type": "CommerceMessage",
+          "direction": "in"
+        },
+        {
+          "id": "p.inventory.out",
+          "type": "CommerceMessage",
+          "direction": "out"
+        }
+      ]
+    },
+    {
+      "id": "n.order",
+      "kind": "Component",
+      "name": "Order",
+      "sourceName": "commerce-order",
+      "building": "Domain",
+      "floor": "Domain",
+      "room": "Order",
+      "role": "Processor",
+      "verification": "Implemented",
+      "description": "订单服务",
+      "evidenceIds": [
+        "ev.order"
+      ],
+      "sourcePath": "services/crates/commerce-order/src/main.rs",
+      "ports": [
+        {
+          "id": "p.order.in",
+          "type": "CommerceMessage",
+          "direction": "in"
+        },
+        {
+          "id": "p.order.out",
+          "type": "CommerceMessage",
+          "direction": "out"
+        }
+      ]
+    },
+    {
+      "id": "n.payment",
+      "kind": "Component",
+      "name": "Payment Adapter",
+      "sourceName": "commerce-payment-adapter",
+      "building": "Domain",
+      "floor": "Domain",
+      "room": "Payment",
+      "role": "Interface",
+      "verification": "Implemented",
+      "description": "支付适配器项目（非实际支付操作）",
+      "evidenceIds": [
+        "ev.payment"
+      ],
+      "sourcePath": "services/crates/commerce-payment-adapter/src/main.rs",
+      "ports": [
+        {
+          "id": "p.payment.in",
+          "type": "CommerceMessage",
+          "direction": "in"
+        },
+        {
+          "id": "p.payment.out",
+          "type": "CommerceMessage",
+          "direction": "out"
+        }
+      ]
+    },
+    {
+      "id": "n.core",
+      "kind": "Component",
+      "name": "Commerce Core",
+      "sourceName": "commerce-core",
+      "building": "Platform",
+      "floor": "Infrastructure",
+      "room": "Shared",
+      "role": "Composition",
+      "verification": "Implemented",
+      "description": "共享基础库",
+      "evidenceIds": [
+        "ev.core"
+      ],
+      "sourcePath": "services/crates/commerce-core/Cargo.toml",
+      "ports": [
+        {
+          "id": "p.core.in",
+          "type": "CommerceMessage",
+          "direction": "in"
+        },
+        {
+          "id": "p.core.out",
+          "type": "CommerceMessage",
+          "direction": "out"
+        }
+      ]
+    },
+    {
+      "id": "n.api",
+      "kind": "Component",
+      "name": "API Contract",
+      "sourceName": "OpenAPI 3.1",
+      "building": "API",
+      "floor": "Application",
+      "room": "Contract",
+      "role": "Message",
+      "verification": "Implemented",
+      "description": "接口设计与实现声明契约",
+      "evidenceIds": [
+        "ev.api"
+      ],
+      "sourcePath": "contracts/openapi.yaml",
+      "ports": [
+        {
+          "id": "p.api.in",
+          "type": "CommerceMessage",
+          "direction": "in"
+        },
+        {
+          "id": "p.api.out",
+          "type": "CommerceMessage",
+          "direction": "out"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e01",
+      "sourceId": "n.web",
+      "targetId": "n.bff",
+      "type": "HTTP",
+      "directed": true,
+      "label": "request",
+      "sourcePortId": "p.web.out",
+      "targetPortId": "p.bff.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e02",
+      "sourceId": "n.bff",
+      "targetId": "n.catalog",
+      "type": "HTTP",
+      "directed": true,
+      "label": "read product",
+      "sourcePortId": "p.bff.out",
+      "targetPortId": "p.catalog.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e03",
+      "sourceId": "n.catalog",
+      "targetId": "n.bff",
+      "type": "HTTP",
+      "directed": true,
+      "label": "response",
+      "sourcePortId": "p.catalog.out",
+      "targetPortId": "p.bff.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e04",
+      "sourceId": "n.bff",
+      "targetId": "n.cart",
+      "type": "HTTP",
+      "directed": true,
+      "label": "write cart",
+      "sourcePortId": "p.bff.out",
+      "targetPortId": "p.cart.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e05",
+      "sourceId": "n.cart",
+      "targetId": "n.inventory",
+      "type": "Business",
+      "directed": true,
+      "label": "stock reserve",
+      "sourcePortId": "p.cart.out",
+      "targetPortId": "p.inventory.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e06",
+      "sourceId": "n.inventory",
+      "targetId": "n.order",
+      "type": "Business",
+      "directed": true,
+      "label": "stock result",
+      "sourcePortId": "p.inventory.out",
+      "targetPortId": "p.order.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e07",
+      "sourceId": "n.order",
+      "targetId": "n.payment",
+      "type": "Business",
+      "directed": true,
+      "label": "pay request",
+      "sourcePortId": "p.order.out",
+      "targetPortId": "p.payment.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e08",
+      "sourceId": "n.payment",
+      "targetId": "n.order",
+      "type": "Business",
+      "directed": true,
+      "label": "pay outcome",
+      "sourcePortId": "p.payment.out",
+      "targetPortId": "p.order.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e09",
+      "sourceId": "n.order",
+      "targetId": "n.bff",
+      "type": "HTTP",
+      "directed": true,
+      "label": "order result",
+      "sourcePortId": "p.order.out",
+      "targetPortId": "p.bff.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e10",
+      "sourceId": "n.bff",
+      "targetId": "n.web",
+      "type": "HTTP",
+      "directed": true,
+      "label": "client result",
+      "sourcePortId": "p.bff.out",
+      "targetPortId": "p.web.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e11",
+      "sourceId": "n.app",
+      "targetId": "n.bff",
+      "type": "HTTP",
+      "directed": true,
+      "label": "app entry",
+      "sourcePortId": "p.app.out",
+      "targetPortId": "p.bff.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e12",
+      "sourceId": "n.line",
+      "targetId": "n.bff",
+      "type": "HTTP",
+      "directed": true,
+      "label": "line entry",
+      "sourcePortId": "p.line.out",
+      "targetPortId": "p.bff.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e13",
+      "sourceId": "n.bff",
+      "targetId": "n.identity",
+      "type": "HTTP",
+      "directed": true,
+      "label": "identity check",
+      "sourcePortId": "p.bff.out",
+      "targetPortId": "p.identity.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e14",
+      "sourceId": "n.identity",
+      "targetId": "n.bff",
+      "type": "HTTP",
+      "directed": true,
+      "label": "auth result",
+      "sourcePortId": "p.identity.out",
+      "targetPortId": "p.bff.in",
+      "verification": "Designed",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e15",
+      "sourceId": "n.bff",
+      "targetId": "n.api",
+      "type": "Contract",
+      "directed": true,
+      "label": "specifies",
+      "sourcePortId": "p.bff.out",
+      "targetPortId": "p.api.in",
+      "verification": "Inferred",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e16",
+      "sourceId": "n.core",
+      "targetId": "n.order",
+      "type": "Dependency",
+      "directed": true,
+      "label": "shared types",
+      "sourcePortId": "p.core.out",
+      "targetPortId": "p.order.in",
+      "verification": "Inferred",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e17",
+      "sourceId": "n.core",
+      "targetId": "n.catalog",
+      "type": "Dependency",
+      "directed": true,
+      "label": "shared types",
+      "sourcePortId": "p.core.out",
+      "targetPortId": "p.catalog.in",
+      "verification": "Inferred",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e18",
+      "sourceId": "n.core",
+      "targetId": "n.inventory",
+      "type": "Dependency",
+      "directed": true,
+      "label": "shared types",
+      "sourcePortId": "p.core.out",
+      "targetPortId": "p.inventory.in",
+      "verification": "Inferred",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    },
+    {
+      "id": "e19",
+      "sourceId": "n.core",
+      "targetId": "n.payment",
+      "type": "Dependency",
+      "directed": true,
+      "label": "shared types",
+      "sourcePortId": "p.core.out",
+      "targetPortId": "p.payment.in",
+      "verification": "Inferred",
+      "evidenceIds": [
+        "ev.contract"
+      ],
+      "guardId": null
+    }
+  ],
+  "requirements": [
+    {
+      "id": "REQ-001",
+      "name": "商品閲覧",
+      "description": "目录、商品详情以及渠道感知展示",
+      "nodeId": "n.catalog",
+      "verification": "Designed",
+      "acceptance": "接口契约、Case 轨迹、异常行为可以追踪"
+    },
+    {
+      "id": "REQ-002",
+      "name": "カート管理",
+      "description": "加购、数量变更及幂等性",
+      "nodeId": "n.cart",
+      "verification": "Designed",
+      "acceptance": "接口契约、Case 轨迹、异常行为可以追踪"
+    },
+    {
+      "id": "REQ-003",
+      "name": "在庫整合性",
+      "description": "保留库存、并发竞争和冲突处理",
+      "nodeId": "n.inventory",
+      "verification": "Designed",
+      "acceptance": "接口契约、Case 轨迹、异常行为可以追踪"
+    },
+    {
+      "id": "REQ-004",
+      "name": "注文・決済",
+      "description": "支付状态未知不得当成失败或成功",
+      "nodeId": "n.payment",
+      "verification": "Designed",
+      "acceptance": "接口契约、Case 轨迹、异常行为可以追踪"
+    },
+    {
+      "id": "REQ-005",
+      "name": "認証・認可",
+      "description": "身份与权限隔离",
+      "nodeId": "n.identity",
+      "verification": "Designed",
+      "acceptance": "接口契约、Case 轨迹、异常行为可以追踪"
+    },
+    {
+      "id": "REQ-006",
+      "name": "チャネル連携",
+      "description": "Web、移动端与 LINE 接入",
+      "nodeId": "n.line",
+      "verification": "Designed",
+      "acceptance": "接口契约、Case 轨迹、异常行为可以追踪"
+    }
+  ],
+  "workflow": [
+    "e01",
+    "e02",
+    "e03",
+    "e13",
+    "e14",
+    "e04",
+    "e05",
+    "e06",
+    "e07",
+    "e08",
+    "e09",
+    "e10"
+  ],
+  "factWarning": "仓库服务目录存在并不能证明运行时调用链；工作流和服务关系为Designed或Inferred"
+}

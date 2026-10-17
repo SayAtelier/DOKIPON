@@ -1,0 +1,19 @@
+{
+  "templates": [
+    "Validator",
+    "Cache",
+    "Proxy"
+  ],
+  "dsl": {
+    "validator": [
+      "pass",
+      "reject"
+    ],
+    "cache": [
+      "pass"
+    ],
+    "proxy": [
+      "pass"
+    ]
+  }
+}

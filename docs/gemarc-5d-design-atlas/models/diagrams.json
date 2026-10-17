@@ -1,0 +1,26 @@
+{
+  "reviewUnits": [
+    {
+      "id": "D-COMP",
+      "kind": "UML Component",
+      "evidence": "Designed projection"
+    },
+    {
+      "id": "D-SEQ",
+      "kind": "UML Sequence",
+      "evidence": "Designed flow"
+    },
+    {
+      "id": "D-STATE",
+      "kind": "UML State Machine",
+      "evidence": "Designed state model"
+    },
+    {
+      "id": "D-ER",
+      "kind": "ER Design",
+      "evidence": "Designed schema, not observed DB"
+    }
+  ],
+  "nodeBinding": "diagram inspector uses stable node ID",
+  "limitedCoverage": true
+}

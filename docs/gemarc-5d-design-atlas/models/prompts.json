@@ -1,0 +1,62 @@
+[
+  {
+    "id": "P-REQ-001",
+    "requirementId": "REQ-001",
+    "objective": "商品閲覧",
+    "acceptanceCriteria": [
+      "有接口/状态设计",
+      "正常异常Case",
+      "可追溯证据"
+    ]
+  },
+  {
+    "id": "P-REQ-002",
+    "requirementId": "REQ-002",
+    "objective": "カート管理",
+    "acceptanceCriteria": [
+      "有接口/状态设计",
+      "正常异常Case",
+      "可追溯证据"
+    ]
+  },
+  {
+    "id": "P-REQ-003",
+    "requirementId": "REQ-003",
+    "objective": "在庫整合性",
+    "acceptanceCriteria": [
+      "有接口/状态设计",
+      "正常异常Case",
+      "可追溯证据"
+    ]
+  },
+  {
+    "id": "P-REQ-004",
+    "requirementId": "REQ-004",
+    "objective": "注文・決済",
+    "acceptanceCriteria": [
+      "有接口/状态设计",
+      "正常异常Case",
+      "可追溯证据"
+    ]
+  },
+  {
+    "id": "P-REQ-005",
+    "requirementId": "REQ-005",
+    "objective": "認証・認可",
+    "acceptanceCriteria": [
+      "有接口/状态设计",
+      "正常异常Case",
+      "可追溯证据"
+    ]
+  },
+  {
+    "id": "P-REQ-006",
+    "requirementId": "REQ-006",
+    "objective": "チャネル連携",
+    "acceptanceCriteria": [
+      "有接口/状态设计",
+      "正常异常Case",
+      "可追溯证据"
+    ]
+  }
+]

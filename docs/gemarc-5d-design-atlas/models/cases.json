@@ -1,0 +1,42 @@
+[
+  {
+    "id": "CASE-NORMAL",
+    "label": "正常 · 下单完成",
+    "category": "Normal",
+    "fault": null,
+    "retry": 0,
+    "description": "模型假设：库存充足，支付返回确认"
+  },
+  {
+    "id": "CASE-PAY-TIMEOUT",
+    "label": "异常 · 支付超时",
+    "category": "Abnormal",
+    "fault": "payment",
+    "retry": 0,
+    "description": "支付状态未知：停止重提交，转人工/对账"
+  },
+  {
+    "id": "CASE-INVENTORY",
+    "label": "异常 · 库存不足",
+    "category": "Boundary",
+    "fault": "inventory",
+    "retry": 0,
+    "description": "库存检查拒绝，订单不继续"
+  },
+  {
+    "id": "CASE-RETRY",
+    "label": "恢复 · 短暂网络故障",
+    "category": "Recovery",
+    "fault": "payment",
+    "retry": 1,
+    "description": "首次请求超时，模拟一次重试成功；不是生产策略"
+  },
+  {
+    "id": "CASE-AUTH",
+    "label": "异常 · 权限拒绝",
+    "category": "Abnormal",
+    "fault": "identity",
+    "retry": 0,
+    "description": "身份验证拒绝访问"
+  }
+]

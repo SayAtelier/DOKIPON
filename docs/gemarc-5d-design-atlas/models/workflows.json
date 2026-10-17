@@ -1,0 +1,21 @@
+{
+  "id": "flow.checkout.model",
+  "verification": "Designed",
+  "edgeIds": [
+    "e01",
+    "e02",
+    "e03",
+    "e13",
+    "e14",
+    "e04",
+    "e05",
+    "e06",
+    "e07",
+    "e08",
+    "e09",
+    "e10"
+  ],
+  "modelNote": "The edges specify an intended demonstration sequence, not an observed call graph",
+  "logicalTime": "Monotonic integer event clock",
+  "causalRules": "models/rules.json"
+}

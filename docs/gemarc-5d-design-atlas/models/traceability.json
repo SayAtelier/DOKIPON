@@ -1,0 +1,74 @@
+[
+  {
+    "requirementId": "REQ-001",
+    "nodeId": "n.catalog",
+    "promptId": "P-REQ-001",
+    "caseIds": [
+      "CASE-NORMAL",
+      "CASE-PAY-TIMEOUT",
+      "CASE-INVENTORY",
+      "CASE-RETRY",
+      "CASE-AUTH"
+    ]
+  },
+  {
+    "requirementId": "REQ-002",
+    "nodeId": "n.cart",
+    "promptId": "P-REQ-002",
+    "caseIds": [
+      "CASE-NORMAL",
+      "CASE-PAY-TIMEOUT",
+      "CASE-INVENTORY",
+      "CASE-RETRY",
+      "CASE-AUTH"
+    ]
+  },
+  {
+    "requirementId": "REQ-003",
+    "nodeId": "n.inventory",
+    "promptId": "P-REQ-003",
+    "caseIds": [
+      "CASE-NORMAL",
+      "CASE-PAY-TIMEOUT",
+      "CASE-INVENTORY",
+      "CASE-RETRY",
+      "CASE-AUTH"
+    ]
+  },
+  {
+    "requirementId": "REQ-004",
+    "nodeId": "n.payment",
+    "promptId": "P-REQ-004",
+    "caseIds": [
+      "CASE-NORMAL",
+      "CASE-PAY-TIMEOUT",
+      "CASE-INVENTORY",
+      "CASE-RETRY",
+      "CASE-AUTH"
+    ]
+  },
+  {
+    "requirementId": "REQ-005",
+    "nodeId": "n.identity",
+    "promptId": "P-REQ-005",
+    "caseIds": [
+      "CASE-NORMAL",
+      "CASE-PAY-TIMEOUT",
+      "CASE-INVENTORY",
+      "CASE-RETRY",
+      "CASE-AUTH"
+    ]
+  },
+  {
+    "requirementId": "REQ-006",
+    "nodeId": "n.line",
+    "promptId": "P-REQ-006",
+    "caseIds": [
+      "CASE-NORMAL",
+      "CASE-PAY-TIMEOUT",
+      "CASE-INVENTORY",
+      "CASE-RETRY",
+      "CASE-AUTH"
+    ]
+  }
+]

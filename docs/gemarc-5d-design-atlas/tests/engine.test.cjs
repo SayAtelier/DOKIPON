@@ -1,0 +1,13 @@
+const assert=require('node:assert/strict');const test=require('node:test');const fs=require('fs');const path=require('path');const E=require('../source/engine.js');const models=path.join(__dirname,'../models');const m=JSON.parse(fs.readFileSync(path.join(models,'architecture.json'))),cases=JSON.parse(fs.readFileSync(path.join(models,'cases.json')));const def=id=>cases.find(c=>c.id===id);
+test('all graph ids and workflow paths valid',()=>assert.equal(E.validateModel(m),true));
+test('deterministic replay',()=>assert.deepEqual(E.simulate(m,def('CASE-NORMAL')).trace,E.simulate(m,def('CASE-NORMAL')).trace));
+test('normal completes',()=>assert.equal(E.simulate(m,def('CASE-NORMAL')).outcome.status,'COMPLETED'));
+test('payment_unknown is not success or confirmed failure',()=>assert.equal(E.simulate(m,def('CASE-PAY-TIMEOUT')).outcome.status,'UNKNOWN'));
+test('inventory is guarded',()=>assert.equal(E.simulate(m,def('CASE-INVENTORY')).outcome.status,'FAILED'));
+test('controlled retry recovers',()=>assert.equal(E.simulate(m,def('CASE-RETRY')).outcome.status,'COMPLETED'));
+test('unrelated module disable yields no false causation',()=>{const a=E.simulate(m,def('CASE-NORMAL'));const b=E.simulate(m,def('CASE-NORMAL'),{disabledNodes:['n.api']});assert.equal(E.compare(a,b).hasDifference,false)});
+test('disable active module blocks',()=>assert.equal(E.simulate(m,def('CASE-NORMAL'),{disabledNodes:['n.inventory']}).outcome.status,'BLOCKED'));
+test('disable active edge blocks',()=>assert.equal(E.simulate(m,def('CASE-NORMAL'),{disabledEdges:['e04']}).outcome.status,'BLOCKED'));
+test('inserting valid validator rewrites edge, branches, original unchanged',()=>{const before=JSON.stringify(m);const opts={injected:{kind:'Validator',edgeId:'e04',behavior:'reject',portType:'CommerceMessage',stateMachine:'finite'}};const a=E.simulate(m,def('CASE-NORMAL')),b=E.simulate(m,def('CASE-NORMAL'),opts);assert.equal(b.outcome.status,'REJECTED');assert.ok(E.compare(a,b).firstDivergence);assert.deepEqual(b.delta.rewrittenEdges,[{old:'e04',replacement:['e04.A','e04.B']}]);assert.ok(!b.model.edges.find(e=>e.id==='e04'));assert.equal(JSON.stringify(m),before)});
+test('safe input constraints on injected element',()=>{for(const key of ['portType','stateMachine','edgeId']){const inj={kind:'Validator',edgeId:'e04',behavior:'reject',portType:'CommerceMessage',stateMachine:'finite'};inj[key]='unsafe';assert.throws(()=>E.applyScenario(m,{injected:inj}))}});
+test('same combined intervention produces same event trace',()=>{const opt={disabledNodes:['n.api'],injected:{kind:'Cache',edgeId:'e04',behavior:'pass',portType:'CommerceMessage',stateMachine:'finite'}};assert.deepEqual(E.simulate(m,def('CASE-RETRY'),opt).trace,E.simulate(m,def('CASE-RETRY'),opt).trace)});

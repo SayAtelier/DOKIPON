@@ -1,0 +1,23 @@
+{
+  "title": "GemArc 5D Atlas · DOKIPON Commerce",
+  "gpuStatus": "DEGRADED · CPU 投影",
+  "initialNode": "Commerce BFF",
+  "jsErrorsAfterLoad": [],
+  "promptBefore": "# GemArc 1D · 可执行工程任务\n\n任务：以日本 IPA 风格完成 注文・決済 的可实现级工程设计、审查与测试。\n需求 ID：RE",
+  "promptChanges": true,
+  "graphNodes": 12,
+  "graphEdges": 19,
+  "selected2D": "Catalog",
+  "webglContext": false,
+  "pixelsNotBlank": false,
+  "timelineEvents": 14,
+  "seekLabel": "evt.009 / t=16",
+  "caseSelection": 11,
+  "baselineStatus": "A · UNKNOWN\n19 逻辑单位 · 11 事件\n→\nB · UNKNOWN\n19 逻辑单位 · 11 事件\n无观察差异",
+  "causalOutput": "A · COMPLETED\n25 逻辑单位 · 14 事件\n→\nB · REJECTED\n13 逻辑单位 · 9 事件\n存在模型分歧",
+  "causalTraceCount": 9,
+  "causalDelta": true,
+  "resetCausal": "A · COMPLETED\n25 逻辑单位 · 14 事件\n→\nB · COMPLETED\n25 逻辑单位 · 14 事件\n无观察差异",
+  "modalVisible": true,
+  "allErrors": []
+}

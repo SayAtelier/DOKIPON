@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GemArc Canonical Architecture Model (subset)",
+  "type": "object",
+  "required": [
+    "project",
+    "revision",
+    "nodes",
+    "edges",
+    "requirements",
+    "workflow"
+  ],
+  "properties": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "building",
+          "floor",
+          "room",
+          "ports",
+          "verification"
+        ]
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "sourceId",
+          "targetId",
+          "type",
+          "sourcePortId",
+          "targetPortId",
+          "verification"
+        ]
+      }
+    },
+    "workflow": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

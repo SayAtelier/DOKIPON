@@ -1,0 +1,68 @@
+{
+  "initial_labels_total": 29,
+  "initial_nodes": 12,
+  "initial_edges": 13,
+  "visible_names": [
+    "Commerce BFF · n.bff",
+    "API Contract · n.api",
+    "Flutter App · n.app",
+    "Cart · n.cart",
+    "Catalog · n.catalog",
+    "Identity · n.identity",
+    "LINE Web · n.line",
+    "Order · n.order",
+    "Flutter Web · n.web",
+    "request · e01",
+    "read product · e02",
+    "response · e03",
+    "write cart · e04",
+    "order result · e09",
+    "client result · e10",
+    "app entry · e11",
+    "line entry · e12",
+    "identity check · e13",
+    "API · 楼宇",
+    "Client · 楼宇",
+    "Domain · 楼宇",
+    "Platform · 楼宇",
+    "Commerce Core · n.core",
+    "Inventory · n.inventory",
+    "Payment Adapter · n.payment",
+    "shared types · e16",
+    "shared types · e17",
+    "shared types · e18",
+    "shared types · e19"
+  ],
+  "labels_move_with_orbit": true,
+  "labels_upright": true,
+  "multi_angle_checks": [
+    {
+      "rendered": 26,
+      "readable": true
+    },
+    {
+      "rendered": 26,
+      "readable": true
+    },
+    {
+      "rendered": 26,
+      "readable": true
+    },
+    {
+      "rendered": 21,
+      "readable": true
+    }
+  ],
+  "all_nodes": 12,
+  "all_edges": 19,
+  "3d_select_by_label": true,
+  "2d_nodes": 12,
+  "2d_edges": 19,
+  "2d_edge_names": 19,
+  "select_by_label": true,
+  "injected_node_named": 1,
+  "injected_edges_named": 2,
+  "mobile_labels": 17,
+  "mobile_horizontal_overflow": false,
+  "js_errors": []
+}

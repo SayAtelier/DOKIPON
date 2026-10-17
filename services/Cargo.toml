@@ -9,6 +9,8 @@ members = [
     "crates/commerce-inventory",
     "crates/commerce-order",
     "crates/commerce-payment-adapter",
+    # TEST FIXTURES ONLY — no product service may depend on this crate.
+    "crates/commerce-mocks",
 ]
 
 [workspace.package]

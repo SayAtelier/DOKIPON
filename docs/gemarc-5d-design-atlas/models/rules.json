@@ -1,0 +1,11 @@
+{
+  "rules": [
+    "Typed routes",
+    "Simulated inventory guard",
+    "Simulated payment timeout",
+    "Retry-once guard",
+    "Rejecting validator"
+  ],
+  "allModelDefined": true,
+  "productionExecution": false
+}
