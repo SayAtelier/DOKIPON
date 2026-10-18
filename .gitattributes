@@ -1,2 +1,36 @@
+# Line endings.
+#
+# `*.rs` matters because rustc rejects a bare CR inside a doc-comment
+# ("error: bare CR not allowed in doc-comment"). 18 tracked Rust files were
+# committed with CRLF, so checking out this repo on Linux — which CI does, and
+# so does any builder — fails to compile economy-service, admin-service and
+# others. Normalising .rs (and the other text types the toolchain parses) to LF
+# makes the checkout reproducible regardless of the contributor's platform.
+#
+# Normalising with `git add --renormalize .` re-stages the existing blobs; a
+# checkout on its own does not rewrite history.
+*.rs   text eol=lf
+*.toml text eol=lf
+*.sql  text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+
 # Shell checks run on Linux in CI; retain LF locally as well.
-*.sh text eol=lf
+*.sh   text eol=lf
+
+# Never rewrite these: they are binary, and a blanket text rule would corrupt
+# them or make git diff them as text.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.tgz   binary
+*.wasm  binary
+*.so    binary
+*.dll   binary
+*.exe   binary
