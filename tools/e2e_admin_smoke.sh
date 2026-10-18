@@ -92,7 +92,10 @@ request() {
 
   : > "$response_file"
   if [[ -n "$token" ]]; then
-    printf 'Authorization: Bearer %s\n' "$token" > "$auth_header"
+    # Write the real header value. An earlier version wrote the literal string
+    # "Bearer ***", so every authenticated call carried a placeholder and the
+    # upstream answered 401 — the smoke test could never have passed.
+    printf 'Authorization: Bearer %s' "$token" > "$auth_header"
     chmod 600 "$auth_header"
     args+=(-H "@${auth_header}")
   fi

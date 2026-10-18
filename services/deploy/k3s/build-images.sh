@@ -75,26 +75,27 @@ WORKDIR /
 ENTRYPOINT ["/bin/${svc}"]
 EOF
 
-  # Build with nerdctl (BuildKit). k3s ships nerdctl's sibling containerd but not
-  # the nerdctl client, so use `docker`-less build via `k3s ctr` + buildkit? No —
-  # simplest reliable path on this VM: buildkitd is not installed, so assemble the
-  # OCI image with `k3s ctr images import` from a hand-built rootfs is fragile.
-  # Instead we rely on nerdctl if present, else docker if present.
+  # Image builder selection.
+  #
+  # nerdctl 2.x is NOT usable here: even with buildkitd running as root on
+  # /run/buildkit/buildkitd.sock, `nerdctl --address <sock>` still resolves its
+  # containerd endpoint from the rootless path and dies with
+  #   rootless containerd not running?
+  #     stat /run/user/1000/containerd-rootless: no such file or directory
+  # so docker (apt package `docker.io`, which talks to its own daemon) is tried
+  # first and nerdctl is only a fallback for a host that genuinely has a working
+  # rootless containerd.
   IMAGE="dokipon/${svc}:0.1.0"
-  if command -v nerdctl >/dev/null 2>&1; then
-    nerdctl build -t "$IMAGE" "$WORK"
-  elif command -v docker >/dev/null 2>&1; then
+  if command -v docker >/dev/null 2>&1; then
     docker build -t "$IMAGE" "$WORK"
-  else
-    echo "  x neither nerdctl nor docker available to build ${IMAGE}" >&2
-    exit 1
-  fi
-
-  if command -v docker >/dev/null 2>&1 && ! command -v nerdctl >/dev/null 2>&1; then
     docker save "$IMAGE" | sudo /usr/local/bin/k3s ctr -n k8s.io images import -
+  elif command -v nerdctl >/dev/null 2>&1; then
+    nerdctl build -t "$IMAGE" "$WORK"
+    nerdctl save "$IMAGE" | sudo /usr/local/bin/k3s ctr -n k8s.io images import -
   else
-    nerdctl save "$IMAGE" | sudo /usr/local/bin/k3s ctr -n k8s.io images import - || \
-      nerdctl -n k8s.io images import <(true) 2>/dev/null || true
+    echo "  x no usable image builder on this VM (need docker, or nerdctl with a" >&2
+    echo "    running rootless containerd)" >&2
+    exit 1
   fi
 
   echo "  ok ${IMAGE}"

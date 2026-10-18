@@ -303,6 +303,14 @@ struct AdminState {
     auth: AuthStore,
     client: Client,
     upstreams: Upstreams,
+    /// Session id presented to the order service on the admin's behalf.
+    ///
+    /// The order service scopes `/v1/orders` and `/v1/orders/{id}` by
+    /// `x-session-id` and answers `identity.missing_session` without it, so the
+    /// admin facade must supply one. It is configurable because the order
+    /// service treats an unknown session as an empty buyer, and a deployment
+    /// that has seeded an all-orders session needs its own id here.
+    admin_session_id: String,
 }
 
 #[derive(Clone)]
@@ -375,6 +383,7 @@ impl AdminState {
             auth: AuthStore::new(credentials),
             client,
             upstreams: Upstreams::from_env(),
+            admin_session_id: env_or("ADMIN_SESSION_ID", "admin-console"),
         })
     }
 }
@@ -465,6 +474,11 @@ struct ReservationRequest {
 fn router(state: AdminState) -> Router {
     let auth = state.auth.clone();
     Router::new()
+        // Unauthenticated liveness probe. Kept outside the /admin/v1 group so a
+        // kubelet httpGet probe never has to present a bearer token, and kept
+        // free of any upstream call so it reports process health rather than
+        // dependency health — a failing dependency must not restart the pod.
+        .route("/healthz", get(healthz))
         .route("/admin/v1/sessions", post(create_session))
         .route(
             "/admin/v1/session",
@@ -569,6 +583,12 @@ fn router(state: AdminState) -> Router {
         .with_state(state)
         .layer(TraceLayer::new_for_http())
         .layer(middleware::from_fn(correlation))
+}
+
+/// Liveness only. Deliberately does not touch any upstream service so a
+/// dependency outage shows up as failing admin requests, not as a restart loop.
+async fn healthz() -> StatusCode {
+    StatusCode::OK
 }
 
 async fn create_session(
@@ -850,7 +870,12 @@ async fn request_upstream(
     let request = state
         .client
         .request(method, url)
-        .header("x-correlation-id", correlation.0.as_str());
+        .header("x-correlation-id", correlation.0.as_str())
+        // The order service scopes reads by buyer and rejects a request with no
+        // session (`identity.missing_session`, 401). The admin facade acts on
+        // behalf of the configured admin session rather than a customer, so it
+        // must present one or every order read fails.
+        .header("x-session-id", state.admin_session_id.as_str());
     let request = match body {
         Some(body) => request.json(&body),
         None => request,
@@ -1115,6 +1140,7 @@ mod tests {
                 .build()
                 .unwrap(),
             upstreams: Upstreams::all_to(base_url),
+            admin_session_id: "admin-console".to_string(),
         }
     }
 
