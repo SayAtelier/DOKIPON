@@ -1,0 +1,128 @@
+# 可复用的镜像 digest 晋级任务
+apiVersion: kargo.akuity.io/v1alpha1
+kind: PromotionTask
+metadata:
+  name: rgs-promote-images
+  namespace: rust-game-server
+spec:
+  vars:
+  - name: gitopsRepo
+    value: https://github.com/SayAtelier/DOKIPON.git
+  - name: imageRepo
+    value: ghcr.io/UlyssesLeoLee/rustgameserver
+  steps:
+  - uses: git-clone
+    config:
+      repoURL: ${{ vars.gitopsRepo }}
+      checkout:
+      - branch: main
+        path: ./src
+      - branch: stage/${{ ctx.stage }}
+        create: true
+        path: ./out
+  - uses: git-clear
+    config:
+      path: ./out
+  - uses: copy
+    config:
+      inPath: ./src/docs/deploy/01-k8s-manifests
+      outPath: ./out/docs/deploy/01-k8s-manifests
+  - uses: copy
+    config:
+      inPath: ./src/docs/deploy/04-gitops
+      outPath: ./out/docs/deploy/04-gitops
+  - uses: yaml-update
+    as: update-player
+    config:
+      path: ./out/docs/deploy/04-gitops/overlays/${{ ctx.stage }}/image-tags.yaml
+      updates:
+      - key: data.playerImage
+        value: ${{ vars.imageRepo }}@${{ imageFrom(vars.imageRepo, warehouse("warehouse-player")).Digest }}
+  - uses: yaml-update
+    as: update-economy
+    config:
+      path: ./out/docs/deploy/04-gitops/overlays/${{ ctx.stage }}/image-tags.yaml
+      updates:
+      - key: data.economyImage
+        value: ${{ vars.imageRepo }}@${{ imageFrom(vars.imageRepo, warehouse("warehouse-economy")).Digest }}
+  - uses: yaml-update
+    as: update-match
+    config:
+      path: ./out/docs/deploy/04-gitops/overlays/${{ ctx.stage }}/image-tags.yaml
+      updates:
+      - key: data.matchImage
+        value: ${{ vars.imageRepo }}@${{ imageFrom(vars.imageRepo, warehouse("warehouse-match")).Digest }}
+  - uses: yaml-update
+    as: update-social
+    config:
+      path: ./out/docs/deploy/04-gitops/overlays/${{ ctx.stage }}/image-tags.yaml
+      updates:
+      - key: data.socialImage
+        value: ${{ vars.imageRepo }}@${{ imageFrom(vars.imageRepo, warehouse("warehouse-social")).Digest }}
+  - uses: yaml-update
+    as: update-admin
+    config:
+      path: ./out/docs/deploy/04-gitops/overlays/${{ ctx.stage }}/image-tags.yaml
+      updates:
+      - key: data.adminImage
+        value: ${{ vars.imageRepo }}@${{ imageFrom(vars.imageRepo, warehouse("warehouse-admin")).Digest }}
+  - uses: yaml-update
+    as: update-clusterOps
+    config:
+      path: ./out/docs/deploy/04-gitops/overlays/${{ ctx.stage }}/image-tags.yaml
+      updates:
+      - key: data.clusterOpsImage
+        value: ${{ vars.imageRepo }}@${{ imageFrom(vars.imageRepo, warehouse("warehouse-clusterOps")).Digest }}
+  - uses: yaml-update
+    as: update-gmBackend
+    config:
+      path: ./out/docs/deploy/04-gitops/overlays/${{ ctx.stage }}/image-tags.yaml
+      updates:
+      - key: data.gmBackendImage
+        value: ${{ vars.imageRepo }}@${{ imageFrom(vars.imageRepo, warehouse("warehouse-gmBackend")).Digest }}
+  - uses: yaml-update
+    as: update-scene
+    config:
+      path: ./out/docs/deploy/04-gitops/overlays/${{ ctx.stage }}/image-tags.yaml
+      updates:
+      - key: data.sceneImage
+        value: ${{ vars.imageRepo }}@${{ imageFrom(vars.imageRepo, warehouse("warehouse-scene")).Digest }}
+  - uses: yaml-update
+    as: update-battle
+    config:
+      path: ./out/docs/deploy/04-gitops/overlays/${{ ctx.stage }}/image-tags.yaml
+      updates:
+      - key: data.battleImage
+        value: ${{ vars.imageRepo }}@${{ imageFrom(vars.imageRepo, warehouse("warehouse-battle")).Digest }}
+  - uses: yaml-update
+    as: update-networkGateway
+    config:
+      path: ./out/docs/deploy/04-gitops/overlays/${{ ctx.stage }}/image-tags.yaml
+      updates:
+      - key: data.networkGatewayImage
+        value: ${{ vars.imageRepo }}@${{ imageFrom(vars.imageRepo, warehouse("warehouse-networkGateway")).Digest }}
+  - uses: yaml-update
+    as: activate-stage
+    config:
+      path: ./out/docs/deploy/04-gitops/overlays/active/kustomization.yaml
+      updates:
+      - key: resources.0
+        value: ../${{ ctx.stage }}
+  - uses: git-commit
+    as: commit
+    config:
+      path: ./out
+      message: Promote RGS Freight to ${{ ctx.stage }} with immutable image digests
+  - uses: git-push
+    as: push
+    config:
+      path: ./out
+  - uses: argocd-update
+    config:
+      apps:
+      - name: rgs
+        namespace: argocd
+        sources:
+        - repoURL: https://github.com/SayAtelier/DOKIPON.git
+          desiredRevision: ${{ outputs.push.commit }}
+          updateTargetRevision: true

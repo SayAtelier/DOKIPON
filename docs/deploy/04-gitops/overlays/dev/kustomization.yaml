@@ -1,0 +1,267 @@
+# dev 环境 overlay：副本数 1，不安全 gRPC 值 1
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rust-game-server
+resources:
+- ../../../01-k8s-manifests
+- ../../rollouts
+- image-tags.yaml
+configMapGenerator:
+- name: prometheus-config
+  behavior: merge
+  files:
+  - prometheus.yml=../common/prometheus.yml
+generatorOptions:
+  disableNameSuffixHash: true
+replacements:
+- source:
+    kind: ConfigMap
+    name: rgs-image-tags
+    fieldPath: data.playerImage
+  targets:
+  - select:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: player-service
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+- source:
+    kind: ConfigMap
+    name: rgs-image-tags
+    fieldPath: data.economyImage
+  targets:
+  - select:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: economy-service
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+- source:
+    kind: ConfigMap
+    name: rgs-image-tags
+    fieldPath: data.matchImage
+  targets:
+  - select:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: match-service
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+- source:
+    kind: ConfigMap
+    name: rgs-image-tags
+    fieldPath: data.socialImage
+  targets:
+  - select:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: social-service
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+- source:
+    kind: ConfigMap
+    name: rgs-image-tags
+    fieldPath: data.adminImage
+  targets:
+  - select:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: admin-service
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+- source:
+    kind: ConfigMap
+    name: rgs-image-tags
+    fieldPath: data.clusterOpsImage
+  targets:
+  - select:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: cluster-ops
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+- source:
+    kind: ConfigMap
+    name: rgs-image-tags
+    fieldPath: data.gmBackendImage
+  targets:
+  - select:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: gm-backend
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+- source:
+    kind: ConfigMap
+    name: rgs-image-tags
+    fieldPath: data.sceneImage
+  targets:
+  - select:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: scene-service
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+- source:
+    kind: ConfigMap
+    name: rgs-image-tags
+    fieldPath: data.battleImage
+  targets:
+  - select:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: battle-service
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+- source:
+    kind: ConfigMap
+    name: rgs-image-tags
+    fieldPath: data.networkGatewayImage
+  targets:
+  - select:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: network-gateway
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+patches:
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: player-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 0\n"
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+    name: player-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 1\n- op: add\n  path: /spec/template/spec/containers/0/imagePullPolicy\n\
+    \  value: Always\n- op: replace\n  path: /spec/template/spec/containers/0/env/8/value\n  value: '1'"
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: economy-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 0\n"
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+    name: economy-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 1\n- op: add\n  path: /spec/template/spec/containers/0/imagePullPolicy\n\
+    \  value: Always\n- op: replace\n  path: /spec/template/spec/containers/0/env/11/value\n  value: '1'"
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: match-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 0\n"
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+    name: match-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 1\n- op: add\n  path: /spec/template/spec/containers/0/imagePullPolicy\n\
+    \  value: Always\n- op: replace\n  path: /spec/template/spec/containers/0/env/10/value\n  value: '1'"
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: social-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 0\n"
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+    name: social-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 1\n- op: add\n  path: /spec/template/spec/containers/0/imagePullPolicy\n\
+    \  value: Always\n- op: replace\n  path: /spec/template/spec/containers/0/env/10/value\n  value: '1'"
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: admin-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 0\n"
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+    name: admin-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 1\n- op: add\n  path: /spec/template/spec/containers/0/imagePullPolicy\n\
+    \  value: Always\n- op: replace\n  path: /spec/template/spec/containers/0/env/12/value\n  value: '1'"
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: cluster-ops
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 0\n"
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+    name: cluster-ops
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 1\n- op: add\n  path: /spec/template/spec/containers/0/imagePullPolicy\n\
+    \  value: Always\n- op: replace\n  path: /spec/template/spec/containers/0/env/11/value\n  value: '1'"
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: gm-backend
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 0\n"
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+    name: gm-backend
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 1\n- op: add\n  path: /spec/template/spec/containers/0/imagePullPolicy\n\
+    \  value: Always\n- op: replace\n  path: /spec/template/spec/containers/0/env/5/value\n  value: '1'"
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: scene-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 0\n"
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+    name: scene-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 1\n- op: add\n  path: /spec/template/spec/containers/0/imagePullPolicy\n\
+    \  value: Always\n- op: replace\n  path: /spec/template/spec/containers/0/env/8/value\n  value: '1'"
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: battle-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 0\n"
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+    name: battle-service
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 1\n- op: add\n  path: /spec/template/spec/containers/0/imagePullPolicy\n\
+    \  value: Always\n- op: replace\n  path: /spec/template/spec/containers/0/env/8/value\n  value: '1'"
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: network-gateway
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 0\n"
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+    name: network-gateway
+  patch: "- op: replace\n  path: /spec/replicas\n  value: 1\n- op: add\n  path: /spec/template/spec/containers/0/imagePullPolicy\n\
+    \  value: Always"

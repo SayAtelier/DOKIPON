@@ -1,0 +1,18 @@
+# 开发 overlay 的手动预览应用；活动晋级仍由 rgs 应用负责
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rgs-dev-preview
+  namespace: argocd
+  labels:
+    rgs.gitops.io/role: preview
+spec:
+  project: rgs
+  source:
+    repoURL: https://github.com/SayAtelier/DOKIPON.git
+    targetRevision: main
+    path: docs/deploy/04-gitops/overlays/dev
+    kustomize: {}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rust-game-server

@@ -1,0 +1,158 @@
+# scene-service 的 Rollout；PodSpec 从现有 Deployment 复制
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: scene-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/component: domain-service
+    app.kubernetes.io/name: scene
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/version: 0.1.0-scene-service
+    rust-game-server.io/domain: scene
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scene
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: domain-service
+        app.kubernetes.io/name: scene
+        app.kubernetes.io/part-of: rust-game-server
+        app.kubernetes.io/version: 0.1.0-scene-service
+        rust-game-server.io/domain: scene
+    spec:
+      containers:
+      - command:
+        - /app/bin/scene-service
+        env:
+        - name: RUST_LOG
+          value: info,scene-service=debug,sqlx=warn,tonic=warn
+        - name: GRPC_ADDR
+          value: 0.0.0.0:50057
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: url
+              name: scene-db-credentials
+              optional: true
+        - name: NATS_URI
+          value: nats://nats:4222
+        - name: RGS_TLS_DIR
+          value: /etc/rgs/certs
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://otel-collector:4317
+        - name: OTEL_SERVICE_NAME
+          value: scene-service
+        - name: RGS_DOMAIN
+          value: scene
+        - name: RGS_ALLOW_INSECURE_GRPC
+          value: '0'
+        image: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.0-scene-service
+        imagePullPolicy: Never
+        livenessProbe:
+          tcpSocket:
+            port: 50057
+          failureThreshold: 3
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: scene
+        ports:
+        - containerPort: 50057
+          name: grpc
+          protocol: TCP
+        - containerPort: 9464
+          name: metrics
+          protocol: TCP
+        readinessProbe:
+          tcpSocket:
+            port: 50057
+          failureThreshold: 3
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: '1'
+            memory: 512Mi
+          requests:
+            cpu: 200m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/rgs/certs
+          name: rgs-tls
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+      - name: ghcr-pull
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccount: scene-service-account
+      serviceAccountName: scene-service-account
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: rgs-tls
+        projected:
+          defaultMode: 420
+          sources:
+          - secret:
+              items:
+              - key: tls.crt
+                path: server.pem
+              - key: tls.key
+                path: server.key
+              name: rgs-secret-scene-tls
+          - secret:
+              items:
+              - key: ca-sbn.pem
+                path: ca-sbn.pem
+              name: rgs-secret-ca-sbn
+  strategy:
+    canary:
+      steps:
+      - setWeight: 10
+      - pause:
+          duration: 5m
+      - analysis:
+          templates:
+          - templateName: rgs-canary-analysis
+          args:
+          - name: service-name
+            value: scene
+      - setWeight: 50
+      - pause:
+          duration: 5m
+      - analysis:
+          templates:
+          - templateName: rgs-canary-analysis
+          args:
+          - name: service-name
+            value: scene
+      - setWeight: 100
+      - pause:
+          duration: 5m
+      - analysis:
+          templates:
+          - templateName: rgs-canary-analysis
+          args:
+          - name: service-name
+            value: scene
