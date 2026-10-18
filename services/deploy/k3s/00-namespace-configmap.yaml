@@ -1,0 +1,42 @@
+# k3s manifests — DOKIPON commerce line (8 Axum services)
+# Namespace + per-service Deployment/Service. Images are built from the VM-local
+# release binaries via a shared distroless-free base: we ship the static-ish
+# glibc-linked binaries on ubuntu:26.04 runtime (built on the same VM, so the
+# glibc requirement is satisfied by construction).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: commerce
+  labels:
+    app.kubernetes.io/part-of: dokipon-commerce
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: commerce-config
+  namespace: commerce
+data:
+  RUST_LOG: "info"
+  RUST_BACKTRACE: "1"
+  LINE_CHANNEL_ID: "dev-channel"
+  LINE_ID_TOKEN_KEY: "dev-only-key"
+  PSP_WEBHOOK_SECRET: "dev-only-secret"
+  # BFF and admin -> upstream wiring (k3s cluster DNS, not 127.0.0.1)
+  IDENTITY_URL: "http://commerce-identity:8081"
+  CATALOG_URL: "http://commerce-catalog:8082"
+  CART_URL: "http://commerce-cart:8083"
+  INVENTORY_URL: "http://commerce-inventory:8084"
+  ORDER_URL: "http://commerce-order:8085"
+  PAYMENT_ADAPTER_URL: "http://commerce-payment-adapter:8086"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: commerce-admin-credentials
+  namespace: commerce
+type: Opaque
+stringData:
+  # Replace the password before deployment; this placeholder is not a credential.
+  ADMIN_USER: "operator"
+  ADMIN_PASSWORD: "CHANGE_ME_BEFORE_DEPLOY"
