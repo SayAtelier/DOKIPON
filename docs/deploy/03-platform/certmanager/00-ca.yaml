@@ -1,0 +1,39 @@
+# RGS 内部 CA：自签名引导 Issuer 与长期 CA 证书
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: rgs-selfsigned-bootstrap
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: certificate-authority
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: rgs-internal-ca
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: certificate-authority
+spec:
+  # cert-manager 固定将证书与私钥写入 tls.crt / tls.key。
+  # CA Issuer 使用同一 Secret；工作负载只应投影 tls.crt。
+  secretName: rgs-secret-ca
+  commonName: RustGameServer Internal CA
+  isCA: true
+  duration: 43800h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    # 续期证书时保留 CA 公钥，避免自动换钥令现有叶证书失去信任。
+    rotationPolicy: Never
+  usages:
+    - digital signature
+    - cert sign
+    - crl sign
+  issuerRef:
+    name: rgs-selfsigned-bootstrap
+    kind: Issuer
+    group: cert-manager.io
