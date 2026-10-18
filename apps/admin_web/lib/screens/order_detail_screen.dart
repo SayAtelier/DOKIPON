@@ -23,6 +23,10 @@ MERGE (screen)-[:CREATES]->(failure)
 */
 import 'dart:async';
 
+// AdminOrderDetail / AdminOrderTrailEntry come from api_client, which
+// storefront_state does not re-export; importing only the controller left the
+// DTOs unresolved and every trail field access untyped.
+import 'package:api_client/api_client.dart';
 import 'package:design_system/design_system.dart';
 import 'package:domain_models/domain_models.dart';
 import 'package:flutter/material.dart';

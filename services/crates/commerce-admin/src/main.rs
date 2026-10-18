@@ -243,7 +243,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::RwLock;
-use tower_http::trace::TraceLayer;
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 const SESSION_TTL: Duration = Duration::from_secs(8 * 60 * 60);
 const MAX_UPSTREAM_BODY_BYTES: usize = 8 * 1024 * 1024;
@@ -582,6 +582,13 @@ fn router(state: AdminState) -> Router {
         )
         .with_state(state)
         .layer(TraceLayer::new_for_http())
+        // The operator console is a separate Flutter Web origin (NodePort 30088),
+        // so every admin call is cross-origin. Without a CORS layer the browser
+        // rejects the preflight with "Method Not Allowed" and never sends the
+        // real request, which presents as a login that silently does nothing.
+        // Permissive mirrors the storefront BFF; a production deployment should
+        // narrow allow_origin to the console's real origin.
+        .layer(CorsLayer::permissive())
         .layer(middleware::from_fn(correlation))
 }
 

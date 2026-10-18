@@ -24,11 +24,14 @@ MERGE (state)-[:CREATES]->(catalog)
 */
 import 'dart:async';
 
+// The shared design_system also exports a storefront `CatalogScreen`. Prefix
+// these imports so the admin screens are unambiguous at every use site; a bare
+// `CatalogScreen` would resolve to whichever library the analyzer sees first.
 import 'package:design_system/design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:storefront_state/storefront_state.dart';
 
-import 'screens/catalog_screen.dart';
+import 'screens/catalog_screen.dart' as admin_screens;
 import 'screens/login_screen.dart';
 import 'screens/order_detail_screen.dart';
 import 'screens/orders_screen.dart';
@@ -74,7 +77,8 @@ class _AdminConsoleRootState extends State<AdminConsoleRoot> {
             controller: widget.controller,
             onBack: () => setState(() => _section = AdminSection.orders),
           ),
-        AdminSection.catalog => CatalogScreen(controller: widget.controller),
+        AdminSection.catalog =>
+          admin_screens.CatalogScreen(controller: widget.controller),
       };
 
   @override
