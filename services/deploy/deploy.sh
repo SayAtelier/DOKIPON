@@ -48,7 +48,8 @@
 # MERGE (admin_env)-[:CONFIGURES]->(order)
 # MERGE (admin_env)-[:CONFIGURES]->(payment)
 # @endcypher
-# deploy.sh — install / restart / uninstall all 8 commerce service binaries on this VM.
+# deploy.sh — install / restart / uninstall all 8 commerce service binaries on
+# this VM: the 7 storefront services plus commerce-admin.
 # Run as root.
 set -euo pipefail
 
@@ -60,7 +61,7 @@ SERVICE_FILES_DIR="/etc/systemd/system"
 SERVICE_USER="commerce"
 LOG_DIR="/var/log/commerce"
 
-# All 7 service binaries (BFF is included; mocks are excluded by design).
+# All 7 storefront service binaries (BFF included; mocks and proposed admin service excluded).
 SERVICES=(
   "commerce-bff"
   "commerce-identity"
@@ -175,7 +176,7 @@ EOF
   for svc in "${SERVICES[@]}"; do
     systemctl enable --now "${svc}.service"
   done
-  echo "  ✓ all 8 services installed and started"
+  echo "  ✓ all 8 services installed and started (7 storefront + commerce-admin)"
   echo "  log dir: $LOG_DIR"
   echo "  check: systemctl status commerce-bff.service"
 
