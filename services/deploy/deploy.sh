@@ -1,5 +1,54 @@
 #!/usr/bin/env bash
-# deploy.sh — install / restart / uninstall all 7 commerce services on this VM.
+# @cypher schema=1 source_sha256=06c407917798cfdb1e1cb35b7a3fddfb8301c4cfea3e2a7293af465b6ffdddf1
+# MERGE (self:File {path:"services/deploy/deploy.sh"})
+# MERGE (services:Config {name:"SERVICES"})
+# MERGE (ports:Config {name:"PORT"})
+# MERGE (upstream_env:Config {name:"UPSTREAM_ENV"})
+# MERGE (bff_env:Config {name:"bff_env"})
+# MERGE (admin_env:Config {name:"admin_env"})
+# MERGE (bff:ExternalService {name:"commerce-bff"})
+# MERGE (identity:ExternalService {name:"commerce-identity"})
+# MERGE (catalog:ExternalService {name:"commerce-catalog"})
+# MERGE (cart:ExternalService {name:"commerce-cart"})
+# MERGE (inventory:ExternalService {name:"commerce-inventory"})
+# MERGE (order:ExternalService {name:"commerce-order"})
+# MERGE (payment:ExternalService {name:"commerce-payment-adapter"})
+# MERGE (admin:ExternalService {name:"commerce-admin"})
+# MERGE (self)-[:CONFIGURES]->(services)
+# MERGE (self)-[:CONFIGURES]->(ports)
+# MERGE (self)-[:CONFIGURES]->(upstream_env)
+# MERGE (self)-[:CONFIGURES]->(bff_env)
+# MERGE (self)-[:CONFIGURES]->(admin_env)
+# MERGE (services)-[:CONFIGURES]->(bff)
+# MERGE (services)-[:CONFIGURES]->(identity)
+# MERGE (services)-[:CONFIGURES]->(catalog)
+# MERGE (services)-[:CONFIGURES]->(cart)
+# MERGE (services)-[:CONFIGURES]->(inventory)
+# MERGE (services)-[:CONFIGURES]->(order)
+# MERGE (services)-[:CONFIGURES]->(payment)
+# MERGE (services)-[:CONFIGURES]->(admin)
+# MERGE (ports)-[:CONFIGURES]->(bff)
+# MERGE (ports)-[:CONFIGURES]->(identity)
+# MERGE (ports)-[:CONFIGURES]->(catalog)
+# MERGE (ports)-[:CONFIGURES]->(cart)
+# MERGE (ports)-[:CONFIGURES]->(inventory)
+# MERGE (ports)-[:CONFIGURES]->(order)
+# MERGE (ports)-[:CONFIGURES]->(payment)
+# MERGE (ports)-[:CONFIGURES]->(admin)
+# MERGE (bff_env)-[:CONFIGURES]->(identity)
+# MERGE (bff_env)-[:CONFIGURES]->(catalog)
+# MERGE (bff_env)-[:CONFIGURES]->(cart)
+# MERGE (bff_env)-[:CONFIGURES]->(inventory)
+# MERGE (bff_env)-[:CONFIGURES]->(order)
+# MERGE (bff_env)-[:CONFIGURES]->(payment)
+# MERGE (admin_env)-[:DEPENDS_ON]->(upstream_env)
+# MERGE (admin_env)-[:CONFIGURES]->(identity)
+# MERGE (admin_env)-[:CONFIGURES]->(catalog)
+# MERGE (admin_env)-[:CONFIGURES]->(inventory)
+# MERGE (admin_env)-[:CONFIGURES]->(order)
+# MERGE (admin_env)-[:CONFIGURES]->(payment)
+# @endcypher
+# deploy.sh — install / restart / uninstall all 8 commerce service binaries on this VM.
 # Run as root.
 set -euo pipefail
 
@@ -20,9 +69,10 @@ SERVICES=(
   "commerce-inventory"
   "commerce-order"
   "commerce-payment-adapter"
+  "commerce-admin"
 )
 
-# Per-service port assignments (matches contracts/openapi.yaml)
+# Per-service ports; admin stays outside the customer OpenAPI contract.
 declare -A PORT=(
   ["commerce-bff"]=8080
   ["commerce-identity"]=8081
@@ -31,9 +81,10 @@ declare -A PORT=(
   ["commerce-inventory"]=8084
   ["commerce-order"]=8085
   ["commerce-payment-adapter"]=8086
+  ["commerce-admin"]=8087
 )
 
-# Upstream service URLs (used by commerce-bff via env). One per non-bff service.
+# Upstream service URLs used by the BFF and admin systemd units.
 declare -A UPSTREAM_ENV=(
   ["commerce-identity"]="IDENTITY_URL"
   ["commerce-catalog"]="CATALOG_URL"
@@ -71,6 +122,11 @@ if [[ "$action" == "install" || "$action" == "reinstall" ]]; then
     var="${UPSTREAM_ENV[$svc]}"
     bff_env+="${var}=http://127.0.0.1:${PORT[$svc]} "
   done
+  admin_env=""
+  for svc in commerce-identity commerce-catalog commerce-inventory commerce-order commerce-payment-adapter; do
+    var="${UPSTREAM_ENV[$svc]}"
+    admin_env+="${var}=http://127.0.0.1:${PORT[$svc]} "
+  done
 
   for svc in "${SERVICES[@]}"; do
     port="${PORT[$svc]}"
@@ -94,6 +150,10 @@ EOF
       cat >> "$unit" <<EOF
 Environment=${bff_env}
 EOF
+    elif [[ "$svc" == "commerce-admin" ]]; then
+      cat >> "$unit" <<EOF
+Environment=${admin_env}
+EOF
     fi
     cat >> "$unit" <<EOF
 Restart=on-failure
@@ -115,7 +175,7 @@ EOF
   for svc in "${SERVICES[@]}"; do
     systemctl enable --now "${svc}.service"
   done
-  echo "  ✓ all 7 services installed and started"
+  echo "  ✓ all 8 services installed and started"
   echo "  log dir: $LOG_DIR"
   echo "  check: systemctl status commerce-bff.service"
 
