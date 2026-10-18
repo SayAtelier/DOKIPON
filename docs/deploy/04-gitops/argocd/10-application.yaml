@@ -1,0 +1,23 @@
+# RGS 唯一活动应用；Kargo 通过环境分支推动目标版本
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rgs
+  namespace: argocd
+  annotations:
+    kargo.akuity.io/authorized-stage: rust-game-server:dev,rust-game-server:staging,rust-game-server:prod
+spec:
+  project: rgs
+  source:
+    repoURL: https://github.com/SayAtelier/DOKIPON.git
+    targetRevision: main
+    path: docs/deploy/04-gitops/overlays/active
+    kustomize: {}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rust-game-server
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: true

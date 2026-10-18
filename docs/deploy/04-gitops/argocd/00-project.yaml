@@ -1,0 +1,16 @@
+# 限制来源仓库与目标命名空间
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: rgs
+  namespace: argocd
+spec:
+  description: Rust Game Server GitOps 工作负载
+  sourceRepos:
+  - https://github.com/SayAtelier/DOKIPON.git
+  destinations:
+  - namespace: rust-game-server
+    server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+  - group: ''
+    kind: Namespace

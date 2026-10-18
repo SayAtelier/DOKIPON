@@ -1,0 +1,17 @@
+# Kargo 1.12 通过 ProjectConfig 管理自动晋级策略
+apiVersion: kargo.akuity.io/v1alpha1
+kind: ProjectConfig
+metadata:
+  name: rust-game-server
+  namespace: rust-game-server
+spec:
+  promotionPolicies:
+  - stageSelector:
+      name: dev
+    autoPromotionEnabled: true
+  - stageSelector:
+      name: staging
+    autoPromotionEnabled: true
+  - stageSelector:
+      name: prod
+    autoPromotionEnabled: false

@@ -1,0 +1,197 @@
+# network-gateway 的 Rollout；PodSpec 从现有 Deployment 复制
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: network-gateway
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/name: network-gateway
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/version: 0.1.0-network-gateway
+    rust-game-server.io/domain: network
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: network-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: gateway
+        app.kubernetes.io/name: network-gateway
+        app.kubernetes.io/part-of: rust-game-server
+        app.kubernetes.io/version: 0.1.0-network-gateway
+        rust-game-server.io/domain: network
+    spec:
+      containers:
+      - command:
+        - /app/bin/network-gateway
+        env:
+        - name: RUST_LOG
+          value: info,network_gateway=debug
+        - name: RGS_NETWORK_GATEWAY_TCP_ADDR
+          value: 0.0.0.0:7001
+        - name: RGS_NETWORK_GATEWAY_ADMIN_GRPC_ADDR
+          value: 0.0.0.0:50090
+        - name: RGS_NETWORK_GATEWAY_WEB_CONN_ADDR
+          value: 0.0.0.0:8000
+        - name: RGS_NETWORK_GATEWAY_EPMD_ADDR
+          value: 0.0.0.0:4369
+        - name: ERLANG_COOKIE
+          valueFrom:
+            secretKeyRef:
+              key: erlang-cookie
+              name: network-gateway-secret
+        - name: RGS_NETWORK_GATEWAY_CLIENT_CERT_DIR
+          value: /etc/rgs/certs
+        - name: RGS_NETWORK_GATEWAY_DEFAULT_HOST
+          value: player-service.rust-game-server.svc.cluster.local
+        - name: RGS_NETWORK_GATEWAY_DOMAIN_SUFFIX
+          value: .svc.cluster.local
+        - name: RGS_SVC_PLAYER_HOST
+          value: player-service.rust-game-server.svc.cluster.local
+        - name: RGS_SVC_ECONOMY_HOST
+          value: economy-service.rust-game-server.svc.cluster.local
+        - name: RGS_SVC_MATCH_HOST
+          value: match-service.rust-game-server.svc.cluster.local
+        - name: RGS_SVC_SOCIAL_HOST
+          value: social-service.rust-game-server.svc.cluster.local
+        - name: RGS_SVC_ADMIN_HOST
+          value: admin-service.rust-game-server.svc.cluster.local
+        - name: RGS_SVC_CLUSTER_OPS_HOST
+          value: cluster-ops.rust-game-server.svc.cluster.local
+        - name: RGS_SVC_SCENE_HOST
+          value: scene-service.rust-game-server.svc.cluster.local
+        - name: RGS_SVC_BATTLE_HOST
+          value: battle-service.rust-game-server.svc.cluster.local
+        - name: RGS_SSL_CA_FILE_5DOMAIN
+          value: /etc/rgs/certs/ca.pem
+        - name: RGS_SSL_CA_FILE_3NEW
+          value: /etc/rgs/certs/ca-sbn.pem
+        - name: RGS_TLS_DIR
+          value: /etc/rgs/certs
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://otel-collector:4317
+        - name: OTEL_SERVICE_NAME
+          value: network-gateway
+        image: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.0-network-gateway
+        imagePullPolicy: Never
+        livenessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          successThreshold: 1
+          tcpSocket:
+            port: tcp-binary
+          timeoutSeconds: 3
+        name: network-gateway
+        ports:
+        - containerPort: 7001
+          name: tcp-binary
+          protocol: TCP
+        - containerPort: 50090
+          name: admin-grpc
+          protocol: TCP
+        - containerPort: 8000
+          name: web-conn
+          protocol: TCP
+        - containerPort: 4369
+          name: epmd
+          protocol: TCP
+        - containerPort: 9464
+          name: metrics
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          successThreshold: 1
+          tcpSocket:
+            port: admin-grpc
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: '1'
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/rgs/certs
+          name: rgs-tls
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+      - name: ghcr-pull
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccount: network-gateway-account
+      serviceAccountName: network-gateway-account
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: rgs-tls
+        projected:
+          defaultMode: 420
+          sources:
+          - secret:
+              items:
+              - key: tls.crt
+                path: server.pem
+              - key: tls.key
+                path: server.key
+              name: rgs-secret-network-gateway-tls
+          - secret:
+              items:
+              - key: ca.pem
+                path: ca.pem
+              name: rgs-secret-ca
+          - secret:
+              items:
+              - key: ca-sbn.pem
+                path: ca-sbn.pem
+              name: rgs-secret-ca-sbn
+  strategy:
+    canary:
+      steps:
+      - setWeight: 10
+      - pause:
+          duration: 5m
+      - analysis:
+          templates:
+          - templateName: rgs-canary-analysis
+          args:
+          - name: service-name
+            value: network-gateway
+      - setWeight: 50
+      - pause:
+          duration: 5m
+      - analysis:
+          templates:
+          - templateName: rgs-canary-analysis
+          args:
+          - name: service-name
+            value: network-gateway
+      - setWeight: 100
+      - pause:
+          duration: 5m
+      - analysis:
+          templates:
+          - templateName: rgs-canary-analysis
+          args:
+          - name: service-name
+            value: network-gateway

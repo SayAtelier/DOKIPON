@@ -1,0 +1,17 @@
+# staging 环境的初始镜像引用；晋级时由 Kargo 固定为 digest
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rgs-image-tags
+  namespace: rust-game-server
+data:
+  playerImage: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.0-cc13
+  economyImage: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.0-cc13
+  matchImage: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.0-cc13
+  socialImage: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.0-cc13
+  adminImage: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.0-cc13
+  clusterOpsImage: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.2-cluster-ops
+  gmBackendImage: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.0-gm-backend
+  sceneImage: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.0-scene-service
+  battleImage: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.0-battle-service
+  networkGatewayImage: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.0-network-gateway

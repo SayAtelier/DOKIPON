@@ -1,0 +1,10 @@
+# Kargo 晋级与验证资源
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rust-game-server
+resources:
+- 00-stage.yaml
+- 05-promotion-task.yaml
+- 10-freight.yaml
+- 20-promotionpolicy.yaml
+- 30-analysis.yaml
