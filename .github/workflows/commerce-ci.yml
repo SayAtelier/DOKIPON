@@ -1,0 +1,176 @@
+name: commerce-ci
+
+"on":
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'services/**'
+      - 'contracts/**'
+      - 'tools/e2e_checkout.sh'
+      - 'tests/**'
+      - '.github/workflows/commerce-ci.yml'
+      - 'README.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'services/**'
+      - 'contracts/**'
+      - 'tools/e2e_checkout.sh'
+      - 'tests/**'
+      - '.github/workflows/commerce-ci.yml'
+  workflow_dispatch:
+
+# Three jobs. Each runs the same set of commands you would locally:
+#  cargo test --workspace
+#  flutter test on the Dart packages
+#  bash tools/e2e_checkout.sh with the order service running
+#
+# Defaults to ubuntu-latest. macos-latest could be added later if the
+# Axum service containers need it (none currently do).
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Job 1 — Rust: cargo fmt --check, clippy with -D warnings, test --workspace
+  # Mirror the local recipe so PRs surface the same lint / failure modes.
+  # -------------------------------------------------------------------------
+  rust:
+    name: rust fmt + clippy + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: 'services -> target'
+
+      - name: Show toolchain
+        run: |
+          rustc --version
+          cargo --version
+          cargo fmt --version
+          cargo clippy --version
+
+      - name: cargo fmt --check
+        working-directory: services
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy -D warnings
+        working-directory: services
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: cargo test --workspace
+        working-directory: services
+        run: cargo test --workspace --locked
+
+  # -------------------------------------------------------------------------
+  # Job 2 — Dart: install Flutter 3.47.x (matches local pin),
+  # `dart pub get` on each package, `flutter test` on the ones with tests.
+  # -------------------------------------------------------------------------
+  dart:
+    name: flutter pub get + test + analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Flutter (3.47.7 stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+          cache: true
+
+      - name: Show toolchain
+        run: |
+          flutter --version
+          dart --version
+
+      - name: dart pub get (each package and app)
+        run: |
+          for d in packages/* apps/*; do
+            echo "--- $d ---"
+            (cd "$d" && flutter pub get)
+          done
+
+      - name: flutter test (domain_models)
+        working-directory: packages/domain_models
+        run: flutter test
+
+      - name: dart analyze (fatal-infos)
+        run: |
+          for d in packages/* apps/*; do
+            echo "--- analyze: $d ---"
+            (cd "$d" && dart analyze --fatal-infos)
+          done
+
+  # -------------------------------------------------------------------------
+  # Job 3 — End-to-end HTTP smoke:
+  #   start commerce-order, run the 22-assertion E2E bash script.
+  # Without the PSP / catalog / cart side, the order service runs alone
+  # and falls back to the in-memory state machines that already ship in it.
+  # -------------------------------------------------------------------------
+  e2e:
+    name: commerce-order + tools/e2e_checkout.sh
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [rust]   # depends on Rust building the order binary
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: 'services -> target'
+
+      - name: cargo build -p commerce-order (release)
+        working-directory: services
+        run: cargo build --release -p commerce-order
+
+      - name: Start commerce-order in background
+        working-directory: services
+        run: |
+          ./target/release/commerce-order &
+          echo "$!" > /tmp/order.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8085/healthz >/dev/null; then
+              echo "order is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "order did not become ready" >&2
+          cat /tmp/order.pid >&2
+          exit 1
+
+      - name: bash tools/e2e_checkout.sh
+        run: bash tools/e2e_checkout.sh
+
+      - name: Stop commerce-order
+        if: always()
+        run: |
+          if [ -f /tmp/order.pid ]; then
+            kill "$(cat /tmp/order.pid)" || true
+          fi
