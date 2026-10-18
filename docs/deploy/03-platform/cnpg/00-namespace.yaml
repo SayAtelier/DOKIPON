@@ -1,0 +1,12 @@
+# 文档 ID: RGS-PLAT-CNPG-001 (proposed) | 版本: v0.1
+# 决策依据: ARC-008、ADR-0052、DEC-009；本文件尚待评审
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rust-game-server
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/managed-by: kubectl
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
