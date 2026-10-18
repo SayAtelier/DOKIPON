@@ -55,7 +55,69 @@ items:
     path: ca.pem
 ```
 
-此任务受限于新增文件，不修改 `01-k8s-manifests/` 中的消费者清单。切换前必须同步此投影变更。不要把 CA 私钥 `tls.key` 投影到工作负载。叶 Secret 中 cert-manager 可能额外写入 `ca.crt`；不要把该键当作长期信任包，CA 信任仍由单独的 `rgs-secret-ca` 提供。
+此任务受限于新增文件，不修改 `01-k8s-manifests/` 中的消费者清单。切换前必须同步此投影变更。不要把 CA 私钥 `tls.key` 投影到工作负载。
+
+> **实跑验证结论（2026-10-18，k3s v1.36.5 + cert-manager v1.18.2）**
+>
+> 上面的投影改写**不必要**。CA Issuer 会把权威 CA 证书同时写入 `ca.crt`：
+>
+> ```text
+> $ kubectl get secret rgs-secret-ca -n rust-game-server -o jsonpath='{.data}' | jq keys
+> ["ca.crt","tls.crt","tls.key"]
+> $ kubectl get secret rgs-secret-player-tls -n rust-game-server -o jsonpath='{.data}' | jq keys
+> ["ca.crt","tls.crt","tls.key"]
+> ```
+>
+> 现有消费者投影（`name: rgs-secret-ca` + `key: ca.pem`）仍需改为 `key: ca.crt`，
+> 因为 cert-manager **不会**写 `ca.pem` 这个键名。两种选择：
+>
+> - 改消费方投影为 `key: ca.crt` → 路径名仍是 `ca.pem`，容器内不用改；或
+> - 在 `kustomization.yaml` 加 `secretGenerator` 做 `ca.crt` → `ca.pem` 重命名，消费方零改动。
+>
+> 证书链已用 `openssl verify` 实测通过：
+>
+> ```text
+> $ openssl verify -CAfile ca.pem player.pem
+> player.pem: OK
+> player  SAN: DNS:player.service   notAfter=Oct 17 2028 (730d)
+> CA     CN=RustGameServer Internal CA   notAfter=Oct 17 2031 (5y)
+> ```
+
+### 实跑踩坑：必须用 `kubectl kustomize`，不能 `kubectl apply -f`
+
+本目录的 manifest **不带 `metadata.namespace`**，namespace 由 `kustomization.yaml`
+的 `namespace: rust-game-server` 字段注入。直接 `kubectl apply -f 00-ca.yaml`
+会把所有 Certificate / Issuer 建到 **`default`** 命名空间：
+
+```text
+$ kubectl apply -f 00-ca.yaml -f 10-issuers.yaml -f 20-certificates.yaml
+certificate.cert-manager.io/rgs-player-tls created     # ← 落在 default
+$ kubectl get certificates -n rust-game-server
+No resources found in rust-game-server namespace.      # ← 空的
+```
+
+证书本身仍然 Ready=True，所以**光看 apply 输出和 cert 状态发现不了这个问题**，
+必须用 `-n <ns>` 查询确认落点。正确做法：
+
+```bash
+kubectl kustomize docs/deploy/03-platform/certmanager | kubectl apply -f -
+# 或
+kubectl apply -k docs/deploy/03-platform/certmanager
+```
+
+误建到 default 的清理命令：
+
+```bash
+for n in rgs-internal-ca rgs-player-tls rgs-economy-tls rgs-match-tls \
+         rgs-social-tls rgs-admin-tls rgs-cluster-ops-tls; do
+  kubectl delete certificate "$n" -n default --ignore-not-found
+done
+for n in rgs-selfsigned-bootstrap rgs-player-ca-issuer rgs-economy-ca-issuer \
+         rgs-match-ca-issuer rgs-social-ca-issuer rgs-admin-ca-issuer \
+         rgs-cluster-ops-ca-issuer; do
+  kubectl delete issuer "$n" -n default --ignore-not-found
+done
+```
 
 ## 安全修复与切换
 

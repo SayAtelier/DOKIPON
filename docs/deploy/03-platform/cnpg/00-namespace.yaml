@@ -7,6 +7,13 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rust-game-server
     app.kubernetes.io/managed-by: kubectl
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
+    # PSA 级别说明（per RGS-DEC-NOGO-001 越界授权模式，与旧 23-postgres-statefulset.yaml 一致）：
+    # CloudNativePG 的 instance Pod 需要 rootless 兼容但非完全受限的设置
+    # （fsGroup 变更、/var/lib/postgresql 属主调整、PGArena shm 等），在 PSA
+    # `restricted` 下会被 kubelet 直接拒绝创建 pod，表现为 Cluster 永远不 Ready。
+    # `baseline` 允许 CNPG 正常运行，同时仍禁止特权容器与 hostPath。
+    # 旧 manifest 同样在 baseline 下运行 postgres（per 2026-09-09 越界记录）。
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
