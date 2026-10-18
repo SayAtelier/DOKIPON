@@ -1,0 +1,31 @@
+# 文档 ID: RGS-PLAT-CNPG-001 (proposed) | 版本: v0.1
+# 决策依据: ARC-008、ADR-0052、DEC-009；本文件尚待评审
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rgs-postgres-ingress
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: rust-game-server
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: rgs-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: domain-service
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: coc-control-plane
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: cluster-control-plane
+      ports:
+        - protocol: TCP
+          port: 5432
