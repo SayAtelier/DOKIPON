@@ -377,7 +377,6 @@ mod tests {
     fn subtotal_is_computed_from_authoritative_prices() {
         let mut s = store_with_cart();
         let id = s.carts.keys().next().unwrap().clone();
-        let price = Money::new(4800, Currency::Jpy).unwrap();
         // Snapshot says 1 (deliberately wrong, simulating a tampered client).
         let c = s.apply_mutation(&id, "sku-tee-01", 2, 1, Money::new(1, Currency::Jpy).unwrap()).unwrap();
         assert_eq!(c.items[0].unit_amount_snapshot, 1);
