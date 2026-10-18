@@ -602,9 +602,19 @@ paths:
       description: |
         **Required role:** `viewer`. Operators inherit viewer access; admins
         inherit operator and viewer access.
+
+        **Not yet backed by an upstream endpoint.** The admin facade proxies this
+        to the inventory service, which today exposes only the three write routes
+        (`POST /v1/inventory/reservations`, `.../commit`, `.../release`) and has no
+        read route. A request therefore returns `404` with code
+        `admin.upstream_error` until the inventory service gains a listing route.
+        The contract keeps the path so the admin surface stays complete, and the
+        limitation is stated here rather than left for a caller to discover.
       security:
         - adminBearerAuth: []
       x-required-role: viewer
+      x-implemented: false
+      x-blocked-by: inventory-service-has-no-list-route
       parameters:
         - name: cursor
           in: query
@@ -635,6 +645,8 @@ paths:
                   next_cursor: { type: [string, 'null'] }
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
+        # Upstream has no matching route, so the facade relays its 404.
+        '404': { $ref: '#/components/responses/Problem' }
         '503': { $ref: '#/components/responses/Problem' }
 
   /admin/v1/inventory/reservations:
@@ -723,9 +735,19 @@ paths:
       description: |
         **Required role:** `viewer`. Operators inherit viewer access; admins
         inherit operator and viewer access.
+
+        **Not yet backed by an upstream endpoint.** The payment adapter exposes
+        only `POST /v1/payments/authorize`, `POST /v1/payments/reconcile` and
+        `POST /v1/payments/webhook`; it has no read route. A request therefore
+        returns `404` with code `admin.upstream_error` until the adapter gains a
+        listing route. Payment history for a specific order is still reachable
+        indirectly, because the order service embeds the attempt outcome in the
+        order detail response.
       security:
         - adminBearerAuth: []
       x-required-role: viewer
+      x-implemented: false
+      x-blocked-by: payment-adapter-has-no-list-route
       parameters:
         - name: orderId
           in: query
@@ -759,6 +781,8 @@ paths:
         '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
+        # Upstream has no matching route, so the facade relays its 404.
+        '404': { $ref: '#/components/responses/Problem' }
         '429': { $ref: '#/components/responses/Problem' }
         '503': { $ref: '#/components/responses/Problem' }
 
