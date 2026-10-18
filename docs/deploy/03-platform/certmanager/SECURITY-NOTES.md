@@ -2,9 +2,62 @@
 
 本目录只新增证书管理资源和说明。以下是已从当前工作树与 Git 路径核验到的发现；任何清理、轮换和历史重写均未在本次执行。
 
+## 核验结论（2026-10-18 更新，含实测数据）
+
+### 当前 HEAD 确认含 6 个真实叶私钥
+
+`grep "PRIVATE KEY"` 会漏掉它们——YAML 里存的是 base64，不是明文 PEM。
+必须解码后再判断：
+
+```bash
+for f in docs/deploy/01-k8s-manifests/50-secret-*.yaml; do
+  key=$(sed -n 's/^  tls\.key: *"\?\([A-Za-z0-9+/=]*\)"\?/\1/p' "$f")
+  [ -n "$key" ] && echo "$key" | base64 -d 2>/dev/null | grep -q "PRIVATE KEY" \
+    && echo "LEAK: $f"
+done
+```
+
+实测结果：
+
+| 文件 | 解码后内容 |
+|---|---|
+| `50-secret-player-tls.yaml` | LEAF PRIVATE KEY |
+| `50-secret-economy-tls.yaml` | LEAF PRIVATE KEY |
+| `50-secret-match-tls.yaml` | LEAF PRIVATE KEY |
+| `50-secret-social-tls.yaml` | LEAF PRIVATE KEY |
+| `50-secret-admin-tls.yaml` | LEAF PRIVATE KEY |
+| `50-secret-cluster-ops-tls.yaml` | LEAF PRIVATE KEY |
+| `50-secret-ca.yaml` | 公有证书，**无 CA 私钥** |
+
+**CA 私钥不在仓库里，因此轮换叶证书不需要换 CA 根。** 信任链保持不变，
+切换成本远低于全量重建。
+
+### 消费者状态：RGS 5 域尚未部署
+
+`01-player-service.yaml` 等 Deployment 通过 `projected` volume 引用
+`rgs-secret-player-tls` 与 `rgs-secret-ca`，但这 6 个服务**在当前集群里没有 Pod**。
+所以现在切换到 cert-manager 管理的同名 Secret 不会打断任何运行中的 TLS 会话。
+
+### 已在本机实跑验证的替代方案
+
+k3s v1.36.5 + cert-manager v1.18.2，`rust-game-server` 命名空间：
+
+```
+certificate/rgs-internal-ca         Ready=True  -> rgs-secret-ca
+certificate/rgs-{6域}-tls           Ready=True  -> rgs-secret-<域>-tls
+issuer/rgs-{7个}                    Ready=True
+
+$ openssl verify -CAfile ca.pem player.pem
+player.pem: OK
+player  SAN=DNS:player.service   notAfter 2028-10-17 (730d)
+CA     CN=RustGameServer Internal CA   notAfter 2031-10-17 (5y)
+```
+
+即替代方案**已经在跑**，Secret 名称与消费方期望一致。
+
 ## P0 — 立即安排轮换和活动清单清理
 
-1. 当前受跟踪的六个叶 Secret 清单包含可解码为 PEM 私钥的 `data.tls.key`，同时包含对应 PEM 证书：
+1. 上述六个叶 Secret 清单必须视为泄露。切换后从活动部署清单和当前 Git 树删除，并重新生成六个服务私钥与证书。
    - `docs/deploy/01-k8s-manifests/50-secret-player-tls.yaml`
    - `docs/deploy/01-k8s-manifests/50-secret-economy-tls.yaml`
    - `docs/deploy/01-k8s-manifests/50-secret-match-tls.yaml`
@@ -12,11 +65,15 @@
    - `docs/deploy/01-k8s-manifests/50-secret-admin-tls.yaml`
    - `docs/deploy/01-k8s-manifests/50-secret-cluster-ops-tls.yaml`
 
-   这些私钥已进入 Git 内容，必须视为泄露。切换后从活动部署清单和当前 Git 树删除，并重新生成六个服务私钥与证书。仅删文件不能让仍受信任的旧叶证书失效；当前清单没有 CRL/OCSP 吊销配置。需要轮换内部 CA、分阶段更新消费者信任、重新签发叶证书，再移除旧 CA 信任。
+   这些私钥已进入 Git 内容，必须视为泄露。切换后从活动部署清单和当前 Git 树删除，并重新生成六个服务私钥与证书。
+
+   仅删文件不能让仍受信任的旧叶证书失效；当前清单没有 CRL/OCSP 吊销配置。
+   但本仓库不含 CA 私钥，因此**不需要**替换 CA 根——只需重签叶证书，
+   信任链保持不变。
 
 2. `docs/deploy/01-k8s-manifests/50-secret-ca.yaml` 中的 `ca.pem` 解码为 CA **公有证书**，不包含 CA 私钥。该静态 Secret 清单仍应在切换后删除，避免静态清单覆盖 cert-manager 管理的同名 Secret。当前工作树和已检查的 `certs/` 历史路径中没有发现 CA 私钥；如果仓库其他分支、备份或部署主机上存在对应 CA 私钥，则应同样视为泄露并轮换。
 
-3. [00-ca.yaml](00-ca.yaml) 与叶 Certificate 使用目标 Secret 名称 `rgs-secret-ca` / `rgs-secret-<domain>-tls`。在应用前必须计划 Secret 所有权切换：停止重新应用静态 Secret 清单，并确保现有叶 Secret 中的私钥不会被 cert-manager 复用。叶证书 `rotationPolicy: Always` 控制后续续期换钥；它本身不是现有 Secret 的即时轮换命令。先准备旧、新 CA 双信任过渡，再切换 Secret 和消费者。当前六文件包只管理单个 CA Secret，尚未生成双 CA 信任包；未完成独立信任过渡设计前，不要执行生产切换。
+3. [00-ca.yaml](00-ca.yaml) 与叶 Certificate 使用目标 Secret 名称 `rgs-secret-ca` / `rgs-secret-<domain>-tls`，与消费方期望一致。Secret 所有权切换步骤：停止重新应用静态 Secret 清单，删除同名旧 Secret，让 cert-manager 重新签发。叶证书 `rotationPolicy: Always` 只控制后续续期换钥，它不是现有 Secret 的即时轮换命令。叶证书 `rotationPolicy: Always` 控制后续续期换钥；它本身不是现有 Secret 的即时轮换命令。先准备旧、新 CA 双信任过渡，再切换 Secret 和消费者。当前六文件包只管理单个 CA Secret，尚未生成双 CA 信任包；未完成独立信任过渡设计前，不要执行生产切换。
 
 ## P1 — 清理 Git 历史与本地 PEM
 

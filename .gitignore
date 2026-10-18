@@ -178,3 +178,11 @@ target-w*/**
 # 跟 workspace Cargo.lock 重复, 兜底防未清理污染 git status
 /Cargo.lock
 
+# Flutter / Dart 构建产物 (per 2026-10-18 admin_web 首次构建)
+# apps/*/build/ 是 `flutter build web` 的输出 (40MB canvaskit + 2.6MB bundle),
+# .dart_tool/ 是 pub 解析结果, 两者都是本机生成物且可由 pubspec 重建。
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+
