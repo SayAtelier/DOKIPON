@@ -15,6 +15,16 @@ spec:
   imageName: docker.m.daocloud.io/library/postgres:18.6
   enableSuperuserAccess: true
 
+  # postgres 用户在镜像内的 UID/GID。CNPG 默认假定为 26（其官方镜像
+  # ghcr.io/cloudnative-pg/postgresql 的构建约定），但 Debian 官方
+  # postgres 镜像用的是 999。两者不匹配时 initdb 直接失败：
+  #   initdb: could not look up effective user ID 26: user does not exist
+  # 表现为 Cluster 永远停在 "Setting up primary"，initdb Pod 反复 Error。
+  # 实测于 2026-10-18（k3s v1.36.5 + CNPG 1.30.0 + postgres:18.6）。
+  # 若将来改用 ghcr.io/cloudnative-pg/postgresql:* 官方镜像，可删掉这两行。
+  postgresUID: 999
+  postgresGID: 999
+
   bootstrap:
     initdb:
       database: player_db
