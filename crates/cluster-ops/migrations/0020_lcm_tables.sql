@@ -29,7 +29,17 @@
 -- 主运行记录；按 created_at 月度范围分区；与既有 admin_db.audit_log 同构
 -- ============================================================
 CREATE TABLE IF NOT EXISTS realm_lifecycle_run (
-    id UUID PRIMARY KEY,
+    -- 分区表的 PRIMARY KEY 必须包含全部分区列。本表按 RANGE (created_at) 分区，
+    -- 所以 PK 是 (id, created_at) 而不是单列 id ——
+    --   ERROR: unique constraint on partitioned table must include all
+    --          partitioning columns
+    --   DETAIL: PRIMARY KEY constraint on table "realm_lifecycle_run" lacks
+    --           column "created_at" which is part of the partition key
+    -- PG 12+ 到 18 都是这条规则，仓库里另外几个分区表
+    -- （economy-service sagas_partitioned / transaction_ledger_partitioned、
+    -- admin-service audit_log_partitioned）已经是 (id, created_at) 的写法。
+    id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     feature_subtype TEXT NOT NULL
         CHECK (feature_subtype IN ('new_realm', 'scale', 'split', 'merge', 'merge_rollback', 'retire', 'archive')),
     realm_id UUID NOT NULL,
@@ -40,10 +50,14 @@ CREATE TABLE IF NOT EXISTS realm_lifecycle_run (
         CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'rolled_back')),
     started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     trace_id TEXT,
+    CONSTRAINT realm_lifecycle_run_pkey PRIMARY KEY (id, created_at),
     -- 幂等性：同 request_id + operator_id 唯一（per RGS-SPEC-DTL-042 §5 幂等一致性 + 同 RGS-DTL-031 §3.1）
-    CONSTRAINT uq_lifecycle_run_request_operator UNIQUE (request_id, operator_id)
+    --
+    -- created_at 必须包含在唯一约束里，同 PK 的理由（PG 要求唯一约束覆盖全部分区列）。
+    -- 代价：同一 request_id 跨月重试会落到不同分区，不再被约束拦截。跨月幂等
+    -- 由应用层查历史分区兜底，不在 DDL 层强约束。
+    CONSTRAINT uq_lifecycle_run_request_operator UNIQUE (request_id, operator_id, created_at)
 ) PARTITION BY RANGE (created_at);
 
 -- 月度分区（per RGS-BAS-007 §4 既定分区策略：3 年 36 个分区滚动保留）
@@ -78,12 +92,15 @@ CREATE INDEX IF NOT EXISTS idx_lifecycle_run_trace_id
 
 -- ============================================================
 -- 表 2/6: new_realm_plan（per M-2068.2）
--- 新建 realm 计划；同 DB 内 FK 到 realm_lifecycle_run
+-- 新建 realm 计划；通过 run_id 关联 realm_lifecycle_run（无 FK，见下）
 -- ============================================================
 CREATE TABLE IF NOT EXISTS new_realm_plan (
     id UUID PRIMARY KEY,
-    run_id UUID NOT NULL
-        REFERENCES realm_lifecycle_run(id) ON DELETE RESTRICT,
+    -- 不用外键指向 realm_lifecycle_run: 该表是按 created_at 分区的分区表，
+    -- PostgreSQL 不允许分区表被外键引用，且其 PRIMARY KEY 必须包含分区键
+    -- (id, created_at)，没有可供引用的单列唯一键。引用完整性由应用层保证
+    -- (per RGS-SPEC-CROSS-005 §2 跨 DB 禁用外键的同一原则)。
+    run_id UUID NOT NULL,
     target_region TEXT NOT NULL,
     target_player_count INT NOT NULL CHECK (target_player_count > 0),
     target_tps INT NOT NULL CHECK (target_tps > 0),
@@ -102,8 +119,11 @@ CREATE INDEX IF NOT EXISTS idx_new_realm_plan_target_region ON new_realm_plan (t
 -- ============================================================
 CREATE TABLE IF NOT EXISTS split_plan (
     id UUID PRIMARY KEY,
-    run_id UUID NOT NULL
-        REFERENCES realm_lifecycle_run(id) ON DELETE RESTRICT,
+    -- 不用外键指向 realm_lifecycle_run: 该表是按 created_at 分区的分区表，
+    -- PostgreSQL 不允许分区表被外键引用，且其 PRIMARY KEY 必须包含分区键
+    -- (id, created_at)，没有可供引用的单列唯一键。引用完整性由应用层保证
+    -- (per RGS-SPEC-CROSS-005 §2 跨 DB 禁用外键的同一原则)。
+    run_id UUID NOT NULL,
     source_realm_id UUID NOT NULL,
     target_realm_count INT NOT NULL CHECK (target_realm_count >= 2),
     split_strategy TEXT NOT NULL
@@ -150,8 +170,11 @@ CREATE INDEX IF NOT EXISTS idx_merge_conflict_rule_set_rules_gin
 -- ============================================================
 CREATE TABLE IF NOT EXISTS retire_plan (
     id UUID PRIMARY KEY,
-    run_id UUID NOT NULL
-        REFERENCES realm_lifecycle_run(id) ON DELETE RESTRICT,
+    -- 不用外键指向 realm_lifecycle_run: 该表是按 created_at 分区的分区表，
+    -- PostgreSQL 不允许分区表被外键引用，且其 PRIMARY KEY 必须包含分区键
+    -- (id, created_at)，没有可供引用的单列唯一键。引用完整性由应用层保证
+    -- (per RGS-SPEC-CROSS-005 §2 跨 DB 禁用外键的同一原则)。
+    run_id UUID NOT NULL,
     target_realm_id UUID NOT NULL,
     archive_threshold_days INT NOT NULL
         CHECK (archive_threshold_days BETWEEN 30 AND 90),

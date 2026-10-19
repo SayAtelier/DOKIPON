@@ -38,7 +38,7 @@
 -- 1. CREATE TABLE 主表 (无 FK, 避免 forward ref 问题, per 17-P0-04)
 CREATE TABLE IF NOT EXISTS lcm_step_execution (
     id UUID PRIMARY KEY,
-    run_id UUID NOT NULL,                    -- 跨表 FK → realm_lifecycle_run, 见下方 ALTER
+    run_id UUID NOT NULL,                    -- 关联 realm_lifecycle_run（无 FK，见文件末尾第 3 节）
     step_seq INT NOT NULL,                   -- 步骤序号 (在 phase 内, 1..N)
     step_name TEXT NOT NULL,                 -- e.g. 'provision' / 'configure' / 'smoke_test' / 'route53_update' / 'load_balance_update' / 'health_check'
     status TEXT NOT NULL DEFAULT 'pending'
@@ -63,16 +63,20 @@ CREATE INDEX IF NOT EXISTS idx_lcm_step_status_started
 CREATE INDEX IF NOT EXISTS idx_lcm_step_expires_at
     ON lcm_step_execution (expires_at) WHERE status IN ('pending', 'in_progress', 'succeeded', 'failed', 'skipped');
 
--- 3. 跨表 FK: run_id → realm_lifecycle_run.id (用 DO + ALTER TABLE 后置, per 17-P0-04)
--- realm_lifecycle_run 在 0020_lcm_tables.sql 创建, 跨 migration 文件 ALTER 是安全的
-DO $$
-BEGIN
-    ALTER TABLE lcm_step_execution
-        ADD CONSTRAINT fk_lcm_step_run_id
-        FOREIGN KEY (run_id) REFERENCES realm_lifecycle_run(id) ON DELETE CASCADE;
-EXCEPTION
-    WHEN duplicate_object THEN NULL;
-END $$;
+-- 3. 跨表 FK: run_id → realm_lifecycle_run.id —— 已移除（per 0020 的分区表约束）
+--
+-- 原本这里有一个后置 ALTER TABLE 加外键。它必然失败：
+--   ERROR: there is no unique constraint matching given keys for
+--          referenced table "realm_lifecycle_run"
+-- 因为 realm_lifecycle_run 是 PARTITION BY RANGE (created_at) 的分区表，
+-- 其 PRIMARY KEY 必须是 (id, created_at)；PostgreSQL 既不允许外键引用分区表，
+-- 也不允许引用一个不存在的单列唯一键。0020 里的三个 plan 表已经因为同样原因
+-- 去掉了外键，这里是最后一处。
+--
+-- 级联删除的语义改由应用层负责：删除一次 LCM run 时，先按 run_id 删
+-- lcm_step_execution，再删 realm_lifecycle_run（ON DELETE CASCADE 原本的意图）。
+--
+-- 保留 idx_lcm_step_run_id 索引，它支撑上面这条按 run_id 的删除查询。
 
 -- ============================================================
 -- 已知缺口 (待 admin Lead 拍板 4 项问题, per RGS-DB-BAS-001 v0.2 §6.6.2)

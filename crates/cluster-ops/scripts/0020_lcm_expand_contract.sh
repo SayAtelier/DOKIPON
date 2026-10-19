@@ -27,7 +27,9 @@
 set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly MIGRATION_SQL="${SCRIPT_DIR}/0020_lcm_tables.sql"
+# The .sql lives in ../migrations; this drill moved out of migrations/ so that
+# sqlx::migrate!() stops loading it as a duplicate version-20 migration.
+readonly MIGRATION_SQL="${SCRIPT_DIR}/../migrations/0020_lcm_tables.sql"
 
 # 颜色（仅 stdout 是否为 TTY 时启用，便于 CI log 抓取）
 if [[ -t 1 ]]; then
