@@ -23,6 +23,49 @@
  *   ADMIN_USER / ADMIN_PASSWORD   operator credential for the API round-trip
  */
 
+function check(name, ok, detail = '') {
+  if (ok) {
+    pass += 1;
+    console.log(`  PASS  ${name}${detail ? '  ' + detail : ''}`);
+  } else {
+    failures.push(name);
+    console.log(`  FAIL  ${name}${detail ? '  ' + detail : ''}`);
+  }
+}
+
+/**
+ * A screenshot is considered "blank" if >= threshold of its pixels are the
+ * background colour (the most frequent RGB value). A real page should have
+ * less than 90% background pixels; a blank canvas from a headless browser
+ * without GPU will be >95% one colour.
+ */
+async function isBlankScreenshot(buffer, threshold = 0.90) {
+  const PNG = require('pngjs').PNG;
+  return new Promise((resolve, reject) => {
+    new PNG({ filterType: 4 })
+      .parse(buffer, (err, img) => {
+        if (err) return reject(err);
+        const total = img.width * img.height;
+        if (!total) return resolve(true);
+        // The pngjs library stores pixels as flat RGBA array: [r, g, b, a, ...]
+        const freq = new Map();
+        let maxFreq = 0;
+        for (let i = 0; i < img.data.length; i += 4) {
+          // Ignore fully transparent pixels (alpha == 0)
+          if (img.data[i + 3] === 0) continue;
+          const r = img.data[i];
+          const g = img.data[i + 1];
+          const b = img.data[i + 2];
+          const key = (r << 16) | (g << 8) | b;
+          const c = (freq.get(key) || 0) + 1;
+          freq.set(key, c);
+          if (c > maxFreq) maxFreq = c;
+        }
+        resolve(maxFreq / total >= threshold);
+      });
+  });
+}
+
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
@@ -93,7 +136,17 @@ async function waitForFlutter(page, timeout = 30000) {
     .map((h) => `MAP ${h} 127.0.0.1:${ENVOY_PORT}`)
     .join(', ');
   const browser = await chromium.launch({
-    args: ['--no-sandbox', '--disable-dev-shm-usage', `--host-resolver-rules=${hostRules}`],
+    args: [
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      `--host-resolver-rules=${hostRules}`,
+      // Flutter Web renders through canvaskit. Without a GPU, headless Chromium
+      // disables the software rasteriser, the canvas comes up blank, and the
+      // screenshot looks like a loaded-but-empty page — which is exactly what
+      // happens without this flag. Nothing is logged as an error, so a test that
+      // only checks "no console errors" reports success on an empty page.
+      '--enable-unsafe-swiftshader',
+    ],
   });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const errors = [];
@@ -149,6 +202,16 @@ async function waitForFlutter(page, timeout = 30000) {
 
     await page.screenshot({ path: path.join(SHOTS, 'envoy-shopfront.png'), fullPage: true });
     console.log(`        screenshot: ${path.join(SHOTS, 'envoy-shopfront.png')}`);
+
+    // The screenshot must not be blank: a Flutter app that loaded but failed to
+    // render (e.g. no GPU) produces a screenshot that is >95% background colour,
+    // which is indistinguishable from an HTTP 200 with no content. We reject
+    // that as a failure, because "no console errors" on an empty page is a
+    // false positive. A real page has <90% background pixels.
+    const shopShot = fs.readFileSync(path.join(SHOTS, 'envoy-shopfront.png'));
+    const shopBlank = await isBlankScreenshot(shopShot, 0.90);
+    check('storefront screenshot has real content', !shopBlank);
+
     await page.__ctx.close();
   }
 
@@ -172,6 +235,12 @@ async function waitForFlutter(page, timeout = 30000) {
 
     await page.screenshot({ path: path.join(SHOTS, 'envoy-admin.png'), fullPage: true });
     console.log(`        screenshot: ${path.join(SHOTS, 'envoy-admin.png')}`);
+
+    // Same blank-screenshot guard for the admin console.
+    const adminShot = fs.readFileSync(path.join(SHOTS, 'envoy-admin.png'));
+    const adminBlank = await isBlankScreenshot(adminShot, 0.90);
+    check('admin console screenshot has real content', !adminBlank);
+
     await page.__ctx.close();
   }
 

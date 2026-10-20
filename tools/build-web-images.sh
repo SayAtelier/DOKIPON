@@ -30,9 +30,19 @@ else
 fi
 
 # The base href each app is built with. Anything else needs its own nginx config.
+# Both apps are built with --base-href /.
+#
+# admin_web used to be built with /admin/, which made the bundle request
+# /admin/main.dart.js. The gateway serves the admin-web container's files from
+# the root, so the browser got a 404 for the bundle, the Flutter engine never
+# mounted, and the page stayed blank — with no error in the console, because a
+# 404 on a script tag is only visible in the network tab.
+#
+# Envoy separates the two apps by Host header (shop.local / admin.local), not by
+# path prefix, so both can sit at the root of their own hostname.
 base_href_for() {
   case "$1" in
-    admin_web) echo "/admin/" ;;
+    admin_web) echo "/" ;;
     shop_web)  echo "/" ;;
     *) echo "unknown app: $1" >&2; exit 2 ;;
   esac
@@ -58,8 +68,15 @@ for app in "${APPS[@]}"; do
 
   echo "=== ${app} (--base-href ${href}, GEMARC_API_BASE=${API_BASE}) ==="
 
+  # --no-web-resources-cdn makes the build use the canvaskit/ directory that is
+  # shipped in the image instead of fetching it from gstatic.com. Without it the
+  # bundle sets useLocalCanvasKit=false and the browser tries to download
+  # canvaskit.js from the CDN, which fails on a host with no access to gstatic
+  # and leaves the page blank. The canvaskit payload is already in the image
+  # (40 MB), so serving it locally costs nothing extra.
   if [ -x "$FLUTTER" ] || command -v "$FLUTTER" >/dev/null 2>&1; then
     ( cd "$src" && "$FLUTTER" build web --release --base-href "$href" \
+        --no-web-resources-cdn \
         --dart-define=GEMARC_CHANNEL="$CHANNEL" \
         --dart-define=GEMARC_API_BASE="$API_BASE" )
   else

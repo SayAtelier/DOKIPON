@@ -1,12 +1,3 @@
-# k3s manifests — DOKIPON commerce line (8 Axum services).
-# Namespace + per-service Deployment/Service. Images are built from the VM-local
-# release binaries on an ubuntu:26.04 runtime; the binaries are compiled on the
-# same VM so the glibc requirement holds by construction.
-#
-# Ports match contracts/openapi.yaml and services/deploy/deploy.sh.
-# commerce-bff and commerce-admin are exposed on the host (NodePorts 30080 and 30087).
-
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,42 +16,44 @@ spec:
         app: commerce-bff
     spec:
       containers:
-        - name: commerce-bff
-          image: docker.io/dokipon/commerce-bff:0.1.0
-          imagePullPolicy: Never
-          envFrom:
-            - configMapRef:
-                name: commerce-config
-          env:
-            - name: PORT
-              value: "8080"
-          ports:
-            - name: http
-              containerPort: 8080
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 2
-            periodSeconds: 5
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 10
-            periodSeconds: 15
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
-            capabilities:
-              drop: ["ALL"]
+      - name: commerce-bff
+        image: docker.io/dokipon/commerce-bff:0.1.0
+        imagePullPolicy: Never
+        envFrom:
+        - configMapRef:
+            name: commerce-config
+        env:
+        - name: PORT
+          value: '8080'
+        ports:
+        - name: http
+          containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+
 ---
 apiVersion: v1
 kind: Service
@@ -70,14 +63,13 @@ metadata:
   labels:
     app: commerce-bff
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: commerce-bff
   ports:
-    - name: http
-      port: 8080
-      targetPort: 8080
-      nodePort: 30080
+  - name: http
+    port: 8080
+    targetPort: 8080
 
 ---
 apiVersion: apps/v1
@@ -98,40 +90,42 @@ spec:
         app: commerce-identity
     spec:
       containers:
-        - name: commerce-identity
-          image: docker.io/dokipon/commerce-identity:0.1.0
-          imagePullPolicy: Never
-          envFrom:
-            - configMapRef:
-                name: commerce-config
-          env:
-            - name: PORT
-              value: "8081"
-          ports:
-            - name: http
-              containerPort: 8081
-          readinessProbe:
-            tcpSocket:
-              port: 8081
-            initialDelaySeconds: 2
-            periodSeconds: 5
-          livenessProbe:
-            tcpSocket:
-              port: 8081
-            initialDelaySeconds: 10
-            periodSeconds: 15
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
-            capabilities:
-              drop: ["ALL"]
+      - name: commerce-identity
+        image: docker.io/dokipon/commerce-identity:0.1.0
+        imagePullPolicy: Never
+        envFrom:
+        - configMapRef:
+            name: commerce-config
+        env:
+        - name: PORT
+          value: '8081'
+        ports:
+        - name: http
+          containerPort: 8081
+        readinessProbe:
+          tcpSocket:
+            port: 8081
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: 8081
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+
 ---
 apiVersion: v1
 kind: Service
@@ -145,9 +139,9 @@ spec:
   selector:
     app: commerce-identity
   ports:
-    - name: http
-      port: 8081
-      targetPort: 8081
+  - name: http
+    port: 8081
+    targetPort: 8081
 
 ---
 apiVersion: apps/v1
@@ -168,42 +162,44 @@ spec:
         app: commerce-catalog
     spec:
       containers:
-        - name: commerce-catalog
-          image: docker.io/dokipon/commerce-catalog:0.1.0
-          imagePullPolicy: Never
-          envFrom:
-            - configMapRef:
-                name: commerce-config
-          env:
-            - name: PORT
-              value: "8082"
-          ports:
-            - name: http
-              containerPort: 8082
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8082
-            initialDelaySeconds: 2
-            periodSeconds: 5
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8082
-            initialDelaySeconds: 10
-            periodSeconds: 15
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
-            capabilities:
-              drop: ["ALL"]
+      - name: commerce-catalog
+        image: docker.io/dokipon/commerce-catalog:0.1.0
+        imagePullPolicy: Never
+        envFrom:
+        - configMapRef:
+            name: commerce-config
+        env:
+        - name: PORT
+          value: '8082'
+        ports:
+        - name: http
+          containerPort: 8082
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8082
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8082
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+
 ---
 apiVersion: v1
 kind: Service
@@ -217,9 +213,9 @@ spec:
   selector:
     app: commerce-catalog
   ports:
-    - name: http
-      port: 8082
-      targetPort: 8082
+  - name: http
+    port: 8082
+    targetPort: 8082
 
 ---
 apiVersion: apps/v1
@@ -240,42 +236,44 @@ spec:
         app: commerce-cart
     spec:
       containers:
-        - name: commerce-cart
-          image: docker.io/dokipon/commerce-cart:0.1.0
-          imagePullPolicy: Never
-          envFrom:
-            - configMapRef:
-                name: commerce-config
-          env:
-            - name: PORT
-              value: "8083"
-          ports:
-            - name: http
-              containerPort: 8083
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8083
-            initialDelaySeconds: 2
-            periodSeconds: 5
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8083
-            initialDelaySeconds: 10
-            periodSeconds: 15
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
-            capabilities:
-              drop: ["ALL"]
+      - name: commerce-cart
+        image: docker.io/dokipon/commerce-cart:0.1.0
+        imagePullPolicy: Never
+        envFrom:
+        - configMapRef:
+            name: commerce-config
+        env:
+        - name: PORT
+          value: '8083'
+        ports:
+        - name: http
+          containerPort: 8083
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8083
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8083
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+
 ---
 apiVersion: v1
 kind: Service
@@ -289,9 +287,9 @@ spec:
   selector:
     app: commerce-cart
   ports:
-    - name: http
-      port: 8083
-      targetPort: 8083
+  - name: http
+    port: 8083
+    targetPort: 8083
 
 ---
 apiVersion: apps/v1
@@ -312,42 +310,44 @@ spec:
         app: commerce-inventory
     spec:
       containers:
-        - name: commerce-inventory
-          image: docker.io/dokipon/commerce-inventory:0.1.0
-          imagePullPolicy: Never
-          envFrom:
-            - configMapRef:
-                name: commerce-config
-          env:
-            - name: PORT
-              value: "8084"
-          ports:
-            - name: http
-              containerPort: 8084
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8084
-            initialDelaySeconds: 2
-            periodSeconds: 5
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8084
-            initialDelaySeconds: 10
-            periodSeconds: 15
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
-            capabilities:
-              drop: ["ALL"]
+      - name: commerce-inventory
+        image: docker.io/dokipon/commerce-inventory:0.1.0
+        imagePullPolicy: Never
+        envFrom:
+        - configMapRef:
+            name: commerce-config
+        env:
+        - name: PORT
+          value: '8084'
+        ports:
+        - name: http
+          containerPort: 8084
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8084
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8084
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+
 ---
 apiVersion: v1
 kind: Service
@@ -361,9 +361,9 @@ spec:
   selector:
     app: commerce-inventory
   ports:
-    - name: http
-      port: 8084
-      targetPort: 8084
+  - name: http
+    port: 8084
+    targetPort: 8084
 
 ---
 apiVersion: apps/v1
@@ -384,42 +384,44 @@ spec:
         app: commerce-order
     spec:
       containers:
-        - name: commerce-order
-          image: docker.io/dokipon/commerce-order:0.1.0
-          imagePullPolicy: Never
-          envFrom:
-            - configMapRef:
-                name: commerce-config
-          env:
-            - name: PORT
-              value: "8085"
-          ports:
-            - name: http
-              containerPort: 8085
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8085
-            initialDelaySeconds: 2
-            periodSeconds: 5
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8085
-            initialDelaySeconds: 10
-            periodSeconds: 15
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
-            capabilities:
-              drop: ["ALL"]
+      - name: commerce-order
+        image: docker.io/dokipon/commerce-order:0.1.0
+        imagePullPolicy: Never
+        envFrom:
+        - configMapRef:
+            name: commerce-config
+        env:
+        - name: PORT
+          value: '8085'
+        ports:
+        - name: http
+          containerPort: 8085
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8085
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8085
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+
 ---
 apiVersion: v1
 kind: Service
@@ -433,9 +435,9 @@ spec:
   selector:
     app: commerce-order
   ports:
-    - name: http
-      port: 8085
-      targetPort: 8085
+  - name: http
+    port: 8085
+    targetPort: 8085
 
 ---
 apiVersion: apps/v1
@@ -456,40 +458,42 @@ spec:
         app: commerce-payment-adapter
     spec:
       containers:
-        - name: commerce-payment-adapter
-          image: docker.io/dokipon/commerce-payment-adapter:0.1.0
-          imagePullPolicy: Never
-          envFrom:
-            - configMapRef:
-                name: commerce-config
-          env:
-            - name: PORT
-              value: "8086"
-          ports:
-            - name: http
-              containerPort: 8086
-          readinessProbe:
-            tcpSocket:
-              port: 8086
-            initialDelaySeconds: 2
-            periodSeconds: 5
-          livenessProbe:
-            tcpSocket:
-              port: 8086
-            initialDelaySeconds: 10
-            periodSeconds: 15
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
-            capabilities:
-              drop: ["ALL"]
+      - name: commerce-payment-adapter
+        image: docker.io/dokipon/commerce-payment-adapter:0.1.0
+        imagePullPolicy: Never
+        envFrom:
+        - configMapRef:
+            name: commerce-config
+        env:
+        - name: PORT
+          value: '8086'
+        ports:
+        - name: http
+          containerPort: 8086
+        readinessProbe:
+          tcpSocket:
+            port: 8086
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: 8086
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+
 ---
 apiVersion: v1
 kind: Service
@@ -503,9 +507,9 @@ spec:
   selector:
     app: commerce-payment-adapter
   ports:
-    - name: http
-      port: 8086
-      targetPort: 8086
+  - name: http
+    port: 8086
+    targetPort: 8086
 
 ---
 apiVersion: apps/v1
@@ -526,74 +530,72 @@ spec:
         app: commerce-admin
     spec:
       containers:
-        - name: commerce-admin
-          image: docker.io/dokipon/commerce-admin:0.1.0
-          imagePullPolicy: Never
-          envFrom:
-            - configMapRef:
-                name: commerce-config
-          env:
-            - name: PORT
-              value: "8087"
-            # Three credential pairs -> three roles (admin > operator > viewer).
-            # Injecting only ADMIN_* leaves operator and viewer unresolvable, so
-            # an operator smoke test authenticates as admin and the role matrix
-            # silently stops being tested.
-            - name: ADMIN_USER
-              valueFrom:
-                secretKeyRef:
-                  name: commerce-admin-credentials
-                  key: ADMIN_USER
-            - name: ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: commerce-admin-credentials
-                  key: ADMIN_PASSWORD
-            - name: OPERATOR_USER
-              valueFrom:
-                secretKeyRef:
-                  name: commerce-admin-credentials
-                  key: OPERATOR_USER
-            - name: OPERATOR_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: commerce-admin-credentials
-                  key: OPERATOR_PASSWORD
-            - name: VIEWER_USER
-              valueFrom:
-                secretKeyRef:
-                  name: commerce-admin-credentials
-                  key: VIEWER_USER
-            - name: VIEWER_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: commerce-admin-credentials
-                  key: VIEWER_PASSWORD
-          ports:
-            - name: http
-              containerPort: 8087
-          readinessProbe:
-            tcpSocket:
-              port: 8087
-            initialDelaySeconds: 2
-            periodSeconds: 5
-          livenessProbe:
-            tcpSocket:
-              port: 8087
-            initialDelaySeconds: 10
-            periodSeconds: 15
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
-            capabilities:
-              drop: ["ALL"]
+      - name: commerce-admin
+        image: docker.io/dokipon/commerce-admin:0.1.0
+        imagePullPolicy: Never
+        envFrom:
+        - configMapRef:
+            name: commerce-config
+        env:
+        - name: PORT
+          value: '8087'
+        - name: ADMIN_USER
+          valueFrom:
+            secretKeyRef:
+              name: commerce-admin-credentials
+              key: ADMIN_USER
+        - name: ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: commerce-admin-credentials
+              key: ADMIN_PASSWORD
+        - name: OPERATOR_USER
+          valueFrom:
+            secretKeyRef:
+              name: commerce-admin-credentials
+              key: OPERATOR_USER
+        - name: OPERATOR_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: commerce-admin-credentials
+              key: OPERATOR_PASSWORD
+        - name: VIEWER_USER
+          valueFrom:
+            secretKeyRef:
+              name: commerce-admin-credentials
+              key: VIEWER_USER
+        - name: VIEWER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: commerce-admin-credentials
+              key: VIEWER_PASSWORD
+        ports:
+        - name: http
+          containerPort: 8087
+        readinessProbe:
+          tcpSocket:
+            port: 8087
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: 8087
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+
 ---
 apiVersion: v1
 kind: Service
@@ -603,31 +605,15 @@ metadata:
   labels:
     app: commerce-admin
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: commerce-admin
   ports:
-    - name: http
-      port: 8087
-      targetPort: 8087
-      nodePort: 30087
+  - name: http
+    port: 8087
+    targetPort: 8087
+
 ---
-# admin-web — Flutter Web admin console, served by nginx as static files.
-#
-# A separate Deployment from commerce-admin on purpose: the console is a built
-# SPA while the API is a Rust binary, so they version and scale apart and a
-# crash in one does not take the other down. The browser talks to the API
-# through the cluster's own Service name, so no client-side configuration is
-# needed.
-#
-# The image is built on the VM from apps/admin_web/build/web
-# (flutter build web --release --base-href /admin/), not pulled from a registry:
-# the payload is 40 MB of canvaskit and there is no registry to push it to.
-# tools/build-admin-web.sh reproduces it.
-#
-# cpu request is 50m to match the other commerce workloads. This node is shared
-# with unrelated deployments, and the scheduler adds up requests rather than
-# usage, so a generous request here starves everything else on the node.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -646,36 +632,37 @@ spec:
         app: admin-web
     spec:
       containers:
-        - name: admin-web
-          image: docker.io/dokipon/admin-web:0.1.0
-          imagePullPolicy: Never
-          ports:
-            - name: http
-              containerPort: 8080
-          readinessProbe:
-            httpGet:
-              path: /
-              port: http
-            initialDelaySeconds: 3
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 20
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 300m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
+      - name: admin-web
+        image: docker.io/dokipon/admin-web:0.1.2
+        imagePullPolicy: Never
+        ports:
+        - name: http
+          containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 20
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+
 ---
 apiVersion: v1
 kind: Service
@@ -685,24 +672,15 @@ metadata:
   labels:
     app: admin-web
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: admin-web
   ports:
-    - name: http
-      port: 8080
-      targetPort: 8080
-      nodePort: 30088
+  - name: http
+    port: 8080
+    targetPort: 8080
+
 ---
-# shop-web — Flutter Web storefront, served by nginx as static files.
-#
-# Built with --base-href / and GEMARC_API_BASE=/ (same-origin), so the bundle
-# calls /v1/... on whatever host served it. That is what lets Envoy route this
-# by Host header (shop.local) instead of a path prefix, and sends only /v1/* to
-# the BFF.
-#
-# The image is built on the VM from apps/shop_web/build/web rather than pulled:
-# the payload is 40 MB of canvaskit and there is no registry to push it to.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -721,36 +699,37 @@ spec:
         app: shop-web
     spec:
       containers:
-        - name: shop-web
-          image: docker.io/dokipon/shop-web:0.1.0
-          imagePullPolicy: Never
-          ports:
-            - name: http
-              containerPort: 8080
-          readinessProbe:
-            httpGet:
-              path: /
-              port: http
-            initialDelaySeconds: 3
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 20
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 300m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
+      - name: shop-web
+        image: docker.io/dokipon/shop-web:0.1.0
+        imagePullPolicy: Never
+        ports:
+        - name: http
+          containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 20
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+
 ---
 apiVersion: v1
 kind: Service
@@ -764,7 +743,6 @@ spec:
   selector:
     app: shop-web
   ports:
-    - name: http
-      port: 8080
-      targetPort: 8080
-
+  - name: http
+    port: 8080
+    targetPort: 8080

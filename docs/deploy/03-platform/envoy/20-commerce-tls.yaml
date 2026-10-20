@@ -1,0 +1,63 @@
+# commerce 命名空间的 CA Issuer 与 Gateway 证书
+#
+# cert-manager 的 Issuer 只能签发同命名空间的 Certificate，而内部 CA Secret
+# (rgs-secret-ca) 原本在 rust-game-server 命名空间。所以这里把 CA Secret 复制到
+# commerce —— 同一套 CA 密钥、同一份 ca.crt，因此签出来的证书与 RGS 那六个域
+# 证书同源，信任链一致。
+#
+# 为什么不改成 ClusterIssuer：那要求 CA Secret 在一个所有命名空间都能读的位置
+# （通常是 cert-manager 自己的命名空间），会动到 RGS 现有的七个 Issuer，
+# 超出本次改动范围。
+#
+# 内部 CA 是自签的（subject == issuer == CN=RustGameServer Internal CA），
+# 浏览器默认不信任，所以直接访问 https://shop.local 会有安全警告。这是本地
+# 开发集群的预期状态，不是配置错误。生产环境把 issuerRef 换成 ACME Issuer
+# （Let's Encrypt / ZeroSSL）即可，其余字段不用动。
+
+# 注意：commerce-ca 这个 Secret **不在本文件里**。
+#
+# 它是 rust-game-server/rgs-secret-ca 的一份副本，装着内部 CA 的私钥。
+# 如果把它写成 manifest 并 apply，apply 会用 manifest 的内容覆盖集群里的
+# Secret —— 而 manifest 里没有 data 字段（私钥不能进仓库），于是 ca.crt /
+# tls.crt / tls.key 会被清空，Issuer 立刻失去 CA，签发和续签全部失败。
+#
+# 正确做法是由 tools/setup-commerce-tls.sh 在集群内创建这个 Secret：
+# 它从 rust-game-server 读出三个键、用 kubectl create（而不是 apply，避免注入
+# last-applied 注解）写入 commerce 命名空间，然后 apply 本文件的 Issuer 和
+# Certificate。
+#
+# 私有材料不进仓库这一点由 tools/scan-for-private-keys.sh 强制。
+
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: commerce-ca-issuer
+  namespace: commerce
+spec:
+  ca:
+    secretName: commerce-ca
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: commerce-wildcard-tls
+  namespace: commerce
+spec:
+  secretName: commerce-wildcard-tls
+  duration: 8760h        # 1 年
+  renewBefore: 720h      # 提前 30 天续签
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: commerce-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+  dnsNames:
+    - shop.local
+    - admin.local
+    - localhost
+  ipAddresses:
+    - 127.0.0.1
