@@ -611,3 +611,160 @@ spec:
       port: 8087
       targetPort: 8087
       nodePort: 30087
+---
+# admin-web — Flutter Web admin console, served by nginx as static files.
+#
+# A separate Deployment from commerce-admin on purpose: the console is a built
+# SPA while the API is a Rust binary, so they version and scale apart and a
+# crash in one does not take the other down. The browser talks to the API
+# through the cluster's own Service name, so no client-side configuration is
+# needed.
+#
+# The image is built on the VM from apps/admin_web/build/web
+# (flutter build web --release --base-href /admin/), not pulled from a registry:
+# the payload is 40 MB of canvaskit and there is no registry to push it to.
+# tools/build-admin-web.sh reproduces it.
+#
+# cpu request is 50m to match the other commerce workloads. This node is shared
+# with unrelated deployments, and the scheduler adds up requests rather than
+# usage, so a generous request here starves everything else on the node.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-web
+  namespace: commerce
+  labels:
+    app: admin-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admin-web
+  template:
+    metadata:
+      labels:
+        app: admin-web
+    spec:
+      containers:
+        - name: admin-web
+          image: docker.io/dokipon/admin-web:0.1.0
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-web
+  namespace: commerce
+  labels:
+    app: admin-web
+spec:
+  type: NodePort
+  selector:
+    app: admin-web
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30088
+---
+# shop-web — Flutter Web storefront, served by nginx as static files.
+#
+# Built with --base-href / and GEMARC_API_BASE=/ (same-origin), so the bundle
+# calls /v1/... on whatever host served it. That is what lets Envoy route this
+# by Host header (shop.local) instead of a path prefix, and sends only /v1/* to
+# the BFF.
+#
+# The image is built on the VM from apps/shop_web/build/web rather than pulled:
+# the payload is 40 MB of canvaskit and there is no registry to push it to.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shop-web
+  namespace: commerce
+  labels:
+    app: shop-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shop-web
+  template:
+    metadata:
+      labels:
+        app: shop-web
+    spec:
+      containers:
+        - name: shop-web
+          image: docker.io/dokipon/shop-web:0.1.0
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shop-web
+  namespace: commerce
+  labels:
+    app: shop-web
+spec:
+  type: ClusterIP
+  selector:
+    app: shop-web
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+

@@ -1,0 +1,43 @@
+# EnvoyProxy — 数据面规格（放在 commerce，与引用它的 Gateway 同命名空间）
+#
+# spec.infrastructure.parametersRef 是**本地**引用：Gateway API 的该字段没有
+# namespace，写了会被 Envoy Gateway 的严格解码拒绝
+#   strict decoding error: unknown field "spec.infrastructure.parametersRef.namespace"
+# 所以 EnvoyProxy 必须和 Gateway 同在 commerce 命名空间。
+#
+# v1.5.0 里资源字段是 envoyDeployment.container.resources，不是
+# envoyDeployment.pod.resources，后者会报 unknown field。
+#
+# Service 定为 ClusterIP：k3s 以 disable: servicelb 运行，LoadBalancer Service
+# 永远拿不到地址，Gateway 会一直停在 AddressNotAssigned。
+#
+# 数据面用 Deployment 而非 DaemonSet：单节点集群两者等价，但 DaemonSet 的资源
+# 预留更保守，且滚动升级会同时重启所有节点。
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: commerce-proxy
+  namespace: commerce
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        name: commerce-envoy
+        replicas: 1
+        container:
+          resources:
+            requests:
+              cpu: 400m
+              memory: 512Mi
+            limits:
+              cpu: '2'
+              memory: 1Gi
+      envoyService:
+        type: ClusterIP
+  logging:
+    # 只设 default：'gateway' 不是有效的 Envoy Gateway 日志 component，
+    # 配上去数据面启动即报 invalid component specified 'gateway' 并 CrashLoop。
+    level:
+      default: warn
