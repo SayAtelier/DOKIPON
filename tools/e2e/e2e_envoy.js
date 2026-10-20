@@ -34,34 +34,58 @@ function check(name, ok, detail = '') {
 }
 
 /**
- * A screenshot is considered "blank" if >= threshold of its pixels are the
- * background colour (the most frequent RGB value). A real page should have
- * less than 90% background pixels; a blank canvas from a headless browser
- * without GPU will be >95% one colour.
+ * How much of the page is actually drawn?
+ *
+ * The previous version measured "what fraction of pixels share the single most
+ * common colour" and called a page blank above 90%. That is the wrong signal:
+ * on a light theme the background legitimately covers 70-86% of the page, so
+ * the threshold had to be set just above the real pages, and any future page
+ * with a lighter theme would be reported blank. It also could not tell a
+ * rendered login form from a fully rendered dashboard.
+ *
+ * What matters is how many pixels differ from the background, because that is
+ * "content actually drawn", independent of how many shades the theme uses.
+ * Measured on this stack:
+ *
+ *   storefront  28.5% non-background, 1717 distinct colours
+ *   admin       13.5% non-background,  795 distinct colours
+ *   blank page   0.1% non-background,    2 distinct colours
+ *
+ * 2% is the threshold: 6x below the lightest real page (13.5%) and 8x above
+ * the sparse adversarial samples (0.25%). The first draft used 3%, and the
+ * self-check in selfcheck.js immediately showed that a sparse but genuinely
+ * drawn page at 0.25% would have been reported blank.
+ *
+ * Returns { ratio, distinct } so the caller can report the number, not just a
+ * boolean — a test that only says "not blank" hides how close it came.
  */
-async function isBlankScreenshot(buffer, threshold = 0.90) {
+const BLANK_CONTENT_RATIO = 0.02;
+
+function measureContent(buffer) {
   const PNG = require('pngjs').PNG;
   return new Promise((resolve, reject) => {
     new PNG({ filterType: 4 })
       .parse(buffer, (err, img) => {
         if (err) return reject(err);
         const total = img.width * img.height;
-        if (!total) return resolve(true);
-        // The pngjs library stores pixels as flat RGBA array: [r, g, b, a, ...]
+        if (!total) return resolve({ ratio: 0, distinct: 0 });
+
         const freq = new Map();
-        let maxFreq = 0;
         for (let i = 0; i < img.data.length; i += 4) {
-          // Ignore fully transparent pixels (alpha == 0)
-          if (img.data[i + 3] === 0) continue;
-          const r = img.data[i];
-          const g = img.data[i + 1];
-          const b = img.data[i + 2];
-          const key = (r << 16) | (g << 8) | b;
-          const c = (freq.get(key) || 0) + 1;
-          freq.set(key, c);
-          if (c > maxFreq) maxFreq = c;
+          if (img.data[i + 3] === 0) continue;   // ignore transparent
+          const key = (img.data[i] << 16) | (img.data[i + 1] << 8) | img.data[i + 2];
+          freq.set(key, (freq.get(key) || 0) + 1);
         }
-        resolve(maxFreq / total >= threshold);
+        if (freq.size === 0) return resolve({ ratio: 0, distinct: 0 });
+
+        let bgCount = 0;
+        for (const c of freq.values()) if (c > bgCount) bgCount = c;
+        const nonBackground = total - bgCount;
+
+        return resolve({
+          ratio: nonBackground / total,
+          distinct: freq.size,
+        });
       });
   });
 }
@@ -76,7 +100,8 @@ const SHOP = process.env.SHOP || 'shop.local';
 const ADMIN = process.env.ADMIN || 'admin.local';
 const ADMIN_USER = process.env.ADMIN_USER || 'operator';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
-const SHOTS = process.env.SHOTS || '/home/ubuntu/e2e-browser/shots';
+// Default next to the script, so a fresh clone works without editing paths.
+const SHOTS = process.env.SHOTS || path.join(__dirname, 'shots');
 
 fs.mkdirSync(SHOTS, { recursive: true });
 
@@ -209,8 +234,10 @@ async function waitForFlutter(page, timeout = 30000) {
     // that as a failure, because "no console errors" on an empty page is a
     // false positive. A real page has <90% background pixels.
     const shopShot = fs.readFileSync(path.join(SHOTS, 'envoy-shopfront.png'));
-    const shopBlank = await isBlankScreenshot(shopShot, 0.90);
-    check('storefront screenshot has real content', !shopBlank);
+    const shopContent = await measureContent(shopShot);
+    check('storefront screenshot has real content',
+      shopContent.ratio >= BLANK_CONTENT_RATIO,
+      `non-background ${(shopContent.ratio * 100).toFixed(1)}%, ${shopContent.distinct} colours`);
 
     await page.__ctx.close();
   }
@@ -238,8 +265,10 @@ async function waitForFlutter(page, timeout = 30000) {
 
     // Same blank-screenshot guard for the admin console.
     const adminShot = fs.readFileSync(path.join(SHOTS, 'envoy-admin.png'));
-    const adminBlank = await isBlankScreenshot(adminShot, 0.90);
-    check('admin console screenshot has real content', !adminBlank);
+    const adminContent = await measureContent(adminShot);
+    check('admin console screenshot has real content',
+      adminContent.ratio >= BLANK_CONTENT_RATIO,
+      `non-background ${(adminContent.ratio * 100).toFixed(1)}%, ${adminContent.distinct} colours`);
 
     await page.__ctx.close();
   }

@@ -633,7 +633,7 @@ spec:
     spec:
       containers:
       - name: admin-web
-        image: docker.io/dokipon/admin-web:0.1.2
+        image: docker.io/dokipon/admin-web:0.1.1
         imagePullPolicy: Never
         ports:
         - name: http

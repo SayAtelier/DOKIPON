@@ -53,6 +53,10 @@ base_href_for() {
 # (shop.local / admin.local) with no client-side configuration, and it is why the
 # bundle must be rebuilt whenever the gateway hostname changes.
 API_BASE="${GEMARC_API_BASE:-/}"
+# The image tag is pinned here and mirrored in services/deploy/k3s/10-services.yaml.
+# Keep them in step: imagePullPolicy: Never plus an unchanged tag means a
+# rebuilt bundle is never actually picked up.
+TAG="${TAG:-0.1.1}"
 CHANNEL="${GEMARC_CHANNEL:-web}"
 
 mkdir -p "$WORK"
@@ -63,7 +67,7 @@ for app in "${APPS[@]}"; do
 
   href="$(base_href_for "$app")"
   name="${app/_/-}"
-  image="dokipon/${name}:0.1.0"
+  image="dokipon/${name}:${TAG}"
   stage="${WORK}/${app}"
 
   echo "=== ${app} (--base-href ${href}, GEMARC_API_BASE=${API_BASE}) ==="
@@ -125,6 +129,7 @@ DOCKEREOF
   docker build -t "$image" "$stage"
   docker save "$image" | sudo /usr/local/bin/k3s ctr -n k8s.io images import -
   echo "  ok ${image}"
+  echo "    (manifest must reference the same tag: services/deploy/k3s/10-services.yaml)"
 done
 
 echo

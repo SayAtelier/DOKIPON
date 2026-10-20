@@ -26,7 +26,8 @@ const ADMIN = process.env.ADMIN || 'http://127.0.0.1:30087';
 const CONSOLE = process.env.CONSOLE || 'http://127.0.0.1:30088';
 const ADMIN_USER = process.env.ADMIN_USER || 'operator';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
-const SHOTS = process.env.SHOTS || '/home/ubuntu/e2e-browser/shots';
+// Default next to the script, so a fresh clone works without editing paths.
+const SHOTS = process.env.SHOTS || path.join(__dirname, 'shots');
 
 fs.mkdirSync(SHOTS, { recursive: true });
 
