@@ -700,7 +700,7 @@ spec:
     spec:
       containers:
       - name: shop-web
-        image: docker.io/dokipon/shop-web:0.1.0
+        image: docker.io/dokipon/shop-web:0.1.1
         imagePullPolicy: Never
         ports:
         - name: http

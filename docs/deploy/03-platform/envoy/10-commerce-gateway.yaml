@@ -57,6 +57,14 @@ spec:
   - matches:
     - path:
         type: PathPrefix
+        value: /v1/products
+    backendRefs:
+    - name: commerce-catalog
+      port: 8082
+      weight: 1
+  - matches:
+    - path:
+        type: PathPrefix
         value: /v1/
     backendRefs:
     - name: commerce-bff
