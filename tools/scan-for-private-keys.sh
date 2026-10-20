@@ -37,77 +37,96 @@ collect() {
   fi
 }
 
-# Decode a base64 blob and report the PEM banner it contains.
-pem_banner() {
-  local blob="$1"
-  printf '%s' "$blob" \
-    | tr -d '\r' \
-    | base64 -d 2>/dev/null \
-    | grep -oE -- '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' \
-    | head -1
-}
-
+# Report a finding. Called for each hit.
 report() {
-  local file="$1" where="$2" banner="$3"
+  local file="$1"
+  local where="$2"
+  local banner="$3"
   FINDINGS=$((FINDINGS + 1))
-  printf 'LEAK  %s  [%s]  %s\n' "$file" "$where" "$banner" >&2
+  echo "LEAK  $file  [$where]  $banner" >&2
 }
 
+
+# Scan every candidate file for private key material, in ONE python3 process.
+#
+# The first implementation started a python3 interpreter per file, and the one
+# before that shelled out to tr/base64/grep for every base64 blob; both took
+# over ten minutes across 2200 files. A single interpreter that reads the file
+# list and does the decoding in-process takes seconds.
+#
 # A hit only counts when it is a real PEM block, not a source-code literal.
-# Test assertions like `key.contains("-----BEGIN PRIVATE KEY-----")` and
-# doc comments that quote the header are not credentials; requiring the armored
+# Test assertions like `key.contains("-----BEGIN PRIVATE KEY-----")` and doc
+# comments quoting the header are not credentials; requiring the armored
 # payload to follow is what separates the two.
-#   $1 = file, $2 = raw text (plaintext mode), $3 = base64 blob (base64 mode)
-is_real_pem() {
-  local file="$1" mode="$2" blob="${3:-}" text="" banner
+#
+# Output: one "<file>\t<where>\t<banner>" line per hit on stdout.
+#
+# The file list arrives on stdin, NUL-separated, not as argv: 2300 paths overrun
+# the command line ("Argument list too long") and the scan silently reported
+# clean. A directory argument is accepted too, for scanning one subtree.
+# One pass over the whole file list, in a single python3 process.
+mapfile -t FILES < <(collect)
+SCANNED=${#FILES[@]}
+if [[ ${#FILES[@]} -gt 0 ]]; then
+  # Write the scanner to a fixed temp file using a here-string (does NOT
+  # consume the function's stdin). Then pipe the path list to python3.
+  # This worked perfectly in isolation.
+  SCANNER_FILE="D:/tmp-dokipon/dokipon_scanner.py"
+  cat > "$SCANNER_FILE" <<'PYEOF'
+import base64, os, re, sys
 
-  if [[ "$mode" == "plaintext" ]]; then
-    text="$(cat "$file" 2>/dev/null)"
-  else
-    text="$(printf '%s' "$blob" | tr -d '\r' | base64 -d 2>/dev/null)"
-  fi
+PEM = rb"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----"
+PAYLOAD = rb"[A-Za-z0-9+/=\s]{80,}"
 
-  banner="$(printf '%s' "$text" \
-    | grep -aoE -- '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' | head -1)"
-  [[ -z "$banner" ]] && return 1
+def hits(data):
+    m = re.search(PEM + PAYLOAD, data)
+    if m:
+        return [("plaintext", m.group(0).decode("ascii", "replace"))]
+    for blob in set(re.findall(rb"[A-Za-z0-9+/]{120,}={0,2}", data)):
+        try:
+            dec = base64.b64decode(blob, validate=False)
+        except Exception:
+            continue
+        m = re.search(PEM + PAYLOAD, dec)
+        if m:
+            return [("base64", m.group(0).decode("ascii", "replace"))]
+    return []
 
-  # Base64 payload between the BEGIN and END armor, long enough to be a key.
-  if printf '%s' "$text" \
-      | tr -d '\n\r' \
-      | grep -qE -- "$(printf '%s' "$banner" | sed 's/[][\.*^$()+?{}|]/\\&/g')[A-Za-z0-9+/=]{80,}"; then
-    return 0
-  fi
-  return 1
-}
+data = sys.stdin.buffer.read()
+paths = [p.decode("utf-8", "replace") for p in data.split(b"\0") if p]
 
-while IFS= read -r file; do
-  [[ -z "$file" ]] && continue
-  [[ -f "$file" ]] || continue
+for path in paths:
+    if not os.path.isfile(path):
+        continue
+    try:
+        fdata = open(path, "rb").read()
+    except OSError:
+        continue
+    for where, banner in hits(fdata):
+        import base64
+        banner_b64 = base64.b64encode(banner.encode("utf-8")).decode("ascii")
+        print(f"{path}\t{where}\t{banner_b64}")
+PYEOF
+  # Capture output in the main shell so `report` function is available.
+  SCANNER_OUTPUT="$(printf '%s\0' "${FILES[@]}" | python3 "$SCANNER_FILE")"
+  rm -f "$SCANNER_FILE"
+  # The scanner emits "<file>\t<where>\t<banner>" per line. Banner may contain
+  # newlines/tabs, so read line by line and split on the first two tabs only.
+  # Split on the first two tabs with parameter expansion. `read` mangles the
+  # leading field when IFS is a tab, which truncated the file name in the
+  # report; this keeps the path and the banner intact.
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    file="${line%%$'\t'*}"
+    rest="${line#*$'\t'}"
+    where="${rest%%$'\t'*}"
+    banner_b64="${rest#*$'\t'}"
+    banner="$(printf '%s' "$banner_b64" | base64 -d 2>/dev/null)"
+    report "$file" "$where" "$banner"
+  done <<< "$SCANNER_OUTPUT"
+fi
 
-  case "$file" in
-    *.png|*.jpg|*.jpeg|*.gif|*.ico|*.pdf|*.zip|*.gz|*.tgz|*.jar|*.wasm|*.so|*.dll|*.exe) continue ;;
-  esac
-
-  SCANNED=$((SCANNED + 1))
-
-  # 1. Plaintext PEM.
-  if is_real_pem "$file" plaintext; then
-    banner="$(grep -aoE -- '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' "$file" 2>/dev/null | head -1)"
-    report "$file" "plaintext" "$banner"
-    continue
-  fi
-
-  # 2. base64-wrapped PEM. Pull every base64-looking blob long enough to hold a
-  #    PEM header and decode it.
-  while IFS= read -r blob; do
-    [[ ${#blob} -lt 120 ]] && continue
-    if is_real_pem "$file" base64 "$blob"; then
-      report "$file" "base64" "$(pem_banner "$blob")"
-      break
-    fi
-  done < <(grep -aoE '[A-Za-z0-9+/]{120,}={0,2}' "$file" 2>/dev/null | sort -u)
-done < <(collect)
-
+echo
 echo
 if [[ "$FINDINGS" -gt 0 ]]; then
   echo "x $FINDINGS file(s) carry private key material." >&2
