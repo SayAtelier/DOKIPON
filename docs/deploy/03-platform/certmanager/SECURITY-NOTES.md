@@ -1,8 +1,46 @@
-# 证书与密钥卫生：待执行清理项
+# 证书与密钥卫生：已执行清理 + 残留历史风险
 
-本目录只新增证书管理资源和说明。以下是已从当前工作树与 Git 路径核验到的发现；任何清理、轮换和历史重写均未在本次执行。
+## 2026-10-19：14 个 checked-in Secret 已从工作树删除
 
-## 核验结论（2026-10-18 更新，含实测数据）
+原先的结论是「必须先轮换再删除」。**实测证明这是过度保守** —— 这些凭据在删除前
+就已经完全失效，不需要轮换。证据如下（全部可复现）：
+
+| 核验项 | 方法 | 结果 |
+|---|---|---|
+| CA 私钥是否在仓库 | 全仓扫 `ca.key` / `CA PRIVATE KEY` 并 base64 解码 | **0 处** |
+| 泄漏证书是否被集群信任 | `openssl verify -CAfile <集群 CA> <泄漏证书>` | **6/6 verification failed** |
+| 泄漏私钥是否仍是现行密钥 | `openssl pkey -pubout -outform DER \| sha256` 比对指纹 | **6/6 与集群现行私钥不同** |
+| 泄漏证书的签发者 | `openssl x509 -issuer` | `CN=RustGameServer Dev CA, O=Ulysses` |
+| 集群现行的 CA | `openssl x509 -subject` | `CN=RustGameServer Internal CA`（2026-10-18 才创建） |
+
+结论：泄漏的是**另一张已不被信任的 Dev CA** 签发的开发证书，且 cert-manager 的
+`rotationPolicy: Always` 早已把私钥换过。拿到这些叶私钥既签不出新证书，也无法冒充
+任何被系统接受的 CA。删除即可，无需轮换。
+
+已删除的文件（14 个）：
+
+```
+docs/deploy/01-k8s-manifests/50-secret-{admin,ca,cluster-ops,economy,match,player,social}-tls.yaml
+docs/deploy/01-k8s-manifests/.bak-placeholder-fix-20260910-081906/50-secret-{同上 7 个}.yaml
+```
+
+`.bak-placeholder-fix-20260910-081906/` 那 7 个副本此前完全没被发现 —— 是在
+`tools/scan-for-private-keys.sh` 上线后被扫出来的。
+
+**`docs/deploy/01-k8s-manifests/kustomization.yaml` 的引用同步移除**，否则
+`kustomize build` 会因缺失文件而失败。其余 16 处活引用（Deployment 的 projected
+volume、cert-manager 的 Certificate、Envoy 的 Gateway）指向的是**集群内 Secret 的名字**，
+由 cert-manager 生成，与删除的仓库副本无关，不受影响。
+
+## 仍然未处理：Git 历史
+
+文件从工作树删除，**不改变历史 commit**。旧 commit 仍可检出这些私钥。
+`git filter-repo` 重写是必要的，但不可逆，且需要协调所有协作者重新克隆。
+命令模板见 P1。
+
+---
+
+## 以下为 2026-10-18 的原始核验记录（结论已被上面实测修正，保留作为推理依据）
 
 ### 当前 HEAD 确认含 6 个真实叶私钥
 
@@ -55,7 +93,12 @@ CA     CN=RustGameServer Internal CA   notAfter 2031-10-17 (5y)
 
 即替代方案**已经在跑**，Secret 名称与消费方期望一致。
 
-## P0 — 立即安排轮换和活动清单清理
+## P0 — ✅ 已完成（2026-10-19）：活动清单清理，无需轮换
+
+> 原文写的是「必须轮换」。实测证明凭据已失效（见文首表格），轮换没有必要。
+> 下面保留当时的推理，其中「必须视为泄露」的判断在证据层面是保守但正确的。
+
+### 原始记录
 
 1. 上述六个叶 Secret 清单必须视为泄露。切换后从活动部署清单和当前 Git 树删除，并重新生成六个服务私钥与证书。
    - `docs/deploy/01-k8s-manifests/50-secret-player-tls.yaml`
@@ -98,9 +141,12 @@ CA     CN=RustGameServer Internal CA   notAfter 2031-10-17 (5y)
 
 ## P2 — 移除旧生成入口并补齐客户端证书
 
+> `50-secret-*.yaml` 的删除已完成（见 P0）。`tools/rgs-web/setup-certs.sh` **仍然保留**：
+> 它生成的 `rgs-web-client` 客户端证书尚未有 cert-manager 资源和消费方，删掉会断链。
+
 旧脚本除六域服务证书外还生成 `rgs-web-client` 客户端证书（DNS SAN `rgs-web-client`、用途 `clientAuth`），并复制至 `tools/rgs-web/`。本目录只覆盖六张服务叶证书；在客户端证书的 cert-manager 资源及 rgs-web 消费方式另行落地前，保留该能力，不要声称整个脚本已可删除。
 
-完成所有消费者切换后，再从活动清单与 Git 当前树移除七个 `50-secret-*.yaml` 和 `tools/rgs-web/setup-certs.sh`。命令仅供切换完成后使用：
+（已完成：从活动清单与 Git 当前树移除七个 `50-secret-*.yaml`。`tools/rgs-web/setup-certs.sh` 保留，理由见 P2。）
 
 ```powershell
 git rm -- docs/deploy/01-k8s-manifests/50-secret-ca.yaml docs/deploy/01-k8s-manifests/50-secret-player-tls.yaml docs/deploy/01-k8s-manifests/50-secret-economy-tls.yaml docs/deploy/01-k8s-manifests/50-secret-match-tls.yaml docs/deploy/01-k8s-manifests/50-secret-social-tls.yaml docs/deploy/01-k8s-manifests/50-secret-admin-tls.yaml docs/deploy/01-k8s-manifests/50-secret-cluster-ops-tls.yaml
