@@ -28,6 +28,10 @@
 
 set -euo pipefail
 
+# The repo lives at a different path on every machine; keep it overridable so
+# the script is not welded to one VM's layout.
+REPO_ROOT="${REPO_ROOT:-/home/ubuntu/dokipon}"
+
 k3s() { sudo /usr/local/bin/k3s kubectl "$@"; }
 NS=commerce
 SRC_NS=rust-game-server
@@ -64,7 +68,7 @@ k3s -n "$NS" patch secret "$DST" --type=merge \
 echo "  keys: $(k3s -n "$NS" get secret "$DST" -o jsonpath='{.data}' | python3 -c 'import json,sys; print(sorted(json.load(sys.stdin).keys()))')"
 
 echo "=== 2. apply issuer + certificate ==="
-k3s apply -f /home/ubuntu/dokipon/docs/deploy/03-platform/envoy/20-commerce-tls.yaml 2>&1 | tail -3
+k3s apply -f "${REPO_ROOT}/docs/deploy/03-platform/envoy/20-commerce-tls.yaml" 2>&1 | tail -3
 
 echo "=== 3. wait for the certificate ==="
 for i in $(seq 1 30); do

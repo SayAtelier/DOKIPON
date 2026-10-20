@@ -25,6 +25,8 @@
 #   multipass exec <vm> -- sudo bash /home/ubuntu/e2e_admin_in_cluster.sh
 set -euo pipefail
 
+# Overridable so the script is not welded to one machine's layout.
+REPO_ROOT="${REPO_ROOT:-/home/ubuntu/dokipon}"
 k3s() { sudo /usr/local/bin/k3s kubectl "$@"; }
 NS=commerce
 SVC=commerce-admin
@@ -72,5 +74,5 @@ curl -s -o /dev/null -X POST http://127.0.0.1:8085/v1/checkouts \
   -d '{"lines":[{"sku":"sku-tee-01","quantity":1,"unit_amount_minor":4800,"currency":"JPY"}],"payment_method_ref":"tok_test"}'
 kill $SEEDPF 2>/dev/null || true
 
-cd /home/ubuntu/dokipon
+cd "${REPO_ROOT:-/home/ubuntu/dokipon}"
 bash tools/e2e_admin_smoke.sh

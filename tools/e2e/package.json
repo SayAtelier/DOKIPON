@@ -3,8 +3,10 @@
   "private": true,
   "description": "Browser-driven end-to-end checks for the commerce stack. Run on the k3s VM, where Playwright's Chromium is installed.",
   "scripts": {
+    "selfcheck": "node selfcheck.js",
     "test:envoy": "node e2e_envoy.js",
-    "test:browser": "node e2e_browser.js"
+    "test:browser": "node e2e_browser.js",
+    "test": "npm run selfcheck && npm run test:envoy"
   },
   "dependencies": {
     "playwright": "^1.56.0",
