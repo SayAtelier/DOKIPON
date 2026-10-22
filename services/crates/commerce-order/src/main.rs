@@ -31,6 +31,10 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+mod price_authority;
+
+pub use price_authority::PriceAuthority;
+
 pub type SharedOrder = Arc<RwLock<OrderStore>>;
 
 /// What the downstream services reported back to the orchestrator. The Order
@@ -426,9 +430,18 @@ impl OrderStore {
     }
 }
 
+/// The checkout request body.
+///
+/// The contract (`contracts/openapi.yaml` -> `CheckoutRequest`) requires
+/// `paymentMethodRef`; this struct required `payment_method_ref` instead, so
+/// a contract-conforming client was rejected with 422 before the order was
+/// ever priced. `rename` makes the contract's spelling the one that is
+/// accepted; `alias` keeps the old snake_case working so a client that has
+/// not been updated still works.
 #[derive(Debug, Deserialize)]
 pub struct SubmitBody {
     pub lines: Vec<OrderLine>,
+    #[serde(rename = "paymentMethodRef", alias = "payment_method_ref")]
     pub payment_method_ref: String,
 }
 
@@ -437,7 +450,7 @@ pub struct ReconcileBody {
     pub authorized: bool,
 }
 
-pub fn router(state: SharedOrder) -> Router {
+pub fn router(state: SharedOrder, prices: Arc<PriceAuthority>) -> Router {
     Router::new()
         .route("/v1/checkouts", post(submit_checkout))
         .route("/v1/checkouts/{checkout_id}", get(checkout_status))
@@ -445,7 +458,7 @@ pub fn router(state: SharedOrder) -> Router {
         .route("/v1/orders/{order_id}/reconcile", post(reconcile_checkout))
         .route("/v1/orders", get(list_orders))
         .route("/healthz", get(health))
-        .with_state(state)
+        .with_state((state, prices))
 }
 
 async fn health() -> StatusCode {
@@ -460,8 +473,91 @@ fn actor(headers: &HeaderMap) -> Result<String, AppError> {
         .ok_or_else(|| status::unauthorized("identity.missing_session", "x-session-id required", "checkout.submit"))
 }
 
+/// Replace every line's client-supplied price with the catalogue's price.
+///
+/// This is the control that makes "the server is the only authority" true
+/// rather than aspirational. The client keeps sending `unit_amount_minor`
+/// because the contract requires it, but the value is treated as a display
+/// hint and discarded here.
+///
+/// Failure modes, all of which must reject the checkout rather than fall back
+/// to the client's number:
+/// - the catalogue is unreachable → 503, so the shopper is not charged on
+///   the client's say-so;
+/// - a SKU is not in the catalogue → 422, because a line that cannot be
+///   priced must not be charged at anything;
+/// - the catalogue reports a currency this build does not know → 502,
+///   because that is a contract violation upstream, not a shopper's mistake.
+async fn reprice(
+    lines: &[OrderLine],
+    prices: &Arc<PriceAuthority>,
+) -> Result<Vec<OrderLine>, AppError> {
+    const TRACE: &str = "checkout.reprice";
+
+    if lines.is_empty() {
+        return Err(status::unprocessable(
+            "order.empty_cart",
+            "cart is empty",
+            TRACE,
+        ));
+    }
+
+    let skus: Vec<String> = lines.iter().map(|l| l.sku.clone()).collect();
+    let catalogue = prices.fetch_prices(&skus).await.map_err(|e| {
+        tracing::error!(error = %e, "checkout could not be priced from the catalogue");
+        status::service_unavailable(
+            "checkout.pricing_unavailable",
+            "pricing is temporarily unavailable",
+            TRACE,
+        )
+    })?;
+
+    let mut repriced = Vec::with_capacity(lines.len());
+    for line in lines {
+        let authoritative = catalogue.iter().find(|(sku, _)| sku == &line.sku);
+        let (sku, money) = match authoritative {
+            Some((sku, money)) => (sku.clone(), *money),
+            None => {
+                tracing::warn!(sku = %line.sku, "checkout line has no catalogue price");
+                return Err(status::unprocessable(
+                    "checkout.price_unavailable",
+                    format!("sku {} has no authoritative price", line.sku),
+                    TRACE,
+                ));
+            }
+        };
+
+        // Quantity is a client-supplied integer, but it is bounded: 0 lines
+        // are meaningless and an unbounded quantity is a money bug.
+        if line.quantity == 0 {
+            return Err(status::unprocessable(
+                "order.invalid_quantity",
+                "quantity must be at least 1",
+                TRACE,
+            ));
+        }
+        if line.quantity > 99 {
+            return Err(status::unprocessable(
+                "order.quantity_limit",
+                "quantity per line must be <= 99",
+                TRACE,
+            ));
+        }
+
+        repriced.push(OrderLine {
+            sku,
+            quantity: line.quantity,
+            // The catalogue price, never the client's claim.
+            unit_amount_minor: money.amount_minor,
+            currency: money.currency,
+        });
+    }
+
+    Ok(repriced)
+}
+
 async fn submit_checkout(
-    State(store): State<SharedOrder>,
+    State((store, prices)): State<(SharedOrder, Arc<PriceAuthority>)>,
     headers: HeaderMap,
     Json(body): Json<SubmitBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -474,11 +570,19 @@ async fn submit_checkout(
         })?
         .to_string();
 
+    // --- Re-price from the catalogue ---------------------------------------
+    //
+    // The client's `unit_amount_minor` is a display hint, never a price. It
+    // is overwritten here with the catalogue's authoritative amount before
+    // any money math runs. Without this step a client could post
+    // `unit_amount_minor: 1` and buy an 8900-yen item for one cent.
+    let lines = reprice(&body.lines, &prices).await?;
+
     let mut guard = store.write().map_err(|_| AppError::Internal("order lock poisoned".into()))?;
     // In production this comes from the payment adapter; the BFF supplies the
     // observed outcome. `Unknown` is the safe default for an unresolved call.
     let outcome = header_outcome(&headers);
-    let (checkout_id, state, _) = guard.submit(&buyer, body.lines, &key, outcome)?;
+    let (checkout_id, state, _) = guard.submit(&buyer, lines, &key, outcome)?;
     Ok(Json(serde_json::json!({
         "checkoutId": checkout_id,
         "status": state.as_str(),
@@ -497,7 +601,7 @@ fn header_outcome(headers: &HeaderMap) -> PaymentOutcome {
 }
 
 async fn checkout_status(
-    State(store): State<SharedOrder>,
+    State((store, _prices)): State<(SharedOrder, Arc<PriceAuthority>)>,
     Path(checkout_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -519,7 +623,7 @@ async fn checkout_status(
 }
 
 async fn order_detail(
-    State(store): State<SharedOrder>,
+    State((store, _prices)): State<(SharedOrder, Arc<PriceAuthority>)>,
     Path(order_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -545,7 +649,7 @@ async fn order_detail(
 /// Server-only: the payment adapter's verdict, not the client's. The owner
 /// check still applies so a caller cannot reconcile somebody else's order.
 async fn reconcile_checkout(
-    State(store): State<SharedOrder>,
+    State((store, _prices)): State<(SharedOrder, Arc<PriceAuthority>)>,
     Path(order_id): Path<String>,
     headers: HeaderMap,
     Json(body): Json<ReconcileBody>,
@@ -576,7 +680,7 @@ async fn reconcile_checkout(
 }
 
 async fn list_orders(
-    State(store): State<SharedOrder>,
+    State((store, _prices)): State<(SharedOrder, Arc<PriceAuthority>)>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let session = actor(&headers)?;
@@ -598,17 +702,29 @@ async fn list_orders(
 #[tokio::main]
 async fn main() {
     let port: u16 = std::env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    // Where the authoritative prices come from. This is a hard dependency:
+    // without it the service cannot price a checkout, and it refuses to
+    // rather than falling back to the client's numbers.
+    let catalog_url = std::env::var("CATALOG_URL")
+        .unwrap_or_else(|_| "http://commerce-catalog:8082".to_string());
     let store: SharedOrder = Arc::new(RwLock::new(OrderStore::new(idempotency::now_ms())));
+    let prices = Arc::new(PriceAuthority::new(catalog_url.clone()));
     let listener = tokio::net::TcpListener::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port)))
         .await
         .expect("bind order");
-    tracing::info!("order service listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, router(store)).await.expect("serve order");
+    tracing::info!(
+        "order service listening on {}, pricing from {}",
+        listener.local_addr().unwrap(),
+        catalog_url
+    );
+    axum::serve(listener, router(store, prices)).await.expect("serve order");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{routing::any, Router};
+    use std::{net::SocketAddr, sync::Mutex};
 
     fn line(sku: &str, qty: u32, amount: i64) -> OrderLine {
         OrderLine { sku: sku.into(), quantity: qty, unit_amount_minor: amount, currency: Currency::Jpy }
@@ -616,6 +732,130 @@ mod tests {
 
     fn store() -> OrderStore {
         OrderStore::new(1_000_000)
+    }
+
+
+    /// The HTTP status an `AppError` will be rendered as.
+    ///
+    /// `AppError` has no `status_code()` accessor, so the test reads the
+    /// `ProblemDetails` it carries.
+    fn problem_status(err: &AppError) -> u16 {
+        match err {
+            AppError::Problem(p) => p.status,
+            AppError::Internal(_) => 500,
+        }
+    }
+
+    // -------------------------------------------------------------- catalogue
+    //
+    // A stand-in for commerce-catalog, so the pricing control can be tested
+    // without a running catalogue. It serves the same JSON shape the real
+    // service emits.
+    struct MockCatalog {
+        base_url: String,
+        body: Arc<Mutex<String>>,
+    }
+
+    async fn mock_catalog(items_json: String) -> MockCatalog {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address: SocketAddr = listener.local_addr().unwrap();
+        let body = Arc::new(Mutex::new(items_json));
+        let state = body.clone();
+        let app = Router::new()
+            .fallback(any(move || {
+                let state = state.clone();
+                async move {
+                    let payload = state.lock().unwrap().clone();
+                    (
+                        axum::http::StatusCode::OK,
+                        [("content-type", "application/json")],
+                        payload,
+                    )
+                }
+            }));
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        MockCatalog {
+            base_url: format!("http://{address}"),
+            body,
+        }
+    }
+
+    /// The core money invariant: a client that claims a price is charged the
+    /// catalogue's price.
+    ///
+    /// This is the regression guard for a real hole. The order service used
+    /// to compute the total from the client's `unit_amount_minor`, so a
+    /// request claiming 1 minor unit produced a confirmed order with a total
+    /// of 1 — the shopper paid one cent for an 8900-yen bra. The unit tests
+    /// did not catch it because they called `OrderStore::submit` directly
+    /// with the client's line, bypassing the HTTP boundary where the price
+    /// was supposed to be corrected.
+    #[tokio::test]
+    async fn a_client_supplied_price_is_ignored() {
+        let catalog = mock_catalog(
+            r#"{"items":[{"sku":"sku-bra-01","price":{"amountMinor":8900,"currency":"JPY"}}]}"#
+                .to_string(),
+        )
+        .await;
+        let prices = Arc::new(PriceAuthority::new(catalog.base_url.clone()));
+
+        // The client lies: it claims one cent.
+        let lines = vec![line("sku-bra-01", 1, 1)];
+        let repriced = reprice(&lines, &prices).await.expect("reprice");
+
+        assert_eq!(repriced.len(), 1);
+        assert_eq!(
+            repriced[0].unit_amount_minor, 8900,
+            "the catalogue price must replace the client's claim"
+        );
+        assert_eq!(repriced[0].currency, Currency::Jpy);
+    }
+
+    /// A line the catalogue does not know must be rejected, not priced at the
+    /// client's claim.
+    #[tokio::test]
+    async fn a_line_without_a_catalogue_price_is_rejected() {
+        let catalog = mock_catalog(r#"{"items":[]}"#.to_string()).await;
+        let prices = Arc::new(PriceAuthority::new(catalog.base_url.clone()));
+
+        let lines = vec![line("sku-does-not-exist", 1, 1)];
+        let err = reprice(&lines, &prices).await.expect_err("must reject");
+        assert_eq!(problem_status(&err), 422);
+    }
+
+    /// An unreachable catalogue must fail closed. A 503 is correct here: the
+    /// shopper retries, rather than being charged their own claimed price.
+    #[tokio::test]
+    async fn an_unreachable_catalogue_fails_closed() {
+        // Port 1 on loopback refuses connections.
+        let prices = Arc::new(PriceAuthority::new("http://127.0.0.1:1".to_string()));
+        let lines = vec![line("sku-bra-01", 1, 1)];
+        let err = reprice(&lines, &prices).await.expect_err("must reject");
+        assert_eq!(problem_status(&err), 503);
+    }
+
+    /// Quantity is bounded. A zero line is meaningless and an unbounded
+    /// quantity is a money bug.
+    #[tokio::test]
+    async fn quantity_is_bounded() {
+        let catalog = mock_catalog(
+            r#"{"items":[{"sku":"sku-bra-01","price":{"amountMinor":8900,"currency":"JPY"}}]}"#
+                .to_string(),
+        )
+        .await;
+        let prices = Arc::new(PriceAuthority::new(catalog.base_url.clone()));
+
+        let zero = reprice(&[line("sku-bra-01", 0, 8900)], &prices)
+            .await
+            .expect_err("zero quantity must be rejected");
+        assert_eq!(problem_status(&zero), 422);
+
+        let huge = reprice(&[line("sku-bra-01", 1000, 8900)], &prices)
+            .await
+            .expect_err("quantity over 99 must be rejected");
+        assert_eq!(problem_status(&huge), 422);
     }
 
     #[test]

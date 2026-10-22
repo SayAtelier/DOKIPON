@@ -1,4 +1,4 @@
-/// Shared domain models for the GemArc Commerce clients (App / Web / LINE MINI App).
+/// Shared domain models for the DOKIPON clients (App / Web / LINE MINI App).
 ///
 /// These mirror the server contracts in `services/crates/*` and
 /// `contracts/openapi.yaml`. Two rules from the design atlas are load-bearing

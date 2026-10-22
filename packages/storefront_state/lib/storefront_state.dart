@@ -19,6 +19,7 @@ MERGE (self)-[:EXPOSES]->(controller)
 library;
 
 export 'src/catalog_controller.dart';
+export 'src/cart_controller.dart';
 export 'src/checkout_controller.dart';
 export 'src/session_controller.dart';
 export 'src/admin_console_controller.dart';

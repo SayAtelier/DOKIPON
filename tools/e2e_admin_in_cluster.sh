@@ -71,7 +71,7 @@ curl -s -o /dev/null -X POST http://127.0.0.1:8085/v1/checkouts \
   -H 'x-session-id: admin-console' \
   -H "idempotency-key: seed-$RANDOM$RANDOM" \
   -H 'content-type: application/json' \
-  -d '{"lines":[{"sku":"sku-tee-01","quantity":1,"unit_amount_minor":4800,"currency":"JPY"}],"payment_method_ref":"tok_test"}'
+  -d '{"lines":[{"sku":"sku-bra-01","quantity":1,"unit_amount_minor":8900,"currency":"JPY"}],"payment_method_ref":"tok_test"}'
 kill $SEEDPF 2>/dev/null || true
 
 cd "${REPO_ROOT:-/home/ubuntu/dokipon}"

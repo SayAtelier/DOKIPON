@@ -117,7 +117,7 @@ echo
 
 # ---------------------------------------------------------------- happy path
 echo "CASE-ORDER-001  happy path reaches confirmed"
-BODY='{"lines":[{"sku":"sku-tee-01","quantity":2,"unit_amount_minor":4800,"currency":"JPY"}],"payment_method_ref":"tok_test"}'
+BODY='{"lines":[{"sku":"sku-bra-01","quantity":2,"unit_amount_minor":8900,"currency":"JPY"}],"payment_method_ref":"tok_test"}'
 R=$(submit "$(s 1)" "$(k 1)" "" "$BODY")
 LAST_RESPONSE="$R"
 check "status" "confirmed" "$(jq_get "$R" status)"
@@ -133,7 +133,7 @@ check "same checkoutId returned" "$CID" "$(jq_get "$R2" checkoutId)"
 
 echo
 echo "CASE-ORDER-009  same key + different payload is 409"
-BODY_DIFF='{"lines":[{"sku":"sku-tee-01","quantity":9,"unit_amount_minor":4800,"currency":"JPY"}],"payment_method_ref":"tok_test"}'
+BODY_DIFF='{"lines":[{"sku":"sku-bra-01","quantity":9,"unit_amount_minor":8900,"currency":"JPY"}],"payment_method_ref":"tok_test"}'
 CODE=$(curl -s -o "$TMPDIR_E2E/e2e_409.json" -w "%{http_code}" -X POST "$ORDER/v1/checkouts" \
   -H "x-session-id: $(s 1)" -H "idempotency-key: $(k 1)" \
   -H "content-type: application/json" -d "$BODY_DIFF")

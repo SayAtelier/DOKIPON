@@ -75,14 +75,39 @@ pub struct Product {
     pub channel_eligibility: ChannelEligibility,
 }
 
+/// One item of `GET /v1/products`.
+///
+/// The wire shape is fixed by the OpenAPI contract
+/// (`contracts/openapi.yaml` -> `ProductSummary`): `productId`, `sku`,
+/// `title`, `price` (a nested Money object) and `availability`.
+///
+/// The field names are camelCase and the price is NESTED, not flattened.
+/// The client (packages/domain_models/lib/src/product.dart) reads
+/// `json['price']['amountMinor']` and falls back to a flat `json['amountMinor']`
+/// — a flat `amount_minor` is read by neither, so the storefront rendered every
+/// price as "0 JPY" while the catalogue looked otherwise complete. The detail
+/// endpoint in this same file already emitted the nested `price` object; the
+/// list endpoint did not, so the two disagreed.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProductListItem {
     pub product_id: String,
     pub sku: String,
     pub title: String,
+    pub price: Price,
+    pub availability: Availability,
+}
+
+/// The `Money` shape the contract specifies: `{amountMinor, currency}`.
+///
+/// `commerce_core::Money` is a domain type without serde derives, so the wire
+/// shape is spelled out here rather than reused directly. The camelCase
+/// rename matters: `amount_minor` on the wire is read by nobody.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Price {
     pub amount_minor: i64,
     pub currency: Currency,
-    pub availability: Availability,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -117,13 +142,22 @@ impl CatalogStore {
         let mut skus = HashMap::new();
         let mut stock = HashMap::new();
 
+        // The demo catalogue is lingerie, because that is what DOKIPON sells.
+        // The old seed was a generic apparel set (tees, hoodies, caps), which
+        // made the storefront look like a merchandise store rather than the
+        // thing it is.
+        //
+        // `p-adult-01` stays policy-restricted (web/app only, never LINE):
+        // the channel-eligibility rule needs a product that actually exercises
+        // it, and the "restricted" flag is a real product property, not a
+        // styling choice.
         let demo: [(&str, &str, &str, i64, Currency, StockPolicy, i64, ChannelEligibility); 6] = [
-            ("p-tee-01", "sku-tee-01", "GemArc ロゴTシャツ / GemArc Logo Tee", 4800, Currency::Jpy, StockPolicy::Reserved, 42, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-hoodie-01", "sku-hoodie-01", "GemArc パーカー / GemArc Hoodie", 12800, Currency::Jpy, StockPolicy::Reserved, 7, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-cap-01", "sku-cap-01", "GemArc キャップ / GemArc Cap", 3900, Currency::Jpy, StockPolicy::Reserved, 0, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-sticker", "sku-sticker", "GemArc ステッカーセット / Sticker Set", 800, Currency::Jpy, StockPolicy::Unbounded, -1, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-print-01", "sku-print-01", "GemArc プリント（受注生産） / Made-to-order Print", 9800, Currency::Jpy, StockPolicy::MadeToOrder, -1, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-adult-01", "sku-adult-01", "Policy-restricted sample / ポリシー要審査", 9800, Currency::Jpy, StockPolicy::Reserved, 3, ChannelEligibility { web: true, app: false, line_mini_app: false }),
+            ("p-bra-01", "sku-bra-01", "DOKIPON Triple ノ-wire ブラ / Triple Wireless Bra", 8900, Currency::Jpy, StockPolicy::Reserved, 42, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-brief-01", "sku-brief-01", "DOKIPON 百合 ショーツ / Lily Brief", 3900, Currency::Jpy, StockPolicy::Reserved, 7, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-set-01", "sku-set-01", "DOKIPON 黒蝶 ブラ＆ショーツセット / Black Butterfly Set", 12900, Currency::Jpy, StockPolicy::Reserved, 0, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-night-01", "sku-night-01", "DOKIPON 月光 ナイトブラ / Moonlight Night Bra", 4900, Currency::Jpy, StockPolicy::Reserved, 28, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-cami-01", "sku-cami-01", "DOKIPON 霞 キャミソール / Haze Camisole", 6900, Currency::Jpy, StockPolicy::MadeToOrder, -1, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-adult-01", "sku-adult-01", "DOKIPON 深紅 ストッキング / Crimson Stockings", 5800, Currency::Jpy, StockPolicy::Reserved, 3, ChannelEligibility { web: true, app: false, line_mini_app: false }),
         ];
 
         for (pid, skuid, title, amount, cur, policy, qty, channels) in demo {
@@ -135,7 +169,7 @@ impl CatalogStore {
                     sku: skuid.to_string(),
                     title_i18n: HashMap::from([("ja".into(), ja), ("en".into(), en)]),
                     description_i18n: HashMap::new(),
-                    category_id: "cat-apparel".into(),
+                    category_id: "cat-lingerie".into(),
                     published: true,
                     channel_eligibility: channels,
                 },
@@ -241,8 +275,10 @@ async fn list_products(
                 product_id: p.product_id.clone(),
                 sku: sku.sku_id.clone(),
                 title: CatalogStore::localize(&p.title_i18n, locale),
-                amount_minor: sku.amount_minor,
-                currency: sku.currency,
+                price: Price {
+                    amount_minor: sku.amount_minor,
+                    currency: sku.currency,
+                },
                 availability: store.availability(sku),
             })
         })
@@ -313,6 +349,45 @@ mod tests {
         }
     }
 
+    /// The list endpoint must speak the contract's wire shape, not the
+    /// struct's field names.
+    ///
+    /// This is a regression guard: the list endpoint used to emit a flat
+    /// `amount_minor` and `product_id`, while the contract (and the Flutter
+    /// client) require `price.amountMinor` and `productId`. The storefront
+    /// then rendered every price as "0 JPY" — a catalogue that looked
+    /// complete but was priced at zero, and no test noticed, because the
+    /// response was still 200 and still contained the right number of items.
+    #[test]
+    fn product_list_item_serializes_to_the_contract_shape() {
+        let item = ProductListItem {
+            product_id: "p-bra-01".to_string(),
+            sku: "sku-bra-01".to_string(),
+            title: "DOKIPON Triple ノ-wire ブラ".to_string(),
+            price: Price {
+                amount_minor: 4800,
+                currency: Currency::Jpy,
+            },
+            availability: Availability::InStock,
+        };
+
+        let json = serde_json::to_value(&item).expect("serialize");
+
+        assert_eq!(json["productId"], "p-bra-01");
+        assert_eq!(json["sku"], "sku-bra-01");
+        assert_eq!(json["title"], "DOKIPON Triple ノ-wire ブラ");
+        // The price is nested under `price`, and its amount is `amountMinor`.
+        assert_eq!(json["price"]["amountMinor"], 4800);
+        assert_eq!(json["price"]["currency"], "JPY");
+        assert_eq!(json["availability"], "in_stock");
+
+        // The old flat shape must be gone: a client that prefers a flat
+        // `amountMinor` over the nested object would read null.
+        assert!(json.get("amount_minor").is_none());
+        assert!(json.get("product_id").is_none());
+        assert!(json.get("amountMinor").is_none());
+    }
+
     #[test]
     fn localization_falls_back_to_ja_then_any() {
         let m = HashMap::from([("ja".to_string(), "JP".to_string())]);
@@ -331,11 +406,11 @@ mod tests {
     #[test]
     fn availability_reflects_stock() {
         let s = CatalogStore::seed_demo();
-        assert_eq!(s.availability(s.skus.get("sku-tee-01").unwrap()), Availability::InStock);
-        assert_eq!(s.availability(s.skus.get("sku-hoodie-01").unwrap()), Availability::LowStock);
-        assert_eq!(s.availability(s.skus.get("sku-cap-01").unwrap()), Availability::OutOfStock);
-        assert_eq!(s.availability(s.skus.get("sku-print-01").unwrap()), Availability::MadeToOrder);
-        assert_eq!(s.availability(s.skus.get("sku-sticker").unwrap()), Availability::InStock);
+        assert_eq!(s.availability(s.skus.get("sku-bra-01").unwrap()), Availability::InStock);
+        assert_eq!(s.availability(s.skus.get("sku-brief-01").unwrap()), Availability::LowStock);
+        assert_eq!(s.availability(s.skus.get("sku-set-01").unwrap()), Availability::OutOfStock);
+        assert_eq!(s.availability(s.skus.get("sku-cami-01").unwrap()), Availability::MadeToOrder);
+        assert_eq!(s.availability(s.skus.get("sku-night-01").unwrap()), Availability::InStock);
     }
 
     #[test]
@@ -345,6 +420,6 @@ mod tests {
         assert!(!restricted.channel_eligibility.line_mini_app);
         assert!(!restricted.channel_eligibility.app);
         assert!(restricted.channel_eligibility.web);
-        assert!(s.products["p-tee-01"].channel_eligibility.line_mini_app);
+        assert!(s.products["p-bra-01"].channel_eligibility.line_mini_app);
     }
 }

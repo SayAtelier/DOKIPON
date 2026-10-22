@@ -13,15 +13,17 @@ class PriceLabel extends StatelessWidget {
     required this.money,
     this.style,
     this.showCurrency = false,
+    this.color,
   });
 
   final Money money;
   final TextStyle? style;
   final bool showCurrency;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
-    final base = style ?? Theme.of(context).textTheme.titleMedium;
+    final base = style ?? Theme.of(context).textTheme.titleSmall;
     final formatted = showCurrency
         ? '${money.format()} ${money.currency.code}'
         : money.format();
@@ -32,10 +34,61 @@ class PriceLabel extends StatelessWidget {
       child: Text(
         formatted,
         style: (base ?? const TextStyle()).copyWith(
-          fontWeight: FontWeight.w700,
-          color: GemColors.ink,
+          fontWeight: FontWeight.w600,
+          color: color ?? DokColors.ink,
         ),
       ),
+    );
+  }
+}
+
+/// A price with the original struck through next to it.
+///
+/// This is the reference storefront's single most recognisable price
+/// treatment: the old price in small muted type with a line through it, the
+/// new price larger and in the accent colour. It is also the only place a
+/// discount can be shown, so the struck price and the current price must
+/// travel together — a lone sale price is meaningless.
+class PriceRow extends StatelessWidget {
+  const PriceRow({
+    super.key,
+    required this.money,
+    this.originalMoney,
+  });
+
+  final Money money;
+
+  /// The pre-discount amount. Null when the product is not discounted.
+  final Money? originalMoney;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final discounted = originalMoney != null &&
+        originalMoney!.amountMinor > money.amountMinor &&
+        originalMoney!.currency == money.currency;
+
+    if (!discounted) {
+      return PriceLabel(money: money, style: theme.textTheme.titleSmall);
+    }
+
+    return Wrap(
+      // WrapCrossAlignment has no `baseline`; the price row is two lines tall
+      // at most, so aligning to the end of the row reads the same.
+      crossAxisAlignment: WrapCrossAlignment.end,
+      spacing: DokSpace.sm,
+      children: [
+        PriceLabel(
+          money: originalMoney!,
+          style: theme.textTheme.bodySmall,
+          color: DokColors.inkFaint,
+        ),
+        PriceLabel(
+          money: money,
+          style: theme.textTheme.titleMedium?.copyWith(fontSize: 15),
+          color: DokColors.accent,
+        ),
+      ],
     );
   }
 }

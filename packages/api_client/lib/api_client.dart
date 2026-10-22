@@ -9,7 +9,7 @@ MERGE (self)-[:EXPOSES]->(client)
 MERGE (self)-[:EXPOSES]->(models)
 @endcypher
 */
-/// HTTP client for the GemArc Commerce BFF.
+/// HTTP client for the DOKIPON commerce BFF.
 ///
 /// Three rules from the design atlas are enforced here rather than left to
 /// callers:

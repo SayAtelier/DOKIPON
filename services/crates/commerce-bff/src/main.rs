@@ -15,10 +15,11 @@
 //! - All writes require an `Idempotency-Key`.
 
 use axum::{
+    body::Bytes,
     extract::{Request, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     middleware::{self, Next},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -33,6 +34,10 @@ use std::{
     time::Instant,
 };
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
+
+mod upstream;
+
+pub use upstream::{build_client, Upstreams};
 
 pub type SharedBff = Arc<RwLock<RateLimiter>>;
 
@@ -165,7 +170,7 @@ pub struct GuestResp {
 }
 
 async fn guest_session(
-    State(_limiter): State<SharedBff>,
+    State((_limiter, _upstreams, _client)): State<(SharedBff, Arc<Upstreams>, reqwest::Client)>,
     Json(_body): Json<GuestReq>,
 ) -> Result<Json<GuestResp>, AppError> {
     // The session id is minted at the edge and exchanged with the identity
@@ -210,24 +215,37 @@ async fn storefront(headers: HeaderMap) -> Result<Json<serde_json::Value>, AppEr
     })))
 }
 
-/// `POST /v1/checkouts` — the BFF enforces the write contract before the order
-/// service ever sees the request.
-async fn submit_checkout(headers: HeaderMap) -> Result<StatusCode, AppError> {
+/// `POST /v1/checkouts` — the BFF enforces the write contract, then forwards
+/// the checkout to the order service.
+///
+/// The edge rules come first: a session and an idempotency key must be
+/// present. The request body is then handed to the order service unchanged,
+/// and the upstream's answer is passed back verbatim — including its status
+/// code, because 409 (idempotency conflict), 422 (unpriceable line) and 503
+/// (pricing unavailable) are three different things the client must be able
+/// to tell apart.
+async fn submit_checkout(
+    State((_limiter, upstreams, client)): State<(SharedBff, Arc<Upstreams>, reqwest::Client)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
     let _session = require_session(&headers)?;
     let _key = require_idempotency_key(&headers)?;
-    Ok(StatusCode::ACCEPTED)
+    Ok(upstreams.forward_checkout(&client, &headers, body).await)
 }
 
 /// Rate limiting is built as a closure that captures the shared limiter, which
 /// keeps the router state and the middleware state independent.
 pub fn router(state: SharedBff) -> Router {
     let limiter = state.clone();
+    let upstreams = Arc::new(Upstreams::from_env());
+    let client = build_client();
     Router::new()
         .route("/healthz", get(healthz))
         .route("/v1/storefront", get(storefront))
         .route("/v1/sessions/guest", post(guest_session))
         .route("/v1/checkouts", post(submit_checkout))
-        .with_state(state)
+        .with_state((state, upstreams, client))
         .layer(middleware::from_fn(move |req: Request, next: Next| {
             let limiter = limiter.clone();
             async move { enforce_rate_limit(&limiter, req, next).await }

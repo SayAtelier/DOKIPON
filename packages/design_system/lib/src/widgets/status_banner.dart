@@ -31,10 +31,10 @@ class StatusBanner extends StatelessWidget {
       };
 
   static Color colorFor(BannerTone tone) => switch (tone) {
-        BannerTone.info => GemColors.info,
-        BannerTone.warning => GemColors.warning,
-        BannerTone.danger => GemColors.danger,
-        BannerTone.success => GemColors.success,
+        BannerTone.info => DokColors.info,
+        BannerTone.warning => DokColors.warning,
+        BannerTone.danger => DokColors.danger,
+        BannerTone.success => DokColors.success,
       };
 
   @override
@@ -44,28 +44,32 @@ class StatusBanner extends StatelessWidget {
       liveRegion: true,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(GemSpace.md),
+        padding: const EdgeInsets.all(DokSpace.md),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: const BorderRadius.all(GemRadius.md),
-          border: Border.all(color: color.withValues(alpha: 0.30)),
+          color: color.withValues(alpha: 0.06),
+          border: Border(
+            left: BorderSide(color: color, width: 2),
+            top: const BorderSide(color: DokColors.border),
+            right: const BorderSide(color: DokColors.border),
+            bottom: const BorderSide(color: DokColors.border),
+          ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(iconFor(tone), color: color, size: 20),
-            const SizedBox(width: GemSpace.sm),
+            Icon(iconFor(tone), color: color, size: 18),
+            const SizedBox(width: DokSpace.sm),
             Expanded(
               child: Text(
                 message,
                 style: Theme.of(context)
                     .textTheme
                     .bodyMedium
-                    ?.copyWith(color: GemColors.ink),
+                    ?.copyWith(color: DokColors.ink),
               ),
             ),
             if (actionLabel != null && onAction != null) ...[
-              const SizedBox(width: GemSpace.sm),
+              const SizedBox(width: DokSpace.sm),
               TextButton(
                 onPressed: onAction,
                 child: Text(actionLabel!),

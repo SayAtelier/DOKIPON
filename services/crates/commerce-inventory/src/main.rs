@@ -248,9 +248,13 @@ async fn release(
 async fn main() {
     let port: u16 = std::env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
     let store: SharedInventory = Arc::new(RwLock::new(InventoryStore::new(&[
-        ("sku-tee-01", 42),
-        ("sku-hoodie-01", 7),
-        ("sku-cap-01", 0),
+        // These SKUs must match commerce-catalog's seed: the checkout path
+        // looks stock up by sku, and a sku that exists in one service but not
+        // the other makes a purchasable product fail at the last step.
+        ("sku-bra-01", 42),
+        ("sku-brief-01", 7),
+        ("sku-set-01", 0),
+        ("sku-night-01", 28),
         ("sku-adult-01", 3),
     ])));
     let listener = tokio::net::TcpListener::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port)))

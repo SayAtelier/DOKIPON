@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 /// Stock state, always paired with a text label.
 ///
 /// Colour alone is not an accessible signal, so each variant renders an
-/// explicit ja/en word. This is what the atlas's UI spec means by
-/// "cognitive load" — the badge answers "can I buy this?" without a legend.
+/// explicit ja/en word. The reference storefront keeps stock state as plain
+/// muted text rather than a coloured pill — a dozen coloured pills in a grid
+/// would fight the product photography, so the badge is quiet text and only
+/// the genuinely urgent case (almost gone) is tinted.
 class AvailabilityBadge extends StatelessWidget {
   const AvailabilityBadge({super.key, required this.availability, this.dense = false});
 
@@ -21,10 +23,10 @@ class AvailabilityBadge extends StatelessWidget {
       };
 
   static Color colorFor(Availability a) => switch (a) {
-        Availability.inStock => GemColors.success,
-        Availability.lowStock => GemColors.warning,
-        Availability.outOfStock => GemColors.danger,
-        Availability.madeToOrder => GemColors.info,
+        Availability.inStock => DokColors.inkFaint,
+        Availability.lowStock => DokColors.warning,
+        Availability.outOfStock => DokColors.inkFaint,
+        Availability.madeToOrder => DokColors.inkFaint,
       };
 
   /// Out of stock is not purchasable.
@@ -36,23 +38,12 @@ class AvailabilityBadge extends StatelessWidget {
     return Semantics(
       label: labelFor(availability),
       excludeSemantics: true,
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: dense ? GemSpace.sm : GemSpace.md,
-          vertical: dense ? 2 : 4,
-        ),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.10),
-          borderRadius: const BorderRadius.all(GemRadius.sm),
-          border: Border.all(color: color.withValues(alpha: 0.35)),
-        ),
-        child: Text(
-          labelFor(availability),
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: color,
-                fontWeight: FontWeight.w600,
-              ),
-        ),
+      child: Text(
+        labelFor(availability),
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w500,
+            ),
       ),
     );
   }

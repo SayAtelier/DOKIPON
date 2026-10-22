@@ -43,7 +43,7 @@ class AdminConsoleApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'GemArc Admin',
+        title: 'DOKIPON Admin',
         theme: GemTheme.light(),
         home: AdminConsoleRoot(controller: controller),
       );
@@ -128,7 +128,7 @@ class AdminConsoleShell extends StatelessWidget {
           children: [
             const Icon(Icons.diamond_outlined, color: GemColors.brand),
             const SizedBox(width: GemSpace.sm),
-            Text('GemArc  /  $_title'),
+            Text('DOKIPON  /  $_title'),
           ],
         ),
         actions: [

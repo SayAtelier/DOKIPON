@@ -421,9 +421,20 @@ struct AuthorizationState {
 #[derive(Clone)]
 struct CorrelationId(String);
 
+/// The login body.
+///
+/// The contract (`contracts/openapi.yaml` -> `AdminLoginRequest`) requires
+/// `username`, and that is what the Flutter console
+/// (packages/api_client/lib/src/admin_api_client.dart) sends. This struct used
+/// to require `user` instead, so the console could never log in: the server
+/// rejected the request with 422 before it ever compared the password.
+///
+/// `user` is still accepted, so an older client that sends the old name keeps
+/// working — the credential store is keyed on the same string either way.
 #[derive(Debug, Deserialize)]
 struct LoginRequest {
-    user: String,
+    #[serde(alias = "user")]
+    username: String,
     password: String,
 }
 
@@ -608,7 +619,7 @@ async fn create_session(
         .credentials
         .iter()
         .find(|credential| {
-            credential.user == request.user
+            credential.user == request.username
                 && secret_matches(&credential.password, &request.password)
         })
         .map(|credential| credential.role)
@@ -1191,7 +1202,11 @@ mod tests {
     }
 
     async fn login(app: &Router, user: &str, password: &str) -> String {
-        let body = serde_json::json!({ "user": user, "password": password }).to_string();
+        // `username` is the contract's field name
+        // (contracts/openapi.yaml -> AdminLoginRequest) and the name the
+        // Flutter console sends. The tests used to post `user` here, which
+        // agreed with the server and so never caught the mismatch.
+        let body = serde_json::json!({ "username": user, "password": password }).to_string();
         let response = app
             .clone()
             .oneshot(
@@ -1214,6 +1229,65 @@ mod tests {
     #[derive(Deserialize)]
     struct SessionResponseForTest {
         token: String,
+    }
+
+    /// The contract's login field name must work, and the old one must keep
+    /// working.
+    ///
+    /// The server used to require `user` while the contract and the Flutter
+    /// console both say `username`, so the console could never sign in — the
+    /// server answered 422 before it ever looked at the password. The unit
+    /// tests did not notice because they all posted `user`, agreeing with the
+    /// bug.
+    #[tokio::test]
+    async fn login_accepts_the_contract_field_name() {
+        let upstream = mock_upstream(StatusCode::OK, br#"{"items":[]}"#.to_vec()).await;
+        let app = router(test_state(&upstream.base_url));
+
+        for body in [
+            r#"{"username":"admin","password":"admin-password"}"#,
+            r#"{"user":"admin","password":"admin-password"}"#,
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/admin/v1/sessions")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::OK,
+                "login with body {body} must succeed"
+            );
+        }
+    }
+
+    /// A login body with neither field name is a client error, not a 401:
+    /// the request never carried an identity to check.
+    #[tokio::test]
+    async fn login_without_any_username_field_is_rejected() {
+        let upstream = mock_upstream(StatusCode::OK, br#"{"items":[]}"#.to_vec()).await;
+        let app = router(test_state(&upstream.base_url));
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/admin/v1/sessions")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"password":"admin-password"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     fn auth_request(token: &str, method: Method, uri: &str, body: Option<Value>) -> Request<Body> {
