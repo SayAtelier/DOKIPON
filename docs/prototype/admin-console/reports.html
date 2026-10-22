@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>经营报表 — DOKIPON 运营后台原型</title>
+<link rel="stylesheet" href="assets/prototype.css">
+</head>
+<body>
+<div class="shell">
+  <header class="topbar" id="gm-topbar"></header>
+  <div id="gm-demo-banner"></div>
+
+  <main>
+    <section class="section">
+      <div class="section-header">
+        <h2>经营报表</h2>
+        <button type="button" id="refresh">刷新 / Refresh</button>
+      </div>
+      <p class="section-description">
+        按复购率、GMV / 客单价、履约时效三类口径分析经营表现，可按类型与周期筛选对比。
+        对应 <span class="mono">GET /gm/reports</span>。
+      </p>
+
+      <div class="form-grid">
+        <div class="field">
+          <label for="report-type">报表类型 / Report type</label>
+          <select id="report-type"></select>
+        </div>
+        <div class="field">
+          <label for="report-period">周期 / Period</label>
+          <select id="report-period"></select>
+        </div>
+        <div class="field">
+          <label for="report-search">搜索 / Search</label>
+          <input id="report-search" placeholder="在标题与指标中搜索">
+        </div>
+      </div>
+
+      <div class="summary-grid" id="metric-cards" style="margin-top:18px"></div>
+
+      <div class="table-wrapper">
+        <table class="table">
+          <thead>
+            <tr><th>报表 / Report</th><th>周期 / Period</th><th>摘要 / Highlights</th><th>生成时间 / Generated</th><th>操作 / Actions</th></tr>
+          </thead>
+          <tbody id="reports-body"></tbody>
+        </table>
+      </div>
+
+      <p class="muted" id="count-line" style="margin-top:12px"></p>
+    </section>
+
+    <div class="detail-card" id="report-detail" hidden>
+      <div class="section-header">
+        <h3>报表详情 / Report detail</h3>
+        <button type="button" class="button-secondary button-sm" id="close-detail">关闭 / Close</button>
+      </div>
+      <div class="chips" id="detail-chips"></div>
+      <pre class="raw" id="detail-json"></pre>
+    </div>
+
+    <section class="section">
+      <h3>字段兼容契约</h3>
+      <p class="section-description">
+        <span class="mono">Reports.tsx</span> 不假设固定 schema，而是按优先级做鸭子类型回退——原型逐条照搬这些回退链，
+        因此后端换字段名不会让页面崩，但会让某几列突然变成 <span class="mono">—</span>。
+      </p>
+      <div class="table-wrapper">
+        <table class="table">
+          <thead><tr><th>展示位</th><th>取值优先级</th><th>全缺时</th></tr></thead>
+          <tbody>
+            <tr><td>类型 Type</td><td class="mono">type → category → reportType</td><td class="mono">General</td></tr>
+            <tr><td>周期 Period</td><td class="mono">period → range → window</td><td class="mono">—</td></tr>
+            <tr><td>时间 Generated</td><td class="mono">generatedAt → createdAt → updatedAt</td><td class="mono">—</td></tr>
+            <tr><td>摘要 Highlights</td><td class="mono">summary → metrics 前 3 项拼接</td><td class="mono">—</td></tr>
+            <tr><td>聚合卡片</td><td>对 <span class="mono">metrics</span> 的数值项按筛选结果求和</td><td>不渲染卡片</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="banner banner--gap" style="margin-top:16px">
+        <div>
+          <strong>聚合卡片的口径陷阱</strong>
+          「Combined across filtered reports」是把筛选后每份报表的同名指标<b>相加</b>。
+          复购率是比率，相加后没有业务含义；切换筛选条件时该卡片数字会变，
+          容易与单份报表的原始值混淆。原型保留该行为并在此标注。
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="gm-footer"></footer>
+</div>
+
+<div class="modal-backdrop" id="gm-modal-backdrop"></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/prototype.js"></script>
+<script>
+GM.ready(function () {
+  GM.shell({ active: 'reports' });
+
+  var reports = GM_DATA.reports.map(function (r) { return JSON.parse(JSON.stringify(r)); });
+  var selectedId = reports.length ? reports[0].id : null;
+
+  /* type 值是后端契约枚举（Retention / Monetisation / Performance），
+     界面上的电商口径标签在这里映射；下拉 option 的 value 仍是原枚举值。 */
+  var TYPE_LABEL = {
+    Retention: '复购率 / Retention',
+    Monetisation: 'GMV・客単価 / Monetisation',
+    Performance: '履約時点 / Performance'
+  };
+
+  function typeLabel(value) {
+    return TYPE_LABEL[value] || value;
+  }
+
+  /* ---- Reports.tsx 的取值回退链，原样复刻 ---- */
+
+  function asString(v) {
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number') return v.toString();
+    return '';
+  }
+
+  function reportType(r) {
+    return asString(r.type) || asString(r.category) || asString(r.reportType) || 'General';
+  }
+
+  function reportPeriod(r) {
+    return asString(r.period) || asString(r.range) || asString(r.window) || '—';
+  }
+
+  function reportTime(r) {
+    return asString(r.generatedAt) || asString(r.createdAt) || asString(r.updatedAt) || '';
+  }
+
+  function filtered() {
+    var type = document.getElementById('report-type').value;
+    var period = document.getElementById('report-period').value;
+    var needle = document.getElementById('report-search').value.trim().toLowerCase();
+
+    return reports.filter(function (r) {
+      if (type !== 'all' && reportType(r) !== type) return false;
+      if (period !== 'all' && reportPeriod(r) !== period) return false;
+      if (!needle) return true;
+      // Reports.tsx 用 JSON.stringify(report) 做全文匹配，命中任意字段即算匹配
+      return JSON.stringify(r).toLowerCase().indexOf(needle) !== -1;
+    }).sort(function (a, b) {
+      return (new Date(reportTime(b)).getTime() || 0) - (new Date(reportTime(a)).getTime() || 0);
+    });
+  }
+
+  function renderFilters() {
+    var types = {};
+    var periods = {};
+    reports.forEach(function (r) {
+      types[reportType(r)] = 1;
+      var p = reportPeriod(r);
+      if (p && p !== '—') periods[p] = 1;
+    });
+
+    function fill(select, values, allLabel, labels) {
+      var current = select.value;
+      select.innerHTML = '<option value="all">' + allLabel + '</option>' +
+        Object.keys(values).sort().map(function (v) {
+          var text = labels && labels[v] ? labels[v] : v;
+          return '<option value="' + GM.esc(v) + '">' + GM.esc(text) + '</option>';
+        }).join('');
+      select.value = current && (current === 'all' || values[current]) ? current : 'all';
+    }
+
+    fill(document.getElementById('report-type'), types, '全部类型 / All types', TYPE_LABEL);
+    fill(document.getElementById('report-period'), periods, '全部周期 / All periods');
+  }
+
+  function render() {
+    var rows = filtered();
+
+    // 聚合：对每个数值型 metric 求和
+    var totals = {};
+    rows.forEach(function (r) {
+      if (r.metrics && typeof r.metrics === 'object') {
+        Object.keys(r.metrics).forEach(function (k) {
+          var n = Number(r.metrics[k]);
+          if (isFinite(n)) totals[k] = (totals[k] || 0) + n;
+        });
+      }
+    });
+
+    var cards = document.getElementById('metric-cards');
+    cards.innerHTML = Object.keys(totals).map(function (k) {
+      return '<div class="summary-card">' +
+        '<span>' + GM.esc(k.replace(/_/g, ' ')) + '</span>' +
+        '<strong>' + (totals[k] % 1 === 0 ? totals[k].toLocaleString() : totals[k].toLocaleString(undefined, { maximumFractionDigits: 1 })) + '</strong>' +
+        '<small>筛选结果合计 / Combined across filtered reports</small>' +
+        '</div>';
+    }).join('');
+
+    var body = document.getElementById('reports-body');
+    if (!rows.length) {
+      body.innerHTML =
+        '<tr><td colspan="5" class="empty-state">' +
+        (reports.length === 0
+          ? 'No reports available yet / 还没有报表'
+          : 'No reports match the current filters / 没有匹配的报表') +
+        '</td></tr>';
+    } else {
+      body.innerHTML = rows.map(function (r, index) {
+        var metrics = r.metrics && typeof r.metrics === 'object' ? r.metrics : {};
+        var preview = Object.keys(metrics).slice(0, 3)
+          .map(function (k) { return k + ': ' + metrics[k]; })
+          .join(' · ');
+        var reportId = asString(r.id) || String(index + 1);
+        var active = selectedId !== null && String(selectedId) === reportId;
+
+        return '<tr class="' + (active ? 'active' : '') + '">' +
+          '<td><div class="list-title">' + GM.esc(typeLabel(reportType(r))) + '</div>' +
+          '<div class="muted">#' + GM.esc(reportId) + '</div></td>' +
+          '<td class="mono">' + GM.esc(reportPeriod(r)) + '</td>' +
+          '<td>' + GM.esc(r.summary || preview || '—') + '</td>' +
+          '<td class="nowrap">' + GM.esc(GM.fmtDateTime(reportTime(r))) + '</td>' +
+          '<td class="table-actions">' +
+            '<button type="button" class="button-secondary button-sm" data-view="' + GM.esc(reportId) + '">查看 / View</button>' +
+          '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    // 计数行是前端写死的字面量（回归脚本逐字断言），保持不变
+    document.getElementById('count-line').textContent =
+      'Showing ' + rows.length + ' of ' + reports.length + ' reports';
+
+    renderDetail();
+  }
+
+  function renderDetail() {
+    var box = document.getElementById('report-detail');
+    var rows = filtered();
+    var selected = rows.filter(function (r) { return String(r.id) === String(selectedId); })[0] || rows[0];
+
+    if (!selected) {
+      box.hidden = true;
+      return;
+    }
+    selectedId = selected.id;
+    box.hidden = false;
+
+    document.getElementById('detail-chips').innerHTML =
+      '<span class="chip">类型 / Type: ' + GM.esc(typeLabel(reportType(selected))) + '</span>' +
+      '<span class="chip">周期 / Period: ' + GM.esc(reportPeriod(selected)) + '</span>' +
+      '<span class="chip">生成时间 / Generated: ' + GM.esc(GM.fmtDateTime(reportTime(selected))) + '</span>';
+
+    document.getElementById('detail-json').innerHTML = GM.highlightJson(selected);
+  }
+
+  // 同 players.html：change 与 input 都绑
+  ['report-type', 'report-period'].forEach(function (id) {
+    var node = document.getElementById(id);
+    node.addEventListener('change', render);
+    node.addEventListener('input', render);
+  });
+  document.getElementById('report-search').addEventListener('input', render);
+
+  document.getElementById('refresh').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = '加载中…';
+    setTimeout(function () {
+      renderFilters();
+      render();
+      btn.disabled = false;
+      btn.textContent = '刷新 / Refresh';
+    }, 320);
+  });
+
+  document.getElementById('reports-body').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-view]');
+    if (!btn) return;
+    selectedId = btn.getAttribute('data-view');
+    render();
+    document.getElementById('report-detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  document.getElementById('close-detail').addEventListener('click', function () {
+    selectedId = null;
+    var rows = filtered();
+    selectedId = rows.length ? rows[0].id : null;
+    render();
+  });
+
+  renderFilters();
+  render();
+  GM.footer({ doc: 'RGS-REQ-020 / RGS-BAS-017 网络拓扑、容灾与数据分析管线（分析管线组件与数据流时序）' });
+});
+</script>
+</body>
+</html>

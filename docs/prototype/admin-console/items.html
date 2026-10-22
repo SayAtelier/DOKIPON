@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>补偿与兑换码发放 — DOKIPON 运营后台原型</title>
+<link rel="stylesheet" href="assets/prototype.css">
+</head>
+<body>
+<div class="shell">
+  <header class="topbar" id="gm-topbar"></header>
+  <div id="gm-demo-banner"></div>
+
+  <main>
+    <section class="section">
+      <div class="section-header">
+        <h2>补偿与兑换码发放</h2>
+        <button type="button" class="button-secondary" id="reset-form">重置表单 / Reset form</button>
+      </div>
+      <p class="section-description">
+        向指定消费者发放补偿权益与兑换码，并保留完整操作审计记录。
+        对应 <span class="mono">POST /gm/items/grant</span>，请求体 <span class="mono">{player_id, item_id, amount}</span>。
+      </p>
+
+      <div class="form-grid">
+        <div class="field">
+          <label for="grant-player">消费者 ID / Player ID</label>
+          <input id="grant-player" placeholder="Player ID（消费者 ID）">
+        </div>
+        <div class="field">
+          <label for="grant-item">补偿项 ID / Item ID</label>
+          <input id="grant-item" placeholder="Item ID（补偿项 ID）">
+        </div>
+        <div class="field">
+          <label for="grant-amount">发放数量 / Amount</label>
+          <input id="grant-amount" placeholder="Amount（发放数量）" value="1">
+        </div>
+      </div>
+
+      <button type="button" id="grant">发放补偿项 / Grant Item</button>
+      <p class="status-message" id="grant-status"></p>
+
+      <div class="banner banner--gap" style="margin-top:16px">
+        <div>
+          <strong>走查提示</strong>
+          真实构建中「Grant Item」是单击直发，<b>无二次确认</b>（<span class="mono">Items.tsx:150</span>）。
+          补偿发放属于不可逆的权益操作，原型补了确认框并回显发放量，差异见索引页走查问题 #4。
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <h3>近期发放记录 / Recent grants</h3>
+        <button type="button" class="button-secondary button-sm" id="refresh-history">刷新记录 / Refresh history</button>
+      </div>
+      <p class="section-description">
+        复核运营团队最近发放的补偿与兑换码。用下方过滤条件定位单笔操作。
+      </p>
+
+      <div class="form-grid">
+        <div class="field">
+          <label for="history-search">过滤 / Filter</label>
+          <input id="history-search" placeholder="按消费者 / 补偿项 / 操作人过滤">
+        </div>
+        <div class="field">
+          <label for="history-limit">显示条数 / Show</label>
+          <select id="history-limit">
+            <option value="10">10 条 / 10 records</option>
+            <option value="20" selected>20 条 / 20 records</option>
+            <option value="50">50 条 / 50 records</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="chips" style="margin:14px 0">
+        <span class="chip" id="entries-chip">显示记录数 / Entries shown 0</span>
+        <span class="chip" id="total-chip">发放总量 / Total amount 0</span>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="table">
+          <thead>
+            <tr><th>ID</th><th>消费者 / Player</th><th>补偿项 / Item</th><th>发放数量 / Amount</th><th>操作人 / Operator</th><th>创建时间 / Created At</th></tr>
+          </thead>
+          <tbody id="grants-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>发放链路</h3>
+      <div class="table-wrapper">
+        <table class="table">
+          <thead><tr><th>环节</th><th>实现</th></tr></thead>
+          <tbody>
+            <tr><td>前端校验</td><td>Player ID 与 Item ID 任一为空 → <span class="mono">status-warning</span>「Player ID and Item ID are required」，不发请求</td></tr>
+            <tr><td>传输</td><td><span class="mono">amount</span> 经 <span class="mono">Number()</span> 转换后提交</td></tr>
+            <tr><td>后端</td><td><span class="mono">POST /gm/items/grant</span> → 权益 / Commerce 域（<span class="mono">crates/commerce-*/</span>、<span class="mono">crates/economy-service</span>）</td></tr>
+            <tr><td>审计</td><td>成功记录进入 <span class="mono">GET /gm/items/grants</span>，Operator 列即签发人</td></tr>
+            <tr><td>设计侧</td><td>RGS-DTL-037 Economy域（<span class="mono">CommitTransaction</span> 事务边界）</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer id="gm-footer"></footer>
+</div>
+
+<div class="modal-backdrop" id="gm-modal-backdrop"></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/prototype.js"></script>
+<script>
+GM.ready(function () {
+  GM.shell({ active: 'items' });
+
+  var grants = GM_DATA.grants.map(function (g) { return Object.assign({}, g); });
+  var nextId = 3000;
+
+  function filteredGrants() {
+    var q = document.getElementById('history-search').value.trim().toLowerCase();
+    var limit = Number(document.getElementById('history-limit').value);
+    var rows = grants.filter(function (g) {
+      if (!q) return true;
+      // Items.tsx 在 playerId / itemId / admin / amount 四个字段里做子串匹配
+      return [g.playerId, g.itemId, g.admin || '', String(g.amount)]
+        .some(function (v) { return v.toLowerCase().indexOf(q) !== -1; });
+    });
+    return rows.slice(0, limit);
+  }
+
+  function render() {
+    var rows = filteredGrants();
+    var total = rows.reduce(function (acc, g) { return acc + (g.amount || 0); }, 0);
+
+    document.getElementById('entries-chip').textContent = '显示记录数 / Entries shown ' + rows.length;
+    document.getElementById('total-chip').textContent = '发放总量 / Total amount ' + total.toLocaleString();
+
+    var body = document.getElementById('grants-body');
+    if (!rows.length) {
+      // 两种空态文案必须区分：仓库里没有记录 vs 过滤后没有匹配
+      body.innerHTML =
+        '<tr><td colspan="6" class="empty-state">' +
+        (grants.length === 0
+          ? 'No grants recorded yet / 还没有发放记录'
+          : 'No grants matching the filter / 没有匹配的发放记录') +
+        '</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(function (g) {
+      return '<tr>' +
+        '<td class="num">' + g.id + '</td>' +
+        '<td class="mono">' + GM.esc(g.playerId) + '</td>' +
+        '<td class="mono">' + GM.esc(g.itemId) + '</td>' +
+        '<td class="num">' + (g.amount || 0).toLocaleString() + '</td>' +
+        '<td>' + GM.esc(g.admin || '—') + '</td>' +
+        '<td class="nowrap">' + GM.fmtDateTime(g.createdAt) + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  document.getElementById('history-search').addEventListener('input', render);
+
+  var historyLimit = document.getElementById('history-limit');
+  historyLimit.addEventListener('change', render);
+  historyLimit.addEventListener('input', render);
+
+  document.getElementById('refresh-history').addEventListener('click', function () {
+    this.disabled = true;
+    setTimeout(function () { render(); this.disabled = false; }.bind(this), 300);
+  });
+
+  document.getElementById('reset-form').addEventListener('click', function () {
+    document.getElementById('grant-player').value = '';
+    document.getElementById('grant-item').value = '';
+    document.getElementById('grant-amount').value = '1';
+    GM.setStatus(document.getElementById('grant-status'), '');
+  });
+
+  document.getElementById('grant').addEventListener('click', async function () {
+    var status = document.getElementById('grant-status');
+    var playerId = document.getElementById('grant-player').value.trim();
+    var itemId = document.getElementById('grant-item').value.trim();
+    var amount = document.getElementById('grant-amount').value.trim();
+
+    // 校验提示是前端写死的字面量（回归脚本逐字断言），保持不变
+    if (!playerId || !itemId) {
+      GM.setStatus(status, 'Player ID and Item ID are required', 'warning');
+      return;
+    }
+
+    var numeric = Number(amount);
+    if (amount === '' || !isFinite(numeric)) {
+      GM.setStatus(status, '发放数量必须是数字 / Amount must be a number', 'warning');
+      return;
+    }
+
+    var s = GM.session();
+    var ok = await GM.modal({
+      title: '确认发放补偿项？',
+      html: '消费者 <span class="mono">' + GM.esc(playerId) + '</span><br>' +
+        '补偿项 <span class="mono">' + GM.esc(itemId) + '</span> × <b>' + numeric.toLocaleString() + '</b><br><br>' +
+        '该操作会写入消费者权益账本并进入审计流，真实构建中不可撤销。',
+      confirmText: '确认发放 / Grant item'
+    });
+
+    if (!ok) {
+      GM.setStatus(status, '已取消发放 / Grant cancelled', 'warning');
+      return;
+    }
+
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = '发放中…';
+
+    setTimeout(function () {
+      grants.unshift({
+        id: nextId++,
+        playerId: playerId,
+        itemId: itemId,
+        amount: numeric,
+        admin: s ? s.username : 'demo_operator',
+        createdAt: new Date().toISOString()
+      });
+      btn.disabled = false;
+      btn.textContent = '发放补偿项 / Grant Item';
+      document.getElementById('grant-player').value = '';
+      document.getElementById('grant-item').value = '';
+      document.getElementById('grant-amount').value = '1';
+      GM.setStatus(status, 'granted', 'success');
+      render();
+    }, 400);
+  });
+
+  render();
+  GM.footer({ doc: 'RGS-DTL-037 Economy域详细设计书 · RGS-BAS-003 §3.1 账号/会话级方法' });
+});
+</script>
+</body>
+</html>

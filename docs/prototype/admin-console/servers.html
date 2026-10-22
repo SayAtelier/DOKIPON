@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>服务实例 — DOKIPON 运营后台原型</title>
+<link rel="stylesheet" href="assets/prototype.css">
+</head>
+<body>
+<div class="shell">
+  <header class="topbar" id="gm-topbar"></header>
+  <div id="gm-demo-banner"></div>
+
+  <main>
+    <section class="section">
+      <div class="section-header">
+        <h2>服务实例管理</h2>
+        <div class="button-row">
+          <label class="muted" style="display:flex;align-items:center;gap:6px;margin:0">
+            <input type="checkbox" id="auto-refresh"> 自动刷新 / Auto refresh
+          </label>
+          <button type="button" id="refresh">刷新 / Refresh</button>
+        </div>
+      </div>
+      <p class="section-description">
+        监控各服务节点（shard）的可用性，异常时实时处置。
+        自动刷新间隔 10s（<span class="mono">Servers.tsx</span> 的 <span class="mono">setInterval(fetchServers, 10000)</span>）。
+      </p>
+
+      <div class="summary-grid">
+        <div class="summary-card">
+          <span>服务实例总数 / Total instances</span>
+          <strong id="s-total">—</strong>
+          <small id="s-running"></small>
+        </div>
+        <div class="summary-card">
+          <span>承载会话数 / Sessions carried</span>
+          <strong id="s-online">—</strong>
+          <small>运行中服务节点合计 / Across running nodes</small>
+        </div>
+        <div class="summary-card">
+          <span>离线服务实例 / Offline instances</span>
+          <strong id="s-offline">—</strong>
+          <small>需人工介入 / Requires manual intervention</small>
+        </div>
+      </div>
+
+      <p class="muted" id="last-synced"></p>
+      <p class="status-message" id="action-status"></p>
+
+      <div class="table-wrapper">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th><th>Name</th><th>Region</th><th>Status</th>
+              <th>承载会话数 / Sessions</th><th>Last Updated</th><th>操作 / Actions</th>
+            </tr>
+          </thead>
+          <tbody id="servers-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>启停的真实契约</h3>
+      <div class="table-wrapper">
+        <table class="table">
+          <thead>
+            <tr><th>动作</th><th>路由</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>启动 / Start</td>
+              <td class="mono">POST /gm/servers/{id}/start</td>
+              <td>已在 <span class="mono">running</span>（运行中 / Running）的服务节点该按钮置灰</td>
+            </tr>
+            <tr>
+              <td>停止 / Stop</td>
+              <td class="mono">POST /gm/servers/{id}/stop</td>
+              <td>已在 <span class="mono">stopped</span>（已停止 / Stopped）的服务节点该按钮置灰</td>
+            </tr>
+            <tr>
+              <td colspan="3" class="muted">
+                不存在的 id 返回失败（<span class="mono">it_business_flows.rs:522</span> 覆盖该分支）。
+                真实构建中这两个动作<b>单击即执行、无二次确认</b>；原型按爆炸半径原则补了确认框，差异见索引页走查问题 #4。
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="banner banner--gap" style="margin-top:16px">
+        <div>
+          <strong>设计文档侧</strong>
+          RGS-REQ-023 / RGS-BAS-020 定义了实例路由与实例合并 / 拆分标准化流程（含执行演练）；
+          本页只体现「单实例启停」这一最小面，<b>实例合并 / 拆分</b> 在前后端均无实现。
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="gm-footer"></footer>
+</div>
+
+<div class="modal-backdrop" id="gm-modal-backdrop"></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/prototype.js"></script>
+<script>
+GM.ready(function () {
+  GM.shell({ active: 'servers' });
+
+  // 深拷贝，启停只改副本；刷新即回到服务端状态
+  var servers = GM_DATA.servers.map(function (s) { return Object.assign({}, s); });
+  var autoTimer = null;
+
+  function render() {
+    var running = servers.filter(function (s) { return s.status === 'running'; }).length;
+    var online = servers.reduce(function (acc, s) { return acc + (s.onlinePlayers || 0); }, 0);
+
+    document.getElementById('s-total').textContent = servers.length;
+    // 该副标题是前端写死的字面量（回归脚本逐字断言），保持不变
+    document.getElementById('s-running').textContent = 'Running ' + running;
+    document.getElementById('s-online').textContent = online.toLocaleString();
+    document.getElementById('s-offline').textContent = Math.max(0, servers.length - running);
+    document.getElementById('last-synced').textContent =
+      '最后同步 / Last synced at ' + new Date().toLocaleTimeString();
+
+    document.getElementById('servers-body').innerHTML = servers.length
+      ? servers.map(function (s) {
+          return '<tr>' +
+            '<td class="mono">' + GM.esc(s.id) + '</td>' +
+            '<td>' + GM.esc(s.name) + '</td>' +
+            '<td>' + GM.esc(s.region || '—') + '</td>' +
+            '<td>' + GM.statusTag(s.status, true) + '</td>' +
+            '<td class="num">' + (s.onlinePlayers || 0).toLocaleString() + '</td>' +
+            '<td class="nowrap">' + GM.fmtDateTime(s.lastUpdated) + '</td>' +
+            '<td class="table-actions">' +
+              '<button type="button" class="button-sm" data-action="start" data-id="' + GM.esc(s.id) + '"' +
+                (s.status === 'running' ? ' disabled' : '') + '>启动 / Start</button>' +
+              '<button type="button" class="button-sm button-danger" data-action="stop" data-id="' + GM.esc(s.id) + '"' +
+                (s.status === 'stopped' ? ' disabled' : '') + '>停止 / Stop</button>' +
+            '</td>' +
+            '</tr>';
+        }).join('')
+      : '<tr><td colspan="7" class="empty-state">没有服务实例信息 / No server information</td></tr>';
+  }
+
+  async function performAction(id, action) {
+    var server = servers.filter(function (s) { return s.id === id; })[0];
+    if (!server) {
+      GM.setStatus(document.getElementById('action-status'), '操作失败 / Failed to ' + action + ' ' + id, 'error');
+      return;
+    }
+
+    var impact = action === 'stop'
+      ? '该服务实例承载的 ' + (server.onlinePlayers || 0).toLocaleString() + ' 个会话将被中断。'
+      : '该服务实例将重新接入流量调度。';
+
+    var ok = await GM.modal({
+      title: (action === 'stop' ? '停止' : '启动') + '服务实例 ' + server.name + '？',
+      html: '实例 ID <span class="mono">' + GM.esc(id) + '</span>（<span class="mono">' +
+        GM.esc(server.region || 'no region') + '</span>）。<br>' + impact +
+        '<br><br>原型确认框为新增；真实构建 <span class="mono">Servers.tsx</span> 是单击直发。',
+      confirmText: action === 'stop' ? '停止实例 / Stop server' : '启动实例 / Start server',
+      danger: action === 'stop'
+    });
+
+    if (!ok) {
+      GM.setStatus(document.getElementById('action-status'), '操作已取消 / Action cancelled — ' + id + ' unchanged', 'warning');
+      return;
+    }
+
+    // 模拟 RTT，让状态迁移可见
+    var body = document.getElementById('servers-body');
+    body.style.opacity = '0.55';
+
+    setTimeout(function () {
+      server.status = action === 'start' ? 'running' : 'stopped';
+      // 对齐 servers_handler.rs::start_server：启动后在线人数落在 50..500
+      server.onlinePlayers = action === 'start'
+        ? 50 + Math.floor(Math.random() * 451)
+        : 0;
+      server.lastUpdated = new Date().toISOString();
+      body.style.opacity = '1';
+      render();
+      GM.setStatus(
+        document.getElementById('action-status'),
+        (action === 'stop' ? '已停止 / Stopped ' : '已启动 / Started ') + server.name,
+        'success'
+      );
+    }, 420);
+  }
+
+  document.getElementById('servers-body').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-action]');
+    if (!btn || btn.disabled) return;
+    performAction(btn.getAttribute('data-id'), btn.getAttribute('data-action'));
+  });
+
+  document.getElementById('refresh').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = '刷新中…';
+    setTimeout(function () {
+      render();
+      btn.disabled = false;
+      btn.textContent = '刷新 / Refresh';
+    }, 320);
+  });
+
+  var autoBox = document.getElementById('auto-refresh');
+  function toggleAuto() {
+    if (autoBox.checked) {
+      autoTimer = setInterval(render, 10000);
+    } else {
+      clearInterval(autoTimer);
+      autoTimer = null;
+    }
+  }
+  // change 与 input 都绑：部分自动化只派发 input
+  autoBox.addEventListener('change', toggleAuto);
+  autoBox.addEventListener('input', toggleAuto);
+
+  render();
+  GM.footer({ doc: 'RGS-REQ-023 / RGS-BAS-020 平台内购合规与实例路由 · RGS-BAS-017 服务拓扑与容灾' });
+});
+</script>
+</body>
+</html>

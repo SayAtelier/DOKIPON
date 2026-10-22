@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>注文 / Order — GemArc Commerce 原型</title>
+<link rel="stylesheet" href="assets/storefront.css">
+</head>
+<body>
+<div class="workbench">
+  <header class="wb-head">
+    <div class="wb-title">
+      <h1>注文 / Order</h1>
+      <p>订单 = 结算状态机的<b>投影</b>：状态、事件轨迹、Outbox 三者同时可读，这就是设计书里的 4D 时间线。</p>
+    </div>
+    <nav class="wb-nav">
+      <a href="index.html">suite</a>
+      <a href="catalog.html">catalog</a>
+      <a href="product.html">product</a>
+      <a href="cart.html">cart</a>
+      <a href="checkout.html">checkout</a>
+      <a href="order.html" class="active">order</a>
+      <a href="session.html">session</a>
+      <a href="problem.html">problem</a>
+    </nav>
+  </header>
+
+  <div class="stage">
+    <div class="phone">
+      <div class="phone__status">
+        <span>17:08</span>
+        <span>▲ ▪ 80%</span>
+      </div>
+      <div class="phone__body">
+        <div class="appbar" id="appbar">
+          <h2>注文<span class="appbar__sub" id="appbar-sub">order</span></h2>
+          <span class="appbar__icon">桐</span>
+        </div>
+
+        <div class="screen">
+          <div id="banner-slot"></div>
+
+          <div class="card">
+            <div class="btn-row" style="justify-content:space-between">
+              <span class="section-label">注文 / Order</span>
+              <span class="chip chip--muted" id="order-id"></span>
+            </div>
+            <div id="order-lines"></div>
+            <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:12px">
+              <div class="btn-row" style="justify-content:space-between">
+                <span class="muted">合計 / Total</span>
+                <span class="price" id="order-total"></span>
+              </div>
+            </div>
+            <div class="chips" style="margin-top:12px" id="order-chips"></div>
+          </div>
+
+          <div class="card">
+            <p class="card__title">イベントトレイル / Trail</p>
+            <p class="card__desc">注文が如何に状態を変えたかの再帰可能な履歴。</p>
+            <ul class="trail" id="trail"></ul>
+          </div>
+
+          <div class="card">
+            <p class="card__title">Outbox</p>
+            <p class="card__desc">同一トランザクションで書かれる発行予定イベント。配送arks・請求書・分析。</p>
+            <ul class="trail" id="outbox"></ul>
+          </div>
+
+          <button type="button" class="btn btn--block btn--outline" id="reconcile">
+            対照する / Reconcile
+          </button>
+        </div>
+      </div>
+      <div class="toast" id="sf-toast"></div>
+    </div>
+
+    <div class="panel">
+      <h3>这个画面在证明什么</h3>
+      <p>
+        <span class="chip chip--api">GET /v1/orders</span>
+        <span class="chip chip--api">GET /v1/orders/{orderId}</span>
+        <span class="chip chip--api">POST /v1/orders/{orderId}/reconcile</span>
+      </p>
+
+      <h4>Order 的结构（commerce-order/src/main.rs L58-L88）</h4>
+      <table class="tbl">
+        <tr><th>字段</th><th>含义</th></tr>
+        <tr><td class="mono">state</td><td>结算状态机的当前态</td></tr>
+        <tr><td class="mono">lines[]</td><td>订单行。<b>单价是结算时刻的服务端权威单价</b></td></tr>
+        <tr><td class="mono">total</td><td>金额（整数最小单位 + 币种）</td></tr>
+        <tr><td class="mono">reservation_id</td><td>库存预留凭证</td></tr>
+        <tr><td class="mono">provider_ref</td><td>支付服务商侧凭证</td></tr>
+        <tr><td class="mono">transitions_used</td><td>已用状态跃迁次数</td></tr>
+        <tr><td class="mono">trail[]</td><td>事件轨迹（sequence / event / from_state / to_state）</td></tr>
+        <tr><td class="mono">outbox[]</td><td>待投递的领域事件</td></tr>
+        <tr><td class="mono">awaiting_reconciliation</td><td>是否等待与支付服务商对账</td></tr>
+      </table>
+
+      <h4>为什么 trail 重要</h4>
+      <p class="muted">
+        出现「到底扣没扣款」时，可回答的唯一事实来源是这条轨迹 + 服务商凭证，
+        而不是客户端的本地状态。5D 因果层（对账 / 反事实）就建在它上面。
+      </p>
+    </div>
+  </div>
+
+  <footer class="footer-note">
+    <span>GemArc Commerce ストアフロント原型 · データは全てデモ値 · 通信は行わない</span>
+    <span><a href="index.html">suite 索引</a> · <a href="../admin-console/index.html">运营后台原型</a></span>
+  </footer>
+</div>
+
+<script src="assets/storefront.js"></script>
+<script>
+SF.ready(function () {
+  var order = SF.ORDER;
+  var awaiting = order.awaiting_reconciliation;
+
+  function render() {
+    SF.el('order-id').textContent = order.order_id;
+
+    SF.el('banner-slot').innerHTML = awaiting
+      ? SF.banner(
+        '<strong>対照待ち / Awaiting reconciliation</strong>' +
+        '決済プロバイサとの照合が完了していません。' +
+        '<span class="muted">We are reconciling with the provider.</span>',
+        'warning')
+      : SF.banner(
+        '<strong>ご注文を完了しました / Order confirmed</strong>' +
+        'お cán you ının配送します。',
+        'success');
+
+    SF.el('order-lines').innerHTML = order.lines.map(function (l) {
+      var p = SF.PRODUCTS.filter(function (x) { return x.sku === l.sku; })[0];
+      return '<div class="line-item">' +
+        '<div class="line-item__main">' +
+        '<div class="line-item__name">' + SF.esc(p ? p.title_i18n.ja : l.sku) + '</div>' +
+        '<div class="line-item__meta">' + l.sku + ' × ' + l.quantity + '</div>' +
+        '</div>' +
+        '<span class="price">' + SF.money(l.unit_amount_minor * l.quantity, l.currency) + '</span>' +
+        '</div>';
+    }).join('');
+
+    SF.el('order-total').textContent = SF.money(order.total.amount_minor, order.total.currency);
+
+    SF.el('order-chips').innerHTML = [
+      '<span class="chip chip--ok">' + order.state + '</span>',
+      '<span class="chip chip--muted">rsv ' + order.reservation_id + '</span>',
+      '<span class="chip chip--muted">psp ' + order.provider_ref + '</span>',
+      '<span class="chip chip--muted">transitions ' + order.transitions_used + '</span>'
+    ].join('');
+
+    SF.el('trail').innerHTML = order.trail.map(function (t) {
+      return '<li>' +
+        '<div class="trail__seq">' + t.sequence + '</div>' +
+        '<div>' +
+        '<div class="trail__ev">' + SF.esc(t.event) + '</div>' +
+        '<div class="trail__meta">' + t.from_state + ' → ' + t.to_state + '</div>' +
+        '</div></li>';
+    }).join('');
+
+    SF.el('outbox').innerHTML = order.outbox.map(function (e) {
+      return '<li>' +
+        '<div class="trail__seq">' + (e.dispatched ? '✓' : '·') + '</div>' +
+        '<div>' +
+        '<div class="trail__ev">' + SF.esc(e.event) + '</div>' +
+        '<div class="trail__meta">' + (e.dispatched ? 'dispatched' : 'pending') + '</div>' +
+        '</div></li>';
+    }).join('');
+  }
+
+  SF.el('reconcile').addEventListener('click', function () {
+    if (awaiting) {
+      SF.toast('照合結果：Capture 1 件 / 追加請求なし / No extra charge');
+    } else {
+      SF.toast('照合不要 / Nothing to reconcile');
+    }
+  });
+
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>エラー / Problem — GemArc Commerce 原型</title>
+<link rel="stylesheet" href="assets/storefront.css">
+</head>
+<body>
+<div class="workbench">
+  <header class="wb-head">
+    <div class="wb-title">
+      <h1>エラー表示 / Problem details</h1>
+      <p>RFC 9457 + 扩展字段。客户端<b>只按 code 与 retryable 分支</b>，不按 HTTP 状态码分支。</p>
+    </div>
+    <nav class="wb-nav">
+      <a href="index.html">suite</a>
+      <a href="catalog.html">catalog</a>
+      <a href="product.html">product</a>
+      <a href="cart.html">cart</a>
+      <a href="checkout.html">checkout</a>
+      <a href="order.html">order</a>
+      <a href="session.html">session</a>
+      <a href="problem.html" class="active">problem</a>
+    </nav>
+  </header>
+
+  <div class="stage">
+    <div class="phone">
+      <div class="phone__status">
+        <span>17:15</span>
+        <span>▲ ▪ 80%</span>
+      </div>
+      <div class="phone__body">
+        <div class="appbar" id="appbar">
+          <h2>エラー<span class="appbar__sub" id="appbar-sub">problem+json</span></h2>
+          <span class="appbar__icon">桐</span>
+        </div>
+
+        <div class="screen">
+          <div id="banner-slot"></div>
+
+          <div class="card">
+            <p class="card__title" id="p-title">—</p>
+            <p class="muted" id="p-detail"></p>
+            <div class="chips" style="margin-top:12px" id="p-chips"></div>
+            <div class="btn-row" style="margin-top:12px" id="p-actions"></div>
+          </div>
+
+          <div class="card">
+            <p class="card__title">クライアントの分岐 / How the client branches</p>
+            <p class="card__desc">
+              <span class="mono">ApiProblem</span> の判定子。HTTP ステータスではなく
+              <b>code</b> と <b>retryable</b> を見る。
+            </p>
+            <ul class="muted" style="padding-left:18px;line-height:1.9" id="branch-list"></ul>
+          </div>
+
+          <div class="card">
+            <p class="card__title">レスポンス本文 / Response body</p>
+            <pre class="problem" id="p-json"></pre>
+          </div>
+        </div>
+      </div>
+      <div class="toast" id="sf-toast"></div>
+    </div>
+
+    <div class="panel">
+      <h3>这个画面在证明什么</h3>
+      <p>
+        <span class="chip chip--api">application/problem+json</span>
+        <span class="chip chip--api">{type,title,status,code,detail,traceId,retryable}</span>
+      </p>
+
+      <h4>五个判定子（problem.dart L28-L49）</h4>
+      <table class="tbl">
+        <tr><th>判定子</th><th>条件</th><th>客户端该做什么</th></tr>
+        <tr>
+          <td class="mono">isUnresolvedPayment</td>
+          <td><span class="mono">code</span> 以 <span class="mono">payment.unknown</span> / <span class="mono">checkout.pending</span> 开头</td>
+          <td><b>改轮询</b>，绝不重提结算</td>
+        </tr>
+        <tr>
+          <td class="mono">isVersionConflict</td>
+          <td><span class="mono">code == cart.version_conflict</span></td>
+          <td>重新拉取购物车后重放变更</td>
+        </tr>
+        <tr>
+          <td class="mono">isIdempotencyConflict</td>
+          <td><span class="mono">code</span> 含 <span class="mono">idempotency</span></td>
+          <td>换新 Idempotency-Key 并重新读取</td>
+        </tr>
+        <tr>
+          <td class="mono">isLineUnavailable</td>
+          <td><span class="mono">code</span> 以 <span class="mono">line.</span> 开头</td>
+          <td>降级提示，商店其余部分照常</td>
+        </tr>
+        <tr>
+          <td class="mono">requiresLogin / isForbidden</td>
+          <td>status 401 / 403</td>
+          <td>提示登录 / 提示无权</td>
+        </tr>
+      </table>
+
+      <h4>两条不能违反的约束</h4>
+      <ul class="muted" style="padding-left:18px;line-height:1.8">
+        <li><b>retryable=false 不得触发重试循环</b>。</li>
+        <li><b>payable 未知 ≠ 失败</b>：<span class="mono">payment.unknown</span> 时文案不能说「支付失败」，更不能引导用户再付一次。</li>
+      </ul>
+
+      <h4>点一下试试</h4>
+      <div class="btn-row" id="problem-buttons"></div>
+    </div>
+  </div>
+
+  <footer class="footer-note">
+    <span>GemArc Commerce ストアフロント原型 · データは全てデモ値 · 通信は行わない</span>
+    <span><a href="index.html">suite 索引</a> · <a href="../admin-console/index.html">运营后台原型</a></span>
+  </footer>
+</div>
+
+<script src="assets/storefront.js"></script>
+<script>
+SF.ready(function () {
+  var key = 'payment_unknown';
+
+  var BRANCHES = [
+    ['isUnresolvedPayment', 'code.startsWith("payment.unknown") || code.startsWith("checkout.pending")', '改轮询，绝不重提结算'],
+    ['isVersionConflict', 'code == "cart.version_conflict"', '重新拉取购物车后重放变更'],
+    ['isIdempotencyConflict', 'code.contains("idempotency")', '换新 Idempotency-Key 并重新读取'],
+    ['isLineUnavailable', 'code.startsWith("line.")', '降级提示，商店其余部分照常'],
+    ['requiresLogin', 'status == 401', '提示登录'],
+    ['isForbidden', 'status == 403', '提示无权访问该资源']
+  ];
+
+  function render() {
+    var p = SF.PROBLEMS[key];
+    var unresolved = p.code.indexOf('payment.unknown') === 0 || p.code.indexOf('checkout.pending') === 0;
+    var versionConflict = p.code === 'cart.version_conflict';
+    var idem = p.code.indexOf('idempotency') !== -1;
+    var line = p.code.indexOf('line.') === 0;
+    var login = p.status === 401;
+    var forbidden = p.status === 403;
+
+    var tone = 'danger';
+    if (unresolved) tone = 'warning';
+    else if (p.retryable) tone = 'info';
+    else if (p.status === 200) tone = 'info';
+
+    var body = '<strong>' + SF.esc(p.title) + '</strong>' + SF.esc(p.detail);
+    var action = '';
+    if (unresolved) action = '更新 / Refresh';
+    else if (versionConflict) action = '再読込 / Reload';
+    else if (idem) action = '新規にやり直す / Start over';
+    else if (line) action = '続ける / Continue';
+    else if (login || forbidden) action = 'OK';
+
+    SF.el('banner-slot').innerHTML = SF.banner(body, tone, action, 'problem-action');
+
+    SF.el('p-title').textContent = p.title;
+    SF.el('p-detail').textContent = p.detail;
+    SF.el('p-chips').innerHTML = [
+      '<span class="chip chip--' + (p.retryable ? 'warn' : 'muted') + '">retryable ' + p.retryable + '</span>',
+      '<span class="chip chip--muted">status ' + p.status + '</span>',
+      '<span class="chip chip--muted">' + p.code + '</span>',
+      p.traceId ? '<span class="chip chip--muted">trace ' + p.traceId + '</span>' : ''
+    ].join('');
+
+    var actions = [];
+    if (unresolved) actions.push('再送（禁止） / Re-submit (forbidden)');
+    if (versionConflict) actions.push('-cart を再読込');
+    if (idem) actions.push('新しい Idempotency-Key');
+    SF.el('p-actions').innerHTML = actions.length
+      ? actions.map(function (a) {
+          return '<button type="button" class="btn btn--sm btn--outline" data-noop="' + SF.esc(a) + '">' +
+            SF.esc(a) + '</button>';
+        }).join('')
+      : '<span class="muted">この code に対する追加操作はありません。</span>';
+
+    SF.el('branch-list').innerHTML = BRANCHES.map(function (b) {
+      var hit = (b[0] === 'isUnresolvedPayment' && unresolved) ||
+        (b[0] === 'isVersionConflict' && versionConflict) ||
+        (b[0] === 'isIdempotencyConflict' && idem) ||
+        (b[0] === 'isLineUnavailable' && line) ||
+        (b[0] === 'requiresLogin' && login) ||
+        (b[0] === 'isForbidden' && forbidden);
+      var mark = hit
+        ? '<b style="color:var(--brand)">✔ </b>'
+        : '<span class="muted">· </span>';
+      return '<li>' + mark + '<span class="mono">' + b[0] + '</span> — ' + b[2] + '</li>';
+    }).join('');
+
+    SF.el('p-json').innerHTML = SF.highlightJson(p);
+  }
+
+  SF.el('problem-buttons').innerHTML = Object.keys(SF.PROBLEMS).map(function (k) {
+    return '<button type="button" class="btn btn--sm btn--outline" data-problem="' + k + '">' +
+      SF.esc(SF.PROBLEMS[k].code) + '</button>';
+  }).join('');
+
+  SF.el('problem-buttons').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-problem]');
+    if (!btn) return;
+    key = btn.getAttribute('data-problem');
+    render();
+  });
+
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('[data-noop]')) {
+      SF.toast('この操作はされません / This action is not offered');
+    }
+    if (e.target.closest('[data-action="problem-action"]')) {
+      SF.toast('状态已刷新（未重新提交） / Status refreshed, not resubmitted');
+    }
+  });
+
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>店铺商品 — DOKIPON 运营后台原型</title>
+<link rel="stylesheet" href="assets/prototype.css">
+</head>
+<body>
+<div class="shell">
+  <header class="topbar" id="gm-topbar"></header>
+  <div id="gm-demo-banner"></div>
+
+  <main>
+    <section class="section">
+      <div class="section-header">
+        <h2>店铺商品</h2>
+        <button type="button" id="refresh">刷新 / Refresh</button>
+      </div>
+      <p class="section-description">
+        管理店铺在售商品、调整定价，确保最新商品目录对消费者可见。
+        对应 <span class="mono">GET /gm/mall/items</span> · <span class="mono">POST /gm/mall/items</span> ·
+        <span class="mono">PUT /gm/mall/items/{id}</span> · <span class="mono">DELETE /gm/mall/items/{id}</span>。
+      </p>
+
+      <div class="form-grid">
+        <div class="field">
+          <label for="search">搜索 / Search</label>
+          <input id="search" placeholder="按 ID 或商品名称搜索">
+        </div>
+        <div class="field">
+          <label for="ro-total">商品数 / Total items</label>
+          <input id="ro-total" readonly>
+        </div>
+        <div class="field">
+          <label for="ro-avg">平均售价 / Average price</label>
+          <input id="ro-avg" readonly>
+        </div>
+      </div>
+
+      <div class="chips" style="margin:14px 0">
+        <span class="chip" id="chip-size">在售商品数 / Items on sale 0</span>
+        <span class="chip" id="chip-value">在售货值 / Total value ¥0</span>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="table">
+          <thead>
+            <tr><th>ID</th><th>商品名称 / Name</th><th>售价 / Price</th><th>操作 / Actions</th></tr>
+          </thead>
+          <tbody id="mall-body"></tbody>
+        </table>
+      </div>
+
+      <div class="banner banner--gap" style="margin-top:16px">
+        <div>
+          <strong>走查提示</strong>
+          <b>Delete</b> 在真实构建中是单击直发、无确认（<span class="mono">Mall.tsx:261</span>），且下架后不可恢复。
+          原型补了确认框；这是索引页走查问题 #4 的第三处实例。
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>新增商品</h3>
+      <div class="form-grid">
+        <div class="field">
+          <label for="name">商品名称 / Name</label>
+          <input id="name" placeholder="商品名称 / Name">
+        </div>
+        <div class="field">
+          <label for="price">售价 / Price</label>
+          <input id="price" placeholder="整数元 / Price">
+        </div>
+      </div>
+      <button type="button" id="create">新增 / Create</button>
+      <p class="status-message" id="status"></p>
+    </section>
+
+    <section class="section">
+      <h3>金额口径</h3>
+      <p class="section-description">
+        <span class="mono">price</span> 以 JSON number 传输，真实构建用 <span class="mono">toFixed(2)</span> 展示；
+        本原型按电商口径改为<b>整数元</b>显示（<span class="mono">¥128</span> / <span class="mono">¥1,026</span>）。
+        仓库 <span class="mono">README.md</span> 的 Working agreements 规定「Money 是整数最小货币单位 + ISO-4217，
+        业务金额不得用 double」——<b>字段类型仍与该约定不一致</b>（索引页走查问题 #5 依然成立），本次只改界面口径，不动后端字段。
+        <br>另：契约中的 <span class="mono">MallItem{id,name,price}</span> <b>没有库存字段</b>，
+        因此本页不展示在售状态（<span class="mono">在庫あり / In stock</span>、<span class="mono">在庫切れ / Out of stock</span>）；
+        若要展示，需后端先补 <span class="mono">stock</span> 枚举。
+      </p>
+      <div class="table-wrapper">
+        <table class="table">
+          <thead><tr><th>校验分支</th><th>文案（前端字面量）</th><th>触发条件</th></tr></thead>
+          <tbody>
+            <tr><td>warning</td><td class="mono">Name is required</td><td>名称去空格后为空</td></tr>
+            <tr><td>warning</td><td class="mono">Enter a valid price</td><td><span class="mono">Number(price)</span> 非有限值</td></tr>
+            <tr><td>success</td><td class="mono">Item created / Item updated / Item deleted</td><td>写操作成功</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer id="gm-footer"></footer>
+</div>
+
+<div class="modal-backdrop" id="gm-modal-backdrop"></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/prototype.js"></script>
+<script>
+GM.ready(function () {
+  GM.shell({ active: 'mall' });
+
+  var items = GM_DATA.mallItems.map(function (i) { return Object.assign({}, i); });
+  var nextId = 200;
+  var editingId = null;
+
+  /* 价格按电商口径以整数元显示；字段仍是 JSON number（契约不变）。 */
+  function fmtYuan(value) {
+    if (typeof value !== 'number' || !isFinite(value)) return '—';
+    return '¥' + Math.round(value).toLocaleString();
+  }
+
+  function filtered() {
+    var q = document.getElementById('search').value.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter(function (i) {
+      // Mall.tsx 在 name 与 id 两个字段上做子串匹配
+      return i.name.toLowerCase().indexOf(q) !== -1 || String(i.id).indexOf(q) !== -1;
+    });
+  }
+
+  function render() {
+    var rows = filtered();
+    var totalValue = rows.reduce(function (acc, i) { return acc + (i.price || 0); }, 0);
+    var avg = rows.length ? totalValue / rows.length : 0;
+
+    document.getElementById('ro-total').value = rows.length;
+    document.getElementById('ro-avg').value = fmtYuan(avg);
+    document.getElementById('chip-size').textContent = '在售商品数 / Items on sale ' + rows.length;
+    document.getElementById('chip-value').textContent = '在售货值 / Total value ' + fmtYuan(totalValue);
+
+    var body = document.getElementById('mall-body');
+    if (!rows.length) {
+      body.innerHTML =
+        '<tr><td colspan="4" class="empty-state">' +
+        (items.length === 0
+          ? 'No items in the catalog yet / 商品目录还是空的'
+          : 'No items match the current search / 没有匹配的商品') +
+        '</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(function (i) {
+      var editing = editingId === i.id;
+      return '<tr>' +
+        '<td class="num">' + i.id + '</td>' +
+        '<td>' + (editing
+          ? '<input data-edit="name" value="' + GM.esc(i.name) + '">'
+          : GM.esc(i.name)) + '</td>' +
+        '<td class="num">' + (editing
+          ? '<input data-edit="price" value="' + i.price + '">'
+          : fmtYuan(i.price)) + '</td>' +
+        '<td class="table-actions">' + (editing
+          ? '<button type="button" class="button-sm" data-save="' + i.id + '">保存 / Save</button>' +
+            '<button type="button" class="button-secondary button-sm" data-cancel="1">取消 / Cancel</button>'
+          : '<button type="button" class="button-secondary button-sm" data-edit="' + i.id + '">编辑 / Edit</button>' +
+            '<button type="button" class="button-sm button-danger" data-delete="' + i.id + '">下架 / Delete</button>') +
+        '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  document.getElementById('search').addEventListener('input', render);
+
+  document.getElementById('refresh').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    setTimeout(function () {
+      render();
+      btn.disabled = false;
+    }, 300);
+  });
+
+  document.getElementById('mall-body').addEventListener('click', async function (e) {
+    var editBtn = e.target.closest('[data-edit]');
+    var delBtn = e.target.closest('[data-delete]');
+    var saveBtn = e.target.closest('[data-save]');
+    var cancelBtn = e.target.closest('[data-cancel]');
+    var status = document.getElementById('status');
+
+    if (editBtn) {
+      editingId = Number(editBtn.getAttribute('data-edit'));
+      render();
+      var input = document.querySelector('[data-edit="name"]');
+      if (input) input.focus();
+      return;
+    }
+
+    if (cancelBtn) {
+      editingId = null;
+      render();
+      return;
+    }
+
+    if (saveBtn) {
+      var id = Number(saveBtn.getAttribute('data-save'));
+      var item = items.filter(function (i) { return i.id === id; })[0];
+      var nameInput = document.querySelector('[data-edit="name"]');
+      var priceInput = document.querySelector('[data-edit="price"]');
+      var trimmed = nameInput ? nameInput.value.trim() : '';
+      var numeric = priceInput ? Number(priceInput.value) : NaN;
+
+      // 以下提示是前端写死的字面量（回归脚本逐字断言），保持不变
+      if (!trimmed) {
+        GM.setStatus(status, 'Name is required', 'warning');
+        return;
+      }
+      if (!isFinite(numeric)) {
+        GM.setStatus(status, 'Enter a valid price', 'warning');
+        return;
+      }
+
+      item.name = trimmed;
+      item.price = numeric;
+      editingId = null;
+      render();
+      GM.setStatus(status, 'Item updated', 'success');
+      return;
+    }
+
+    if (delBtn) {
+      var delId = Number(delBtn.getAttribute('data-delete'));
+      var target = items.filter(function (i) { return i.id === delId; })[0];
+      var ok = await GM.modal({
+        title: '确认下架该商品？',
+        html: '<span class="mono">#' + delId + ' ' + GM.esc(target.name) + '</span> · ' +
+          fmtYuan(target.price) + '<br><br>下架后消费者端立即不可见，且真实构建无回收站。',
+        confirmText: '下架商品 / Delete item',
+        danger: true
+      });
+      if (!ok) {
+        GM.setStatus(status, '已取消下架 / Delete cancelled', 'warning');
+        return;
+      }
+      items = items.filter(function (i) { return i.id !== delId; });
+      render();
+      GM.setStatus(status, 'Item deleted', 'success');
+    }
+  });
+
+  document.getElementById('create').addEventListener('click', function () {
+    var status = document.getElementById('status');
+    var name = document.getElementById('name').value;
+    var price = document.getElementById('price').value;
+
+    if (!name.trim()) {
+      GM.setStatus(status, 'Name is required', 'warning');
+      return;
+    }
+    var numeric = Number(price);
+    if (price.trim() === '' || !isFinite(numeric)) {
+      GM.setStatus(status, 'Enter a valid price', 'warning');
+      return;
+    }
+
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = '处理中…';
+
+    setTimeout(function () {
+      items.push({ id: nextId++, name: name.trim(), price: numeric });
+      document.getElementById('name').value = '';
+      document.getElementById('price').value = '';
+      btn.disabled = false;
+      btn.textContent = '新增 / Create';
+      GM.setStatus(status, 'Item created', 'success');
+      render();
+    }, 360);
+  });
+
+  render();
+  GM.footer({ doc: 'RGS-REQ-023 / RGS-BAS-020 平台内购合规（收据校验与退款追回）· RGS-DTL-037 Economy域' });
+});
+</script>
+</body>
+</html>

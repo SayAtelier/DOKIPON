@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商品一覧 / Catalog — GemArc Commerce 原型</title>
+<link rel="stylesheet" href="assets/storefront.css">
+</head>
+<body>
+<div class="workbench">
+  <header class="wb-head">
+    <div class="wb-title">
+      <h1>商品一覧 / Catalog</h1>
+      <p>Flutter 共通実装 <span class="mono">packages/design_system/lib/src/widgets/storefront_app.dart</span> の
+        <span class="mono">CatalogScreen</span> を静的再現。三チャネル（Web / App / LINE MINI App）で同一の画面。</p>
+    </div>
+    <nav class="wb-nav">
+      <a href="index.html"> suite</a>
+      <a href="catalog.html" class="active">catalog</a>
+      <a href="product.html">product</a>
+      <a href="cart.html">cart</a>
+      <a href="checkout.html">checkout</a>
+      <a href="order.html">order</a>
+      <a href="session.html">session</a>
+      <a href="problem.html">problem</a>
+    </nav>
+  </header>
+
+  <div class="stage">
+    <!-- ─────────────────────────── phone ─────────────────────────── -->
+    <div class="phone">
+      <div class="phone__status">
+        <span>16:58</span>
+        <span>▲ ▪ 82%</span>
+      </div>
+      <div class="phone__body">
+        <div class="appbar" id="appbar">
+          <h2>GemArc<span class="appbar__sub" id="appbar-sub">Web · ストア</span></h2>
+          <span class="appbar__icon" id="appbar-avatar">G</span>
+        </div>
+
+        <div class="screen">
+          <div id="banner-slot"></div>
+
+          <div class="btn-row" style="justify-content:space-between">
+            <span class="section-label" id="count-label">商品</span>
+            <div id="channel-slot"></div>
+          </div>
+
+          <div id="list"></div>
+
+          <button type="button" class="btn btn--block btn--outline" id="load-more">
+            もっと見る / Load more
+          </button>
+        </div>
+      </div>
+      <div class="sheet-backdrop" id="sheet-backdrop">
+        <div class="sheet" id="sheet"></div>
+      </div>
+      <div class="toast" id="sf-toast"></div>
+    </div>
+
+    <!-- ─────────────────────────── panel ─────────────────────────── -->
+    <div class="panel">
+      <h3>この画面が指すもの</h3>
+      <p>
+        <span class="chip chip--api">GET /v1/products?cursor&amp;limit&amp;locale&amp;categoryId</span>
+        <span class="chip chip--api">x-channel: web | app | line</span>
+      </p>
+
+      <h4>忠实に再現した挙動</h4>
+      <ul class="muted" style="padding-left:18px;line-height:1.8">
+        <li><b>チャネルで商品が変わる</b> — チャネル非対応商品はサーバが返さない（<span class="mono">channel_eligibility</span>）。左の <b>Web / App / LINE</b> を切り替えて確認。</li>
+        <li><b>カーソルページング</b> — <span class="mono">limit=20</span> 固定、<span class="mono">next_cursor</span> があれば「もっと見る」。</li>
+        <li><b>ページ取得失敗で既存リストを消さない</b> — <span class="mono">CatalogController.load()</span> は失敗時も <span class="mono">_items</span> を保持。</li>
+        <li><b>在庫切れは購入不可</b> — <span class="mono">ProductCard</span> は out-of-stock だと「追加」ボタンを出さず「不可 / N/A」を出す。</li>
+        <li><b>チャネルヘッダは常に送信</b> — チャネルを外さない。</li>
+      </ul>
+
+      <h4>クリックで試せる操作</h4>
+      <div class="btn-row">
+        <button type="button" class="btn btn--sm btn--outline" id="sim-guest">ゲスト表示に切替</button>
+        <button type="button" class="btn btn--sm btn--outline" id="sim-error">取得失敗を発生</button>
+        <button type="button" class="btn btn--sm btn--outline" id="sim-empty">空レスポンス</button>
+        <button type="button" class="btn btn--sm btn--outline" id="sim-locale">locale 切替</button>
+      </div>
+
+      <h4>商品カード（product_card.dart）</h4>
+      <table class="tbl">
+        <tr><th>要素</th><th>由来</th></tr>
+        <tr><td>タイトル</td><td><span class="mono">ProductSummary.title</span>（サーバで ja→en フォールバック済みの値）</td></tr>
+        <tr><td>価格</td><td><span class="mono">PriceLabel</span> — <span class="mono">Money.format()</span>。JPY は桁数 0 で<b>区切りなし</b>（<span class="mono">¥1800</span>）</td></tr>
+        <tr><td>在庫</td><td><span class="mono">AvailabilityBadge(dense: true)</span> — 色は帯をmeans alone で伝えない</td></tr>
+        <tr><td>追加ボタン</td><td><span class="mono">FilledButton</span> — 最小タップ領域 48px</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <footer class="footer-note">
+    <span>GemArc Commerce ストアフロント原型 · データは全てデモ値 · 通信は行わない</span>
+    <span><a href="index.html">suite 索引</a> · <a href="../admin-console/index.html">运营后台原型</a></span>
+  </footer>
+</div>
+
+<script src="assets/storefront.js"></script>
+<script>
+SF.ready(function () {
+  var channel = 'web';
+  var locale = 'ja';
+  var guest = false;
+  var failed = false;
+  var empty = false;
+  var visible = 6;      // first page
+  var pageSize = 6;
+
+  var listEl = SF.el('list');
+  var bannerSlot = SF.el('banner-slot');
+  var appbar = SF.el('appbar');
+
+  function eligible(p) {
+    var e = p.channel_eligibility;
+    if (channel === 'line') return e.line_mini_app;
+    if (channel === 'app') return e.app;
+    return e.web;
+  }
+
+  function localize(p) {
+    var map = p.title_i18n || {};
+    if (locale === 'ja') return map.ja || p.title;
+    return map.en || map.ja || p.title;
+  }
+
+  function render() {
+    // app bar theme follows the channel (storefront_app.dart: LINE gets GemColors.line)
+    appbar.classList.toggle('appbar--line', channel === 'line');
+    SF.el('appbar-sub').textContent = SF.CHANNEL_LABEL[channel] + (guest ? ' · ゲスト' : ' · サインイン済');
+    SF.el('appbar-avatar').textContent = guest ? 'G' : '桐';
+
+    // guest / degraded notice (StatusBanner, tone=warning)
+    bannerSlot.innerHTML = guest
+      ? SF.banner(
+        '<strong>ゲスト表示です / Browsing as a guest</strong>' +
+        '購入にはログインが必要です。閲覧は可能です。' +
+        ' <span class="muted">Sign in to check out.</span>',
+        'warning', 'OK', 'dismiss-banner')
+      : '';
+
+    var all = SF.PRODUCTS.filter(eligible);
+
+    if (failed) {
+      listEl.innerHTML =
+        '<div class="card">' + SF.banner(
+          '<strong>商品を読み込めませんでした / Could not load products.</strong>' +
+          '既存の一覧は保持されます。',
+          'danger', '再試行 / Retry', 'retry') + '</div>';
+      SF.el('load-more').hidden = true;
+      SF.el('count-label').textContent = '商品';
+      return;
+    }
+
+    if (empty || all.length === 0) {
+      listEl.innerHTML = '<div class="empty">商品がありません / No products available</div>';
+      SF.el('load-more').hidden = true;
+      SF.el('count-label').textContent = '商品';
+      return;
+    }
+
+    var shown = all.slice(0, visible);
+    SF.el('count-label').textContent = '商品 ' + shown.length + ' / ' + all.length;
+    SF.el('load-more').hidden = visible >= all.length;
+
+    listEl.innerHTML = shown.map(function (p) {
+      var purchasable = SF.isPurchasable(p.availability);
+      return '<div class="pcard" data-open="' + p.product_id + '">' +
+        '<div class="pcard__main">' +
+        '<p class="pcard__title">' + SF.esc(localize(p)) + '</p>' +
+        '<div class="price">' + SF.money(p.amount_minor, p.currency) +
+        '<span class="price__cur">' + p.currency + '</span></div>' +
+        '<div style="margin-top:8px">' + SF.availabilityBadge(p.availability, true) + '</div>' +
+        '<div class="pcard__sku" style="margin-top:6px">' + p.sku + '</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn--sm" data-add="' + p.product_id + '"' +
+        (purchasable ? '' : ' disabled') + '>' +
+        (purchasable ? '追加 / Add' : '不可 / N/A') + '</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  // channel switch
+  SF.el('channel-slot').innerHTML = SF.channelSwitcher(channel);
+  SF.el('channel-slot').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-channel]');
+    if (!btn) return;
+    channel = btn.getAttribute('data-channel');
+    visible = pageSize;
+    SF.el('channel-slot').innerHTML = SF.channelSwitcher(channel);
+    render();
+  });
+
+  listEl.addEventListener('click', function (e) {
+    var add = e.target.closest('[data-add]');
+    if (add) {
+      var p = SF.PRODUCTS.filter(function (x) { return x.product_id === add.getAttribute('data-add'); })[0];
+      SF.toast('カートに追加しました / Added to cart');
+      return;
+    }
+    var open = e.target.closest('[data-open]');
+    if (open) {
+      var id = open.getAttribute('data-open');
+      var prod = SF.PRODUCTS.filter(function (x) { return x.product_id === id; })[0];
+      // Bottom sheet — the real client shows the detail in a modal bottom sheet
+      // with showDragHandle: true (storefront_app.dart L212-L241).
+      SF.el('sheet').innerHTML =
+        '<div class="sheet__handle"></div>' +
+        '<p class="pcard__title" style="font-size:18px">' + SF.esc(localize(prod)) + '</p>' +
+        '<div class="price price--lg" style="margin:8px 0 12px">' +
+        SF.money(prod.amount_minor, prod.currency) +
+        '<span class="price__cur">' + prod.currency + '</span></div>' +
+        SF.availabilityBadge(prod.availability, false) +
+        '<p class="muted" style="margin-top:12px">SKU: ' + prod.sku + '</p>' +
+        '<p class="muted">価格はサーバー側で決定されます / The charged price is set server-side.</p>';
+      SF.el('sheet-backdrop').classList.add('open');
+    }
+  });
+
+  SF.el('sheet-backdrop').addEventListener('click', function (e) {
+    if (e.target === this) this.classList.remove('open');
+  });
+
+  SF.el('load-more').addEventListener('click', function () {
+    visible = Math.min(visible + pageSize, SF.PRODUCTS.length);
+    render();
+  });
+
+  document.addEventListener('click', function (e) {
+    var act = e.target.closest('[data-action]');
+    if (!act) return;
+    var a = act.getAttribute('data-action');
+    if (a === 'dismiss-banner') { guest = false; render(); }
+    if (a === 'retry') { failed = false; render(); }
+  });
+
+  SF.el('sim-guest').addEventListener('click', function () { guest = !guest; render(); });
+  SF.el('sim-error').addEventListener('click', function () { failed = !failed; render(); });
+  SF.el('sim-empty').addEventListener('click', function () { empty = !empty; render(); });
+  SF.el('sim-locale').addEventListener('click', function () {
+    locale = locale === 'ja' ? 'en' : 'ja';
+    render();
+  });
+
+  render();
+});
+</script>
+</body>
+</html>

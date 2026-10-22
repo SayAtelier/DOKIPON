@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>決済 / Checkout — GemArc Commerce 原型</title>
+<link rel="stylesheet" href="assets/storefront.css">
+</head>
+<body>
+<div class="workbench">
+  <header class="wb-head">
+    <div class="wb-title">
+      <h1>決済 / Checkout</h1>
+      <p>核心约束：<b>不确定时只能轮询，绝不能重提</b>。<span class="mono">payment_unknown</span>
+        不是失败，是「支付服务商还没回话」。</p>
+    </div>
+    <nav class="wb-nav">
+      <a href="index.html">suite</a>
+      <a href="catalog.html">catalog</a>
+      <a href="product.html">product</a>
+      <a href="cart.html">cart</a>
+      <a href="checkout.html" class="active">checkout</a>
+      <a href="order.html">order</a>
+      <a href="session.html">session</a>
+      <a href="problem.html">problem</a>
+    </nav>
+  </header>
+
+  <div class="stage">
+    <div class="phone">
+      <div class="phone__status">
+        <span>17:05</span>
+        <span>▲ ▪ 81%</span>
+      </div>
+      <div class="phone__body">
+        <div class="appbar" id="appbar">
+          <h2>お会計<span class="appbar__sub" id="appbar-sub">checkout</span></h2>
+          <span class="appbar__icon">桐</span>
+        </div>
+
+        <div class="screen">
+          <div id="banner-slot"></div>
+
+          <div class="card">
+            <div class="btn-row" style="justify-content:space-between">
+              <span class="section-label">注文内容 / Order</span>
+              <span class="chip chip--muted" id="checkout-id">co-4a91</span>
+            </div>
+            <div id="order-lines"></div>
+            <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:12px">
+              <div class="btn-row" style="justify-content:space-between">
+                <span class="muted">合計（サーバ権威）/ Total (server-authoritative)</span>
+                <span class="price" id="order-total"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <p class="card__title">決済状態 / Checkout state</p>
+            <div id="fsm"></div>
+          </div>
+
+          <div class="card" id="poll-card" hidden>
+            <p class="card__title">ポーリング / Polling</p>
+            <p class="card__desc" id="poll-desc"></p>
+            <div class="chips" id="poll-chips"></div>
+          </div>
+        </div>
+
+        <div class="bottom-bar" id="bottom-bar"></div>
+      </div>
+      <div class="toast" id="sf-toast"></div>
+    </div>
+
+    <div class="panel">
+      <h3>这个画面在证明什么</h3>
+      <p>
+        <span class="chip chip--api">POST /v1/checkouts</span>
+        <span class="chip chip--api">GET /v1/checkouts/{checkoutId}</span>
+        <span class="chip chip--api">Idempotency-Key</span>
+      </p>
+
+      <h4>CheckoutStatus 全 10 态</h4>
+      <table class="tbl">
+        <tr><th>wire</th><th>终态?</th><th>可轮询?</th><th>说明</th></tr>
+        <tr><td class="mono">new</td><td>否</td><td>否</td><td>刚创建</td></tr>
+        <tr><td class="mono">reserving</td><td>否</td><td>否</td><td>请求库存预留</td></tr>
+        <tr><td class="mono">stock_reserved</td><td>否</td><td>否</td><td>预留完成，转支付</td></tr>
+        <tr><td class="mono">awaiting_payment</td><td>否</td><td><b>是</b></td><td>等支付服务商</td></tr>
+        <tr><td class="mono">payment_unknown</td><td>否</td><td><b>是</b></td><td><b>服务商未应答</b>；重提可能二次扣款</td></tr>
+        <tr><td class="mono">confirming</td><td>否</td><td><b>是</b></td><td>确认订单中</td></tr>
+        <tr><td class="mono">confirmed</td><td><b>是</b></td><td>否</td><td>成功</td></tr>
+        <tr><td class="mono">rejected</td><td><b>是</b></td><td>否</td><td>支付被拒</td></tr>
+        <tr><td class="mono">cancelled</td><td><b>是</b></td><td>否</td><td>顾客取消</td></tr>
+        <tr><td class="mono">unknown</td><td>否</td><td>否</td><td>未知态 → 提示查订单</td></tr>
+      </table>
+
+      <h4>点一下试试</h4>
+      <div class="btn-row" id="sim-buttons"></div>
+      <p class="muted" style="margin-top:8px">
+        选中某个状态后，下方按钮可驱动<b>自动轮询</b>（模拟
+        <span class="mono">CheckoutController.poll()</span>）：状态只会前进，不会回退，
+        且<b>任何情况下都不会重新提交结算</b>。
+      </p>
+
+      <h4>客户端的三条铁律（storefront_state/checkout_controller.dart）</h4>
+      <ul class="muted" style="padding-left:18px;line-height:1.8">
+        <li><b>一次逻辑尝试只提交一次</b>；HTTP 层的重试复用同一 <span class="mono">Idempotency-Key</span>，所以传输层重试在服务端也是重放。</li>
+        <li><b>轮询预算耗尽不谎报失败</b>：<span class="mono">client.poll_budget_exhausted</span> 提示去查订单，明确说明「没有被重复扣款」。</li>
+        <li><b>幂等冲突 = 需要新的操作</b>：同 key 不同 payload 时 409，此时必须换新 key 并重新读取，不能盲目重试。</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="footer-note">
+    <span>GemArc Commerce ストアフロント原型 · データは全てデモ値 · 通信は行わない</span>
+    <span><a href="index.html">suite 索引</a> · <a href="../admin-console/index.html">运营后台原型</a></span>
+  </footer>
+</div>
+
+<script src="assets/storefront.js"></script>
+<script>
+SF.ready(function () {
+  var order = SF.ORDER;
+  var state = 'new';
+  var pollAttempt = 0;
+  var maxPollAttempts = 40;
+  var pollTimer = null;
+  var budgetExhausted = false;
+
+  var ORDER_LINE = {
+    'awaiting_payment': ['payment_unknown', 'confirming', 'confirmed'],
+    'stock_reserved': ['awaiting_payment', 'payment_unknown', 'confirming', 'confirmed'],
+    'payment_unknown': ['confirming', 'confirmed'],
+    'confirming': ['confirmed'],
+    'reserving': ['stock_reserved', 'awaiting_payment', 'payment_unknown', 'confirming', 'confirmed']
+  };
+
+  function render() {
+    // 底栏：CheckoutStatusBar —— 真实客户端就长这样
+    var msg = SF.checkoutMessage(state);
+    var bottom = SF.el('bottom-bar');
+    bottom.innerHTML =
+      SF.banner(
+        '<strong>' + msg[0] + '</strong>' +
+        (state === 'payment_unknown'
+          ? '再送はしません。ポーリングのみ。' +
+            '<span class="muted">We will not charge you twice; checking with the provider.</span>'
+          : ''),
+        msg[1],
+        SF.isPollable(state) ? '更新 / Refresh' : '',
+        'poll'
+      );
+
+    SF.el('fsm').innerHTML = SF.fsmTimeline(state);
+    SF.el('checkout-id').textContent = 'co-4a91';
+
+    var lines = order.lines.map(function (l) {
+      var p = SF.PRODUCTS.filter(function (x) { return x.sku === l.sku; })[0];
+      return '<div class="line-item">' +
+        '<div class="line-item__main">' +
+        '<div class="line-item__name">' + SF.esc(p ? p.title_i18n.ja : l.sku) + '</div>' +
+        '<div class="line-item__meta">' + l.sku + ' × ' + l.quantity + '</div>' +
+        '</div>' +
+        '<span class="price">' + SF.money(l.unit_amount_minor * l.quantity, l.currency) + '</span>' +
+        '</div>';
+    }).join('');
+    SF.el('order-lines').innerHTML = lines;
+    SF.el('order-total').textContent = SF.money(order.total.amount_minor, order.total.currency);
+
+    var pollCard = SF.el('poll-card');
+    if (SF.isPollable(state) || budgetExhausted) {
+      pollCard.hidden = false;
+      SF.el('poll-desc').innerHTML = budgetExhausted
+        ? '<b>ポーリング予算を使い切りました / Poll budget exhausted</b><br>' +
+          'The payment provider has not answered yet. Check your orders shortly; ' +
+          'you have not been charged twice.'
+        : '-server の状態を <span class="mono">GET /v1/checkouts/{id}</span> で読み直しています。' +
+          '<b>この操作は再送信ではありません。</b>';
+      SF.el('poll-chips').innerHTML =
+        '<span class="chip">poll ' + pollAttempt + ' / ' + maxPollAttempts + '</span>' +
+        '<span class="chip chip--muted">interval 1500ms</span>' +
+        (budgetExhausted ? '<span class="chip chip--warn">client.poll_budget_exhausted</span>' : '') +
+        (state === 'payment_unknown' ? '<span class="chip chip--warn">再提出禁止</span>' : '');
+    } else {
+      pollCard.hidden = true;
+    }
+  }
+
+  function advance() {
+    var next = ORDER_LINE[state];
+    if (!next || !next.length) return false;
+    var target = next[0];
+    state = target;
+    render();
+    return true;
+  }
+
+  function startPolling() {
+    stopPolling();
+    pollTimer = setInterval(function () {
+      if (!SF.isPollable(state)) { stopPolling(); return; }
+      pollAttempt += 1;
+      if (pollAttempt >= maxPollAttempts) {
+        budgetExhausted = true;
+        stopPolling();
+        render();
+        return;
+      }
+      // 模拟服务商延迟：payment_unknown 会多轮才推进
+      if (state === 'payment_unknown' && pollAttempt < 2) { render(); return; }
+      advance();
+    }, 1500);
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  document.addEventListener('click', function (e) {
+    var act = e.target.closest('[data-action="poll"]');
+    if (act) {
+      if (!SF.isPollable(state)) { SF.toast('この状態は更新不要です / Nothing to refresh'); return; }
+      pollAttempt += 1;
+      advance();
+      return;
+    }
+  });
+
+  var sims = [
+    ['new', 'new（新規）'],
+    ['stock_reserved', 'stock_reserved'],
+    ['awaiting_payment', 'awaiting_payment'],
+    ['payment_unknown', 'payment_unknown ★'],
+    ['confirming', 'confirming'],
+    ['confirmed', 'confirmed'],
+    ['rejected', 'rejected'],
+    ['cancelled', 'cancelled'],
+    ['unknown', 'unknown']
+  ];
+  SF.el('sim-buttons').innerHTML = sims.map(function (s) {
+    return '<button type="button" class="btn btn--sm btn--outline" data-state="' + s[0] + '">' +
+      s[1] + '</button>';
+  }).join('');
+
+  SF.el('sim-buttons').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-state]');
+    if (!btn) return;
+    stopPolling();
+    budgetExhausted = false;
+    pollAttempt = 0;
+    state = btn.getAttribute('data-state');
+    render();
+    if (SF.isPollable(state)) startPolling();
+  });
+
+  render();
+});
+</script>
+</body>
+</html>

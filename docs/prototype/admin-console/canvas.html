@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>营销素材下发 — DOKIPON 运营后台原型</title>
+<link rel="stylesheet" href="assets/prototype.css">
+</head>
+<body>
+<div class="shell">
+  <header class="topbar" id="gm-topbar"></header>
+  <div id="gm-demo-banner"></div>
+
+  <main>
+    <section class="section">
+      <div class="section-header">
+        <h2>营销素材下发</h2>
+        <button type="button" class="button-secondary" id="reset-form">重置表单 / Reset form</button>
+      </div>
+      <p class="section-description">
+        向 App / Web / LINE 客户端推送营销素材（透明叠加图层）。
+        对应 <span class="mono">POST /gm/canvas/send</span>；锚点清单来自 <span class="mono">GET /gm/canvas/anchors</span>。
+      </p>
+
+      <div class="banner banner--gap">
+        <div>
+          <strong>命名与设计文档不一致</strong>
+          本页<b>不是</b>RGS-REQ-024 / RGS-BAS-021 定义的「GM后台拓扑可视化无限画布」。
+          代码实现的是<b>向 App / Web / LINE 客户端推送透明叠加图层</b>（默认层名 <span class="mono">gm_overlay</span>），
+          仓库中没有任何拓扑渲染代码。导航名沿用端点族命名，见索引页走查问题 #2。
+        </div>
+      </div>
+
+      <div class="form-grid" style="margin-top:18px">
+        <div class="field">
+          <label for="client-id">目标客户端 ID / Client ID</label>
+          <input id="client-id" placeholder="目标客户端标识 / Target client identifier">
+        </div>
+        <div class="field">
+          <label for="layer">图层名 / Layer</label>
+          <input id="layer" value="gm_overlay" placeholder="图层名 / Layer name">
+        </div>
+        <div class="field">
+          <label for="opacity">不透明度 / Opacity (0-1)</label>
+          <input id="opacity" value="1" placeholder="1">
+        </div>
+        <div class="field">
+          <label for="duration">持续时长 / Duration (ms)</label>
+          <input id="duration" placeholder="可选 / Optional">
+        </div>
+      </div>
+
+      <div class="form-grid" style="margin-top:12px">
+        <div class="field">
+          <label for="width">宽度 / Width (px)</label>
+          <input id="width" placeholder="宽度（像素）/ Width in pixels">
+        </div>
+        <div class="field">
+          <label for="height">高度 / Height (px)</label>
+          <input id="height" placeholder="高度（像素）/ Height in pixels">
+        </div>
+        <div class="field">
+          <label for="scale">缩放 / Scale</label>
+          <input id="scale" value="1" placeholder="1">
+        </div>
+        <div class="field">
+          <label for="z-index">层级 / Z Index</label>
+          <input id="z-index" value="10000" placeholder="10000">
+        </div>
+      </div>
+
+      <div class="form-grid" style="margin-top:12px">
+        <div class="field">
+          <label for="pos-x">位置 X / Position X (0-1)</label>
+          <input id="pos-x" value="0.5" placeholder="0.5">
+        </div>
+        <div class="field">
+          <label for="pos-y">位置 Y / Position Y (0-1)</label>
+          <input id="pos-y" value="0.5" placeholder="0.5">
+        </div>
+        <div class="field">
+          <label for="anchor">锚点 / Anchor</label>
+          <select id="anchor">
+            <option value="top_left">左上 / Top left</option>
+            <option value="top_center">上中 / Top center</option>
+            <option value="top_right">右上 / Top right</option>
+            <option value="center_left">左中 / Center left</option>
+            <option value="center" selected>居中 / Center</option>
+            <option value="center_right">右中 / Center right</option>
+            <option value="bottom_left">左下 / Bottom left</option>
+            <option value="bottom_center">下中 / Bottom center</option>
+            <option value="bottom_right">右下 / Bottom right</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:12px">
+        <label for="base64">RGBA Base64</label>
+        <textarea id="base64" rows="4" placeholder="粘贴 RGBA base64，或在下方上传图片 / Paste RGBA base64 or upload an image below"></textarea>
+        <span class="muted">
+          提供以 Base64 编码的原始 RGBA 像素。上传图片会在客户端自动转换为 RGBA。
+        </span>
+      </div>
+
+      <div class="field">
+        <label for="file">图片上传 / Image upload</label>
+        <input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/bmp,image/gif">
+        <span class="muted">支持的格式会在上传时转换为原始 RGBA。Supported formats are converted to raw RGBA on upload.</span>
+      </div>
+
+      <div class="field-row">
+        <input id="clear" type="checkbox">
+        <label for="clear">先清空已有图层 / Clear existing layers before drawing</label>
+      </div>
+
+      <div class="chips" style="margin-top:12px">
+        <span class="chip" id="chip-pixels">Pixels —</span>
+        <span class="chip" id="chip-bytes">RGBA bytes —</span>
+        <span class="chip" id="chip-b64" hidden>Base64 length 0</span>
+      </div>
+
+      <div class="image-preview" id="image-preview" hidden>
+        <img id="preview-img" alt="素材预览 / Material preview">
+        <p class="image-preview-details" id="preview-details"></p>
+      </div>
+
+      <p class="status-message" id="send-status"></p>
+
+      <button type="button" id="send">下发营销素材 / Send canvas command</button>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <h3>位置与锚点预览</h3>
+        <span class="chip chip--gap">原型新增 · 真实构建无此视图</span>
+      </div>
+      <p class="section-description">
+        <span class="mono">position.x / position.y</span> 是 0–1 的归一化坐标，<span class="mono">anchor</span> 决定叠加图自身的对齐点。
+        下方示意客户端画布：方块位置即换算后的落点，虚线框为叠加图实际占据的范围。
+      </p>
+
+      <div class="canvas-stage" id="stage">
+        <p class="canvas-hint" id="stage-hint">填写宽度 / 高度 / 位置 X / 位置 Y 后显示落点</p>
+      </div>
+
+      <div class="anchor-grid" id="anchor-grid" style="margin-top:18px">
+        <button type="button" data-a="top_left">TL</button>
+        <button type="button" data-a="top_center">TC</button>
+        <button type="button" data-a="top_right">TR</button>
+        <button type="button" data-a="center_left">ML</button>
+        <button type="button" data-a="center" class="on">C</button>
+        <button type="button" data-a="center_right">MR</button>
+        <button type="button" data-a="bottom_left">BL</button>
+        <button type="button" data-a="bottom_center">BC</button>
+        <button type="button" data-a="bottom_right">BR</button>
+      </div>
+      <p class="muted" style="text-align:center;margin-top:8px">
+        点击九宫格即可切换 anchor，与上方下拉框双向同步。
+      </p>
+    </section>
+
+    <section class="section">
+      <h3>发送前的校验顺序</h3>
+      <div class="table-wrapper">
+        <table class="table">
+          <thead><tr><th>顺序</th><th>条件</th><th>提示文案（前端字面量）</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Client ID 为空</td><td><span class="mono">Client ID is required</span>（缺少目标客户端 ID）</td></tr>
+            <tr><td>2</td><td>Width 或 Height ≤ 0</td><td><span class="mono">Width and height must be positive numbers</span></td></tr>
+            <tr><td>3</td><td>未上传图像且未勾选 clear</td><td><span class="mono">Upload an image or enable “Clear existing layers”</span>（未上传图片，也未勾选「先清空已有图层」）</td></tr>
+            <tr><td>4</td><td>通过（仅 clear）</td><td><span class="mono">Clear command queued successfully</span></td></tr>
+            <tr><td>5</td><td>通过（带图）</td><td><span class="mono">Canvas command queued (W×H)</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="margin-top:12px">
+        提交前 <span class="mono">opacity</span> clamp 到 [0,1]、<span class="mono">scale</span> ≤0 时回落为 1、
+        <span class="mono">zIndex</span> 取整并对非法值兜底为 10000、<span class="mono">position</span> clamp 到 [0,1]、
+        <span class="mono">durationMs</span> 仅在填写时携带。这些归一化逻辑原型逐条照搬。
+      </p>
+    </section>
+  </main>
+
+  <footer id="gm-footer"></footer>
+</div>
+
+<div class="modal-backdrop" id="gm-modal-backdrop"></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/prototype.js"></script>
+<script>
+GM.ready(function () {
+  GM.shell({ active: 'canvas' });
+
+  var $ = function (id) { return document.getElementById(id); };
+  var previewUrl = '';
+
+  /* ------------------------------------------------------ value helpers -- */
+
+  function parseNumber(value, fallback) {
+    var n = Number(value);
+    return isFinite(n) ? n : fallback;
+  }
+
+  function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
+
+  function bytesToBase64(bytes) {
+    var binary = '';
+    var chunkSize = 0x8000;
+    for (var offset = 0; offset < bytes.length; offset += chunkSize) {
+      var chunk = bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length));
+      binary += String.fromCharCode.apply(null, chunk);
+    }
+    return btoa(binary);
+  }
+
+  /* ------------------------------------------------------------ metrics -- */
+
+  function renderMetrics() {
+    var w = parseNumber($('width').value, 0);
+    var h = parseNumber($('height').value, 0);
+
+    if (w <= 0 || h <= 0) {
+      $('chip-pixels').textContent = 'Pixels —';
+      $('chip-bytes').textContent = 'RGBA bytes —';
+      return;
+    }
+    var pixels = Math.trunc(w) * Math.trunc(h);
+    $('chip-pixels').textContent = 'Pixels ' + Math.trunc(w) + ' × ' + Math.trunc(h);
+    $('chip-bytes').textContent = 'RGBA bytes ' + GM.fmtCompact(pixels * 4);
+
+    var b64 = $('base64').value.trim();
+    $('chip-b64').hidden = !b64;
+    if (b64) $('chip-b64').textContent = 'Base64 length ' + GM.fmtCompact(b64.length);
+  }
+
+  /* ------------------------------------------------------- stage render -- */
+
+  function renderStage() {
+    var stage = $('stage');
+    var hint = $('stage-hint');
+    var w = parseNumber($('width').value, 0);
+    var h = parseNumber($('height').value, 0);
+
+    var existing = stage.querySelector('.canvas-preview');
+    if (existing) existing.remove();
+    if (hint) hint.hidden = false;
+
+    if (w <= 0 || h <= 0) {
+      renderMetrics();
+      return;
+    }
+
+    if (hint) hint.hidden = true;
+
+    var scale = parseNumber($('scale').value, 1);
+    if (scale <= 0) scale = 1;
+
+    var vw = stage.clientWidth;
+    var vh = stage.clientHeight;
+
+    // 叠加图按 1920×1080 客户端视口归一化后缩放显示
+    var dispW = Math.min(vw * 0.6, (w * scale / 1920) * vw);
+    var dispH = Math.min(vh * 0.6, (h * scale / 1080) * vh);
+
+    var x = clamp(parseNumber($('pos-x').value, 0.5), 0, 1);
+    var y = clamp(parseNumber($('pos-y').value, 0.5), 0, 1);
+    var anchor = $('anchor').value;
+
+    // anchor 是叠加图自身对齐点：换算成左上角坐标
+    var left = x * vw;
+    var top = y * vh;
+    if (anchor.indexOf('left') !== -1) left -= 0;
+    else if (anchor.indexOf('right') !== -1) left -= dispW;
+    else left -= dispW / 2;
+    if (anchor.indexOf('top') !== -1) top -= 0;
+    else if (anchor.indexOf('bottom') !== -1) top -= dispH;
+    else top -= dispH / 2;
+
+    left = clamp(left, 0, Math.max(0, vw - dispW));
+    top = clamp(top, 0, Math.max(0, vh - dispH));
+
+    var opacity = clamp(parseNumber($('opacity').value, 1), 0, 1);
+
+    var box = document.createElement('div');
+    box.className = 'canvas-preview';
+    box.style.left = left + 'px';
+    box.style.top = top + 'px';
+    box.style.width = dispW + 'px';
+    box.style.height = dispH + 'px';
+    box.style.opacity = String(Math.max(0.12, opacity));
+    if (previewUrl) box.style.backgroundImage = 'url(' + previewUrl + ')';
+    box.innerHTML = '<span class="canvas-preview__tag">' +
+      GM.esc(anchor) + ' · ' + Math.trunc(w) + '×' + Math.trunc(h) +
+      ' · x=' + x + ' y=' + y + '</span>';
+
+    stage.appendChild(box);
+    renderMetrics();
+  }
+
+  /* ------------------------------------------------------------- upload -- */
+
+  $('file').addEventListener('change', function () {
+    var file = this.files && this.files[0];
+    if (!file) return;
+
+    GM.setStatus($('send-status'), 'Processing image…', 'warning');
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      var dataUrl = reader.result;
+      var img = new Image();
+      img.onload = function () {
+        var c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        var ctx = c.getContext('2d');
+        if (!ctx) {
+          GM.setStatus($('send-status'), 'Canvas context unavailable', 'error');
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        var imageData = ctx.getImageData(0, 0, img.width, img.height);
+        var base64 = bytesToBase64(imageData.data);
+
+        $('width').value = String(img.width);
+        $('height').value = String(img.height);
+        $('base64').value = base64;
+        previewUrl = dataUrl;
+
+        $('preview-img').src = dataUrl;
+        $('preview-details').textContent =
+          file.name + ' · ' + img.width + ' × ' + img.height + ' px · RGBA ' +
+          GM.fmtCompact(img.width * img.height * 4) + ' bytes';
+        $('image-preview').hidden = false;
+
+        GM.setStatus($('send-status'), '');
+        renderStage();
+      };
+      img.onerror = function () {
+        GM.setStatus($('send-status'), 'Unable to decode image', 'error');
+      };
+      img.src = dataUrl;
+    };
+    reader.onerror = function () {
+      GM.setStatus($('send-status'), 'Failed to read file', 'error');
+    };
+    reader.readAsDataURL(file);
+  });
+
+  /* ------------------------------------------------------------- events -- */
+
+  ['width', 'height', 'scale', 'opacity', 'pos-x', 'pos-y', 'base64'].forEach(function (id) {
+    $(id).addEventListener('input', renderStage);
+  });
+
+  function syncAnchorGrid() {
+    Array.prototype.forEach.call(document.querySelectorAll('#anchor-grid button'), function (b) {
+      b.classList.toggle('on', b.getAttribute('data-a') === $('anchor').value);
+    });
+    renderStage();
+  }
+
+  $('anchor').addEventListener('change', syncAnchorGrid);
+  $('anchor').addEventListener('input', syncAnchorGrid);
+
+  $('anchor-grid').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-a]');
+    if (!btn) return;
+    $('anchor').value = btn.getAttribute('data-a');
+    Array.prototype.forEach.call(this.querySelectorAll('button'), function (b) {
+      b.classList.toggle('on', b === btn);
+    });
+    renderStage();
+  });
+
+  $('reset-form').addEventListener('click', function () {
+    $('client-id').value = '';
+    $('layer').value = 'gm_overlay';
+    $('width').value = '';
+    $('height').value = '';
+    $('base64').value = '';
+    $('opacity').value = '1';
+    $('duration').value = '';
+    $('scale').value = '1';
+    $('z-index').value = '10000';
+    $('anchor').value = 'center';
+    $('pos-x').value = '0.5';
+    $('pos-y').value = '0.5';
+    $('clear').checked = false;
+    $('image-preview').hidden = true;
+    $('preview-img').removeAttribute('src');
+    previewUrl = '';
+    GM.setStatus($('send-status'), '');
+    renderStage();
+  });
+
+  $('send').addEventListener('click', async function () {
+    var status = $('send-status');
+    var clientId = $('client-id').value.trim();
+    var clear = $('clear').checked;
+    var rgba = $('base64').value.trim();
+
+    // 以下三条提示是前端写死的字面量（回归脚本逐字断言），保持不变
+    if (!clientId) {
+      GM.setStatus(status, 'Client ID is required', 'warning');
+      return;
+    }
+
+    var w = parseNumber($('width').value, 0);
+    var h = parseNumber($('height').value, 0);
+    if (w <= 0 || h <= 0) {
+      GM.setStatus(status, 'Width and height must be positive numbers', 'warning');
+      return;
+    }
+
+    if (!clear && !rgba) {
+      GM.setStatus(status, 'Upload an image or enable “Clear existing layers”', 'warning');
+      return;
+    }
+
+    var dims = Math.trunc(w) + '×' + Math.trunc(h);
+    var ok = await GM.modal({
+      title: '确认下发营销素材？',
+      html: '目标客户端 <span class="mono">' + GM.esc(clientId) + '</span><br>' +
+        '图层 <span class="mono">' + GM.esc($('layer').value.trim() || 'gm_overlay') + '</span> · ' +
+        dims + ' · z-index <span class="mono">' + Math.trunc(parseNumber($('z-index').value, 10000)) + '</span><br>' +
+        (clear ? '<b>会先清空该客户端已有图层</b><br>' : '') +
+        (rgba ? 'RGBA payload ' + GM.fmtCompact(rgba.length) + ' 字符' : '（清屏指令，无图像负载）'),
+      confirmText: '下发 / Send command',
+      danger: clear
+    });
+
+    if (!ok) {
+      GM.setStatus(status, '已取消下发 / Send cancelled', 'warning');
+      return;
+    }
+
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = '下发中…';
+
+    setTimeout(function () {
+      btn.disabled = false;
+      btn.textContent = '下发营销素材 / Send canvas command';
+      GM.setStatus(
+        status,
+        (clear && !rgba) ? 'Clear command queued successfully'
+                         : 'Canvas command queued (' + dims + ')',
+        'success'
+      );
+    }, 420);
+  });
+
+  window.addEventListener('resize', renderStage);
+
+  renderStage();
+  GM.footer({ doc: 'RGS-BAS-003 §3.2 场景/运行时级方法 · 注：非 RGS-BAS-021 的拓扑画布' });
+});
+</script>
+</body>
+</html>

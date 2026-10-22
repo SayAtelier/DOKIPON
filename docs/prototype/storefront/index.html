@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GemArc Commerce ストアフロント原型 — 索引</title>
+<link rel="stylesheet" href="assets/storefront.css">
+<style>
+  body { background: var(--surface-alt); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 72px; }
+  .hero { background: #fff; border: 1px solid var(--border); border-radius: var(--r-lg); padding: 28px; margin-bottom: 22px; }
+  .hero h1 { margin: 0 0 8px; font-size: 24px; letter-spacing: -0.01em; }
+  .hero p { color: var(--ink-muted); margin: 0 0 16px; max-width: 84ch; }
+  .screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 12px; }
+  .screen-card {
+    display: block; text-decoration: none; color: var(--ink);
+    background: #fff; border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: 14px 16px;
+  }
+  .screen-card:hover { border-color: var(--brand); }
+  .screen-card b { display: block; font-size: 15px; margin-bottom: 2px; }
+  .screen-card span { font-size: 12px; color: var(--ink-muted); }
+  .sec { background: #fff; border: 1px solid var(--border); border-radius: var(--r-lg); padding: 24px 26px; margin-bottom: 22px; }
+  .sec h2 { margin: 0 0 6px; font-size: 18px; }
+  .sec > p.lead { color: var(--ink-muted); margin: 0 0 16px; max-width: 88ch; font-size: 13.5px; }
+  .sec h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-muted); margin: 22px 0 8px; }
+  table.tbl code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
+  .verdict { border-left: 3px solid var(--brand); background: #f8fafc; padding: 12px 14px; border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: 13px; margin: 14px 0 0; }
+  .verdict--bad { border-left-color: var(--danger); background: #fef2f2; }
+  .verdict--warn { border-left-color: var(--warning); background: #fffbeb; }
+  .k { color: #1d4ed8; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <h1>GemArc Commerce — 消费者端 HTML 原型</h1>
+    <p>
+      本套原型是 DOKIPON 仓库中<b>真正在跑的产品线</b>（电商交易系统）的静态等价物：
+      三端（App / Web / LINE MINI App）共用同一套 Flutter 组件与状态控制器。
+      页面上的每一个字段、每一句文案、每一条状态分支，都取自源码，
+      而不是设计师的想象 —— 数据为演示值，交互规则为真实规则。
+    </p>
+    <div class="chips">
+      <span class="chip">依据：packages/design_system</span>
+      <span class="chip">依据：packages/domain_models</span>
+      <span class="chip">依据：packages/storefront_state</span>
+      <span class="chip">依据：packages/api_client</span>
+      <span class="chip">依据：contracts/openapi.yaml</span>
+      <span class="chip">依据：services/crates/commerce-*</span>
+    </div>
+    <p style="margin:12px 0 0;font-size:12.5px;color:var(--ink-muted)">
+      各画面右側の説明パネルは日本語で記載しています（電商線の設計書
+      <span class="k">docs/ecommerce/</span> と同じ言語）。
+    </p>
+    <div class="btn-row" style="margin-top:16px">
+      <a class="btn" href="catalog.html" style="text-decoration:none">商品列表から見る / Start</a>
+      <a class="btn btn--outline" href="../admin-console/index.html" style="text-decoration:none">运营后台原型へ</a>
+    </div>
+  </header>
+
+  <section class="sec">
+    <h2>画面一覧 / Screens</h2>
+    <p class="lead">八屏，覆盖从浏览到支付未决的完整链路。</p>
+    <div class="screens">
+      <a class="screen-card" href="catalog.html"><b>商品列表</b><span>CatalogScreen · 渠道过滤 / cursor 分页 / 游客降级</span></a>
+      <a class="screen-card" href="product.html"><b>商品详情</b><span>ProductDetail · 权威价格 / 价格版本 / 渠道资格</span></a>
+      <a class="screen-card" href="cart.html"><b>购物车</b><span>Cart · 快照小计 / 乐观并发 409</span></a>
+      <a class="screen-card" href="checkout.html"><b>结算</b><span>CheckoutStatus FSM · payment_unknown 只轮询</span></a>
+      <a class="screen-card" href="order.html"><b>订单</b><span>Order · 事件轨迹 / Outbox / 对账</span></a>
+      <a class="screen-card" href="session.html"><b>会话与降级</b><span>SessionController · LIFF-002~006</span></a>
+      <a class="screen-card" href="problem.html"><b>错误显示</b><span>ApiProblem · problem+json / code 分支</span></a>
+      <a class="screen-card" href="../admin-console/index.html"><b>运营后台（另一套）</b><span>9 屏 · 消费者 / 服务实例 / 店铺商品 / 售后工单</span></a>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>真实实现现状 / What the code actually does</h2>
+    <p class="lead">
+      原型照<b>客户端期望</b>渲染。但把 openapi 契约、服务端实现和 Dart 客户端三方对齐后，
+      电商线上仍有 <b>6 类接线缺口</b>。这部分不是原型能补的，需要真实改动，所以在此如实列出。
+    </p>
+
+    <h3>① 12 条契约路径分别落在 4 个独立进程里，没有网关</h3>
+    <table class="tbl">
+      <tr><th>路径</th><th>实现位置</th><th>行号</th></tr>
+      <tr><td class="k">GET /v1/storefront</td><td>commerce-bff</td><td class="k">main.rs:227</td></tr>
+      <tr><td class="k">POST /v1/sessions/guest</td><td>commerce-bff</td><td class="k">main.rs:228</td></tr>
+      <tr><td class="k">POST /v1/checkouts</td><td>commerce-bff</td><td class="k">main.rs:229</td></tr>
+      <tr><td class="k">GET /v1/products, /v1/products/{id}</td><td>commerce-catalog</td><td class="k">main.rs:195-196</td></tr>
+      <tr><td class="k">GET /v1/carts/{id}, PATCH …/items/{sku}</td><td>commerce-cart</td><td class="k">main.rs:166-167</td></tr>
+      <tr><td class="k">GET /v1/orders, /v1/orders/{id}, POST …/reconcile</td><td>commerce-order</td><td class="k">main.rs:444-446</td></tr>
+      <tr><td class="k">POST /v1/sessions/line</td><td colspan="2"><b style="color:var(--danger)">无任何实现</b></td></tr>
+    </table>
+    <div class="verdict verdict--bad">
+      <b>BFF 不代理另外三个服务。</b>
+      <span class="k">commerce-bff/src/main.rs</span> 的 router 只有 4 条路由，且全文件没有 HTTP 客户端；
+      <span class="k">submit_checkout</span> 只校验 session 与 Idempotency-Key 就返回 202 空体（main.rs:215-219）。
+      而 Dart 客户端只有<b>一个</b> <span class="k">baseUri</span>（commerce_api_client.dart:12/35）。
+      仓库里也没有电商线的网关/ingress 清单（<span class="k">docker/compose</span> 里是游戏侧 5 域）。
+      → 结论：<b>目前没有任何一个进程能同时提供这 12 条路径</b>，客户端的单一 origin 够不到 catalog / cart / order。
+    </div>
+
+    <h3>② 电商线也存在 snake_case ↔ camelCase 漂移（与游戏线同源）</h3>
+    <table class="tbl">
+      <tr><th>字段</th><th>服务端返回</th><th>Dart 客户端读取</th><th>后果</th></tr>
+      <tr>
+        <td class="k">product_id</td>
+        <td class="k">catalog main.rs:80 <span class="k">ProductListItem.product_id</span></td>
+        <td class="k">product.dart <span class="k">json['productId']</span>（仅 camel）</td>
+        <td><b>productId 变成空串</b></td>
+      </tr>
+      <tr>
+        <td class="k">stock_policy</td>
+        <td class="k">catalog main.rs:31 <span class="k">Sku.stock_policy</span></td>
+        <td class="k">product.dart <span class="k">json['stockPolicy']</span>（仅 camel）</td>
+        <td>落到默认 <span class="k">reserved</span>；<b>made_to_order / unbounded 的库存 Saga 判断会错</b></td>
+      </tr>
+      <tr>
+        <td class="k">channel_eligibility</td>
+        <td class="k">catalog main.rs:75</td>
+        <td class="k">product.dart <span class="k">json['channelEligibility']</span>（仅 camel）</td>
+        <td>落到「全部允许」默认 → <b>LIFF-010 的渠道政策排除可能失效</b>，政策禁售内容会出现在 LINE</td>
+      </tr>
+      <tr>
+        <td class="k">title_i18n</td>
+        <td class="k">catalog main.rs:68</td>
+        <td class="k">product.dart <span class="k">json['titleI18n']</span>（仅 camel）</td>
+        <td>落空，而 <span class="k">Product</span> 没有扁平 <span class="k">title</span> 字段 → <b>标题为空</b></td>
+      </tr>
+      <tr>
+        <td class="k">lines[].unit_amount_minor / total.amount_minor</td>
+        <td class="k">order main.rs:534-535（serde 结构体 → snake）</td>
+        <td class="k">checkout.dart <span class="k">json['unitAmount']</span> / <span class="k">json['amountMinor']</span>（<b>无兜底</b>）</td>
+        <td><b>订单行与订单总额显示 ¥0</b></td>
+      </tr>
+      <tr>
+        <td class="k">session_id</td>
+        <td class="k">bff main.rs:160-165 <span class="k">GuestResp</span>（serde → snake）</td>
+        <td class="k">session.dart <span class="k">json['sessionId']</span>（仅 camel）</td>
+        <td><b>游客会话 ID 为空</b></td>
+      </tr>
+    </table>
+    <div class="verdict verdict--warn">
+      <b>已正确处理、不必改的部分：</b>
+      <span class="k">next_cursor</span>、<span class="k">cart_id</span>、<span class="k">unit_amount_snapshot</span>、
+      <span class="k">expires_at_ms</span> 在 Dart 侧都写了<b>双读兜底</b>（snake 优先，camel 兜底）；
+      checkout 快照与订单外层字段由 <span class="k">json!</span> 直接拼装，本就是 camelCase。
+    </div>
+
+    <h3>③ 设计书要求、代码尚未覆盖的语义</h3>
+    <ul class="muted" style="padding-left:18px;line-height:1.9">
+      <li><b>渠道过滤是服务端职责</b>：<span class="k">catalog.list_products</span> 按 <span class="k">channel</span> 过滤，客户端只负责带对 <span class="k">x-channel</span> 头。</li>
+      <li><b>价格以服务端为准</b>：<span class="k">commerce-core::Money</span> 是整数最小单位 + ISO-4217，客户端的小计只用于显示。</li>
+      <li><b>幂等键必填</b>：<span class="k">BFF</span> 校验 <span class="k">requiresIdempotencyKey</span>，写操作的 scope 是 <span class="k">(actor, operation)</span>。</li>
+      <li><b>payment_unknown 是唯一出口是 reconcile</b>：<span class="k">commerce-order</span> 注释写明「the ONLY way out of PaymentUnknown」。</li>
+    </ul>
+  </section>
+
+  <section class="sec">
+    <h2>设计系统真实组件 / The real components</h2>
+    <p class="lead">原型的视觉与文案直接复用下列 Flutter 组件的实现细节。</p>
+    <table class="tbl">
+      <tr><th>组件</th><th>文件</th><th>关键行为</th></tr>
+      <tr><td>ProductCard</td><td class="k">design_system/.../product_card.dart</td><td>标题 + PriceLabel + AvailabilityBadge(dense) + 追加按钮；<b>缺货时按钮整个不出现</b>，换成「不可 / N/A」</td></tr>
+      <tr><td>AvailabilityBadge</td><td class="k">.../availability_badge.dart</td><td>四种状态各有<b>显式文字</b>，颜色不单独承载语义</td></tr>
+      <tr><td>PriceLabel</td><td class="k">.../price_label.dart</td><td>所有金额的唯一出口；JPY 无小数位且<b>无千分位</b>（¥1800）</td></tr>
+      <tr><td>StatusBanner</td><td class="k">.../status_banner.dart</td><td>info / warning / danger / success 四种语气，图标 + 文字成对出现</td></tr>
+    </table>
+    <h3>令牌 / Tokens（tokens.dart 逐值抄录）</h3>
+    <div class="chips">
+      <span class="chip">brand #1F6FEB</span>
+      <span class="chip">brandDark #144A96</span>
+      <span class="chip">line #06C755</span>
+      <span class="chip">ink #111827</span>
+      <span class="chip">inkMuted #6B7280</span>
+      <span class="chip">surface #FFFFFF</span>
+      <span class="chip">surfaceAlt #F7F8FA</span>
+      <span class="chip">border #E5E7EB</span>
+      <span class="chip">success #047857</span>
+      <span class="chip">warning #B45309</span>
+      <span class="chip">danger #B91C1C</span>
+      <span class="chip">info #1D4ED8</span>
+      <span class="chip">spacing 4/8/16/24/32</span>
+      <span class="chip">radius 6/10/16</span>
+      <span class="chip">min touch target 48px</span>
+    </div>
+    <div class="verdict">
+      <b>渠道换主题是真的。</b>
+      <span class="k">StorefrontApp</span> 用 <span class="k">GemTheme.light(seed: channel == line ? GemColors.line : GemColors.brand)</span>；
+      原型里切到 LINE 时顶栏与主按钮会变绿，能力位（原生分享 / 推送 / 外部打开）也随之增减。
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>怎么用 / How to use</h2>
+    <ul class="muted" style="padding-left:18px;line-height:1.9">
+      <li>直接双击 <span class="k">index.html</span> 打开，无需构建、无需起服务、无网络请求。</li>
+      <li>每屏右侧的说明面板标注了它对应的 API、源码位置与可复现的操作。</li>
+      <li>数据全部内置在 <span class="k">assets/storefront.js</span>，时间戳相对打开时刻生成。</li>
+      <li>另一套（游戏线遗留的）运营后台原型在 <span class="k">../admin-console/</span>。</li>
+    </ul>
+  </section>
+
+  <footer class="footer-note">
+    <span>GemArc Commerce ストアフロント原型 · データは全てデモ値 · 通信は行わない</span>
+    <span><a href="../admin-console/index.html">运营后台原型</a></span>
+  </footer>
+</div>
+
+<script src="assets/storefront.js"></script>
+</body>
+</html>

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>售后工单 — DOKIPON 运营后台原型</title>
+<link rel="stylesheet" href="assets/prototype.css">
+</head>
+<body>
+<div class="shell">
+  <header class="topbar" id="gm-topbar"></header>
+  <div id="gm-demo-banner"></div>
+
+  <main>
+    <section class="section">
+      <h2>售后工单</h2>
+      <p class="section-description">
+        登记消费者反馈并跟踪售后工单处理进度，确保响应及时。
+        对应 <span class="mono">POST /gm/support</span>（建单）· <span class="mono">GET /gm/support/tickets</span>（列表）·
+        <span class="mono">PATCH /gm/support/tickets/{id}</span>（状态流转）。
+      </p>
+
+      <div class="form-grid">
+        <div class="field">
+          <label for="ticket-player">消费者 ID / Player ID</label>
+          <input id="ticket-player" placeholder="Player ID（消费者 ID）">
+        </div>
+        <div class="field field--wide">
+          <label for="ticket-message">客户诉求 / Message</label>
+          <textarea id="ticket-message" rows="4" placeholder="描述客户诉求 / Describe the issue"></textarea>
+        </div>
+      </div>
+
+      <button type="button" id="send">提交 / Send</button>
+      <p class="status-message" id="send-status"></p>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <h3>售后工单列表 / Tickets</h3>
+        <button type="button" class="button-secondary button-sm" id="refresh">刷新 / Refresh</button>
+      </div>
+
+      <div class="form-grid">
+        <div class="field">
+          <label for="ticket-search">搜索 / Search</label>
+          <input id="ticket-search" placeholder="按 ID / 消费者 / 诉求搜索">
+        </div>
+        <div class="field">
+          <label for="ticket-status">状态 / Status</label>
+          <select id="ticket-status">
+            <option value="all">全部 / All</option>
+            <option value="open">待处理 / Open</option>
+            <option value="pending">处理中 / Pending</option>
+            <option value="resolved">已解决 / Resolved</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="chips" id="ticket-chips" style="margin:14px 0"></div>
+
+      <div class="table-wrapper">
+        <table class="table">
+          <thead>
+            <tr><th>ID</th><th>消费者 / Player</th><th>客户诉求 / Message</th><th>状态 / Status</th><th>创建时间 / Created</th><th>操作 / Actions</th></tr>
+          </thead>
+          <tbody id="tickets-body"></tbody>
+        </table>
+      </div>
+
+      <p class="muted" style="margin-top:10px">
+        状态标签沿用后端枚举值（契约），界面语义对应：<span class="mono">open</span> 待处理 / Pending ·
+        <span class="mono">pending</span> 处理中 / In progress ·
+        <span class="mono">resolved</span> 已解决 / Resolved
+      </p>
+    </section>
+
+    <div class="detail-card" id="ticket-detail" hidden>
+      <div class="section-header">
+        <h3>工单详情 / Ticket detail</h3>
+        <button type="button" class="button-secondary button-sm" id="close-detail">关闭 / Close</button>
+      </div>
+      <div class="chips" id="detail-chips"></div>
+      <dl class="detail-grid" id="detail-grid"></dl>
+      <p id="detail-message" style="white-space:pre-wrap;margin-top:8px"></p>
+    </div>
+
+    <section class="section">
+      <h3>状态机与动作可见性</h3>
+      <div class="table-wrapper">
+        <table class="table">
+          <thead><tr><th>当前状态</th><th>标记处理中 / Mark pending</th><th>解决 / 重开 · Resolve / Reopen</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="status-tag status-open">open</span>（待处理 / Pending）</td>
+              <td><span class="status-tag status-online">显示</span></td>
+              <td>按钮为 <span class="mono">Resolve</span></td>
+            </tr>
+            <tr>
+              <td><span class="status-tag status-pending">pending</span>（处理中 / In progress）</td>
+              <td><span class="status-tag status-offline">隐藏</span>（已是 pending）</td>
+              <td>按钮为 <span class="mono">Resolve</span></td>
+            </tr>
+            <tr>
+              <td><span class="status-tag status-resolved">resolved</span>（已解决 / Resolved）</td>
+              <td><span class="status-tag status-online">显示</span></td>
+              <td>按钮为 <span class="mono">Reopen</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="banner banner--gap" style="margin-top:16px">
+        <div>
+          <strong>与设计文档的差距</strong>
+          RGS-REQ-019 / RGS-BAS-016 定义的是<b>消费者发起侧</b>售后工单 + 支付对账 / 掉单补偿，
+          RGS-DTL-015 还点名了「人工对账队列 UI」。本页只有 <b>运营侧建单</b>与状态流转，
+          <b>没有</b>消费者发起入口，也没有支付对账队列 / 掉单补偿视图——
+          后者对应的 <span class="mono">/gm/grant_compensation</span> 端点前端未接入（走查问题 #1）。
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="gm-footer"></footer>
+</div>
+
+<div class="modal-backdrop" id="gm-modal-backdrop"></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/prototype.js"></script>
+<script>
+GM.ready(function () {
+  GM.shell({ active: 'support' });
+
+  var tickets = GM_DATA.tickets.map(function (t) { return Object.assign({}, t); });
+  var nextId = 400;
+  var selectedId = null;
+
+  /* 工单状态枚举是后端契约值（open / pending / resolved），标签原样显示，
+     界面语义由筛选下拉、统计 chip 与表下说明给出。 */
+  var STATUS_LABEL = { open: '待处理 / Pending', pending: '处理中 / In progress', resolved: '已解决 / Resolved' };
+
+  function filtered() {
+    var q = document.getElementById('ticket-search').value.trim().toLowerCase();
+    var status = document.getElementById('ticket-status').value;
+
+    return tickets.filter(function (t) {
+      if (status !== 'all' && t.status !== status) return false;
+      if (!q) return true;
+      // Support.tsx 在 playerId / message / admin / id 拼接后做子串匹配
+      return [t.playerId, t.message, t.admin || '', String(t.id)]
+        .join(' ').toLowerCase().indexOf(q) !== -1;
+    });
+  }
+
+  function render() {
+    var rows = filtered();
+
+    var stats = { total: 0, open: 0, pending: 0, resolved: 0 };
+    rows.forEach(function (t) { stats.total += 1; stats[t.status] += 1; });
+
+    // chip 文案前半段是前端写死的字面量（回归脚本逐字断言），后半段补中文语义
+    document.getElementById('ticket-chips').innerHTML =
+      '<span class="chip">Total ' + stats.total + ' / 合计 ' + stats.total + '</span>' +
+      '<span class="chip">Open ' + stats.open + ' / 待处理 ' + stats.open + '</span>' +
+      '<span class="chip">Pending ' + stats.pending + ' / 处理中 ' + stats.pending + '</span>' +
+      '<span class="chip">Resolved ' + stats.resolved + ' / 已解决 ' + stats.resolved + '</span>';
+
+    var body = document.getElementById('tickets-body');
+    if (!rows.length) {
+      body.innerHTML =
+        '<tr><td colspan="6" class="empty-state">' +
+        (tickets.length === 0
+          ? 'No tickets yet / 还没有售后工单'
+          : 'No tickets match the filter / 没有匹配的工单') +
+        '</td></tr>';
+    } else {
+      body.innerHTML = rows.map(function (t) {
+        return '<tr class="' + (selectedId === t.id ? 'active' : '') + '">' +
+          '<td class="num">' + t.id + '</td>' +
+          '<td class="mono">' + GM.esc(t.playerId) + '</td>' +
+          '<td>' + GM.esc(t.message.length > 68 ? t.message.slice(0, 68) + '…' : t.message) + '</td>' +
+          '<td>' + GM.statusTag(t.status) + '</td>' +
+          '<td class="nowrap">' + GM.fmtDateTime(t.createdAt) + '</td>' +
+          '<td class="table-actions">' +
+            '<button type="button" class="button-secondary button-sm" data-view="' + t.id + '">查看 / View</button>' +
+            (t.status !== 'pending'
+              ? '<button type="button" class="button-secondary button-sm" data-set="pending" data-id="' + t.id + '">标记处理中 / Mark pending</button>'
+              : '') +
+            (t.status === 'resolved'
+              ? '<button type="button" class="button-sm" data-set="open" data-id="' + t.id + '">重开 / Reopen</button>'
+              : '<button type="button" class="button-sm" data-set="resolved" data-id="' + t.id + '">解决 / Resolve</button>') +
+          '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    if (selectedId !== null && !rows.some(function (t) { return t.id === selectedId; })) {
+      selectedId = null;
+    }
+    renderDetail();
+  }
+
+  function renderDetail() {
+    var box = document.getElementById('ticket-detail');
+    var ticket = tickets.filter(function (t) { return t.id === selectedId; })[0];
+    if (!ticket) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+
+    document.getElementById('detail-chips').innerHTML =
+      '<span class="chip">状态 / Status: ' + ticket.status + '（' + (STATUS_LABEL[ticket.status] || ticket.status) + '）</span>' +
+      '<span class="chip">消费者 / Player: ' + GM.esc(ticket.playerId) + '</span>' +
+      '<span class="chip">处理人 / Admin: ' + GM.esc(ticket.admin || '—') + '</span>';
+
+    document.getElementById('detail-grid').innerHTML = [
+      ['Ticket ID（售后工单 ID）', ticket.id],
+      ['Created（创建时间）', GM.fmtDateTime(ticket.createdAt)],
+      ['Updated（更新时间）', GM.fmtDateTime(ticket.updatedAt)]
+    ].map(function (row) {
+      return '<div><dt>' + row[0] + '</dt><dd>' + GM.esc(row[1]) + '</dd></div>';
+    }).join('');
+
+    document.getElementById('detail-message').textContent = ticket.message;
+  }
+
+  /* --------------------------------------------------------------- events */
+
+  document.getElementById('ticket-search').addEventListener('input', render);
+
+  var ticketStatus = document.getElementById('ticket-status');
+  ticketStatus.addEventListener('change', render);
+  ticketStatus.addEventListener('input', render);
+
+  document.getElementById('refresh').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    setTimeout(function () { render(); btn.disabled = false; }, 300);
+  });
+
+  document.getElementById('send').addEventListener('click', function () {
+    var status = document.getElementById('send-status');
+    var playerId = document.getElementById('ticket-player').value.trim();
+    var message = document.getElementById('ticket-message').value.trim();
+
+    // 该提示是前端写死的字面量（回归脚本逐字断言），保持不变
+    if (!playerId || !message) {
+      GM.setStatus(status, 'Player ID and message are required', 'warning');
+      return;
+    }
+
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = '提交中…';
+
+    setTimeout(function () {
+      tickets.unshift({
+        id: nextId++,
+        playerId: playerId,
+        message: message,
+        status: 'open',
+        admin: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      document.getElementById('ticket-player').value = '';
+      document.getElementById('ticket-message').value = '';
+      btn.disabled = false;
+      btn.textContent = '提交 / Send';
+      GM.setStatus(status, 'sent', 'success');
+      render();
+    }, 360);
+  });
+
+  document.getElementById('tickets-body').addEventListener('click', function (e) {
+    var viewBtn = e.target.closest('[data-view]');
+    if (viewBtn) {
+      selectedId = Number(viewBtn.getAttribute('data-view'));
+      render();
+      document.getElementById('ticket-detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return;
+    }
+
+    var setBtn = e.target.closest('[data-set]');
+    if (!setBtn) return;
+
+    var id = Number(setBtn.getAttribute('data-id'));
+    var next = setBtn.getAttribute('data-set');
+    var ticket = tickets.filter(function (t) { return t.id === id; })[0];
+    if (!ticket) return;
+
+    var s = GM.session();
+    ticket.status = next;
+    ticket.updatedAt = new Date().toISOString();
+    if (s) ticket.admin = s.username;
+
+    // 提示前半句是前端写死的字面量（回归脚本逐字断言），后半句补中文语义
+    GM.setStatus(
+      document.getElementById('send-status'),
+      'Ticket ' + id + ' updated to ' + next + '（' + (STATUS_LABEL[next] || next) + '）',
+      'success'
+    );
+    render();
+  });
+
+  document.getElementById('close-detail').addEventListener('click', function () {
+    selectedId = null;
+    render();
+  });
+
+  render();
+  GM.footer({ doc: 'RGS-REQ-019 / RGS-BAS-016 客服工单与支付对账 · RGS-DTL-016 详细设计书' });
+});
+</script>
+</body>
+</html>

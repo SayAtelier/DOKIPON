@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>运营后台登录 — DOKIPON 运营后台原型</title>
+<link rel="stylesheet" href="assets/prototype.css">
+</head>
+<body>
+<div class="shell shell--narrow">
+  <header class="topbar" id="gm-topbar"></header>
+
+  <main>
+    <div class="banner banner--doc">
+      <div>
+        <strong>对应源码</strong>
+        <span class="mono">frontend/src/pages/Login.tsx</span> ·
+        <span class="mono">crates/gm-backend/src/auth_handler.rs</span> ·
+        设计文档 RGS-BAS-003（运维与GM后台管控）
+      </div>
+    </div>
+
+    <section class="section" id="login-card">
+      <h2>运营后台登录</h2>
+      <p class="section-description">
+        电商交易系统的运营账号登录入口。接口契约不变——
+        <span class="mono">POST /gm/login</span> · 请求体 <span class="mono">{username, password}</span> ·
+        成功返回 <span class="mono">{token}</span>，前端存入 <span class="mono">localStorage["gm.authToken"]</span>。
+      </p>
+
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="username">用户名 / Username</label>
+          <input id="username" name="username" autocomplete="username" placeholder="运营账号">
+        </div>
+        <div class="field">
+          <label for="password">密码 / Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="••••••••">
+        </div>
+        <p class="error" id="login-error" hidden></p>
+        <button type="submit" id="login-submit">登录 / Login</button>
+      </form>
+
+      <div class="chips" style="margin-top:18px">
+        <button type="button" class="button-secondary button-sm" data-demo="superadmin">以 superadmin 进入</button>
+        <button type="button" class="button-secondary button-sm" data-demo="admin">以 admin 进入</button>
+      </div>
+      <p class="muted" style="margin-top:10px">
+        原型不校验密码：任意非空用户名 + 任意密码均可登录。留空任一字段即可复现真实构建的
+        <span class="mono">invalid_credentials</span> 错误分支。
+      </p>
+    </section>
+
+    <section class="section" id="session-card" hidden>
+      <h3>当前会话</h3>
+      <dl class="detail-grid">
+        <div><dt>用户名 / Username</dt><dd id="s-user">—</dd></div>
+        <div><dt>角色 / Role</dt><dd id="s-role">—</dd></div>
+        <div><dt>JWT roles</dt><dd id="s-roles">—</dd></div>
+        <div><dt>Token TTL</dt><dd>3600s</dd></div>
+      </dl>
+      <div class="button-row" style="margin-top:12px">
+        <a class="button" href="dashboard.html" style="text-decoration:none;display:inline-block">进入经营总览</a>
+        <button type="button" class="button-secondary" id="s-signout">退出 / Logout</button>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>角色 → 权限映射</h3>
+      <p class="section-description">
+        取自 <span class="mono">auth_handler.rs</span> 的 <span class="mono">issue_jwt</span> 调用点，
+        原样复刻。写操作目前不做 per-endpoint 角色校验——见原型索引的走查问题 #3。
+      </p>
+      <div class="table-wrapper">
+        <table class="table">
+          <thead>
+            <tr><th>role 字段值</th><th>签发进 JWT 的 roles</th><th>可访问 /gm/admins</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="mono">superadmin</td>
+              <td><span class="chip">GM_READ</span> <span class="chip">GM_WRITE</span> <span class="chip">GM_ADMIN</span></td>
+              <td><span class="status-tag status-online">是</span></td>
+            </tr>
+            <tr>
+              <td class="mono">admin</td>
+              <td><span class="chip">GM_READ</span> <span class="chip">GM_WRITE</span></td>
+              <td><span class="status-tag status-banned">否 · 403</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>契约细节</h3>
+      <ul class="list">
+        <li>
+          <div class="list-title">口令校验</div>
+          <div class="list-meta"><span><span class="mono">bcrypt::verify</span>，建号 cost 12</span><span>auth_handler.rs:40 / :86</span></div>
+        </li>
+        <li>
+          <div class="list-title">失败响应</div>
+          <div class="list-meta"><span>401 <span class="mono">{"error":"invalid_credentials"}</span></span><span>前端映射为 “Invalid username or password”</span></div>
+        </li>
+        <li>
+          <div class="list-title">建号校验</div>
+          <div class="list-meta"><span>用户名非空且口令 ≥6 位，否则 400 <span class="mono">missing_or_invalid_fields</span></span><span>用户名重复 → 409</span></div>
+        </li>
+        <li>
+          <div class="list-title">缺失 Bearer</div>
+          <div class="list-meta"><span><span class="mono">{"error":"missing_bearer_token"}</span></span><span>中间件全局生效，SSE 自行校验</span></div>
+        </li>
+      </ul>
+    </section>
+  </main>
+
+  <footer id="gm-footer"></footer>
+</div>
+
+<div class="modal-backdrop" id="gm-modal-backdrop"></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/prototype.js"></script>
+<script>
+GM.ready(function () {
+  GM.shell({ active: '' });
+
+  var form = document.getElementById('login-form');
+  var errorBox = document.getElementById('login-error');
+  var submit = document.getElementById('login-submit');
+  var loginCard = document.getElementById('login-card');
+  var sessionCard = document.getElementById('session-card');
+
+  function renderSession() {
+    var s = GM.session();
+    if (!s) {
+      loginCard.hidden = false;
+      sessionCard.hidden = true;
+      return;
+    }
+    loginCard.hidden = true;
+    sessionCard.hidden = false;
+    document.getElementById('s-user').textContent = s.username;
+    document.getElementById('s-role').textContent = s.role;
+    document.getElementById('s-roles').textContent = GM.roles().join(' · ');
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var username = document.getElementById('username').value.trim();
+    var password = document.getElementById('password').value;
+
+    // auth_handler.rs 对空用户名与错误口令返回同一个 invalid_credentials，
+    // 前端无法区分——原型保留这一行为，不新增提示。
+    if (!username || !password) {
+      errorBox.textContent = 'Invalid username or password';
+      errorBox.hidden = false;
+      return;
+    }
+
+    errorBox.hidden = true;
+    submit.disabled = true;
+    submit.textContent = '登录中…';
+
+    setTimeout(function () {
+      GM.signIn(username, 'admin');
+      renderSession();
+      GM.shell({ active: '' });
+      window.location.href = 'dashboard.html';
+    }, 260);
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-demo]'), function (btn) {
+    btn.addEventListener('click', function () {
+      var role = btn.getAttribute('data-demo');
+      document.getElementById('username').value = role === 'superadmin' ? 'sre_lead' : 'ops_admin';
+      document.getElementById('password').value = 'prototype';
+      errorBox.hidden = true;
+      GM.signIn(
+        role === 'superadmin' ? 'sre_lead' : 'ops_admin',
+        role
+      );
+      renderSession();
+      GM.shell({ active: '' });
+    });
+  });
+
+  document.getElementById('s-signout').addEventListener('click', function () {
+    GM.signOut();
+    renderSession();
+    GM.shell({ active: '' });
+  });
+
+  renderSession();
+  GM.footer({ doc: 'RGS-BAS-003 §3.1 账号/会话级方法 · RGS-DTL-003 详细设计书' });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>消费者 — DOKIPON 运营后台原型</title>
+<link rel="stylesheet" href="assets/prototype.css">
+</head>
+<body>
+<div class="shell">
+  <header class="topbar" id="gm-topbar"></header>
+  <div id="gm-demo-banner"></div>
+
+  <main>
+    <div class="section-header" style="margin-bottom:16px">
+      <h2 style="margin:0">消费者</h2>
+      <button type="button" id="refresh">刷新 / Refresh</button>
+    </div>
+
+    <section class="section">
+      <form id="filters">
+        <input id="search" placeholder="按 ID / 姓名 / 会员分组搜索">
+        <div class="form-grid" style="margin-top:12px">
+          <div class="field">
+            <label for="status-filter">状态 / Status</label>
+            <select id="status-filter">
+              <option value="all">全部 / All</option>
+              <option value="online">活跃 / Active</option>
+              <option value="offline">沉默 / Silent</option>
+              <option value="banned">已封禁 / Banned</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sort-by">排序字段 / Sort by</label>
+            <select id="sort-by">
+              <option value="lastLogin">最后登录 / Last login</option>
+              <option value="level">客户等级 / Level</option>
+              <option value="name">姓名 / Name</option>
+              <option value="totalSpend">累计消费 / Total spend</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sort-order">排序 / Order</label>
+            <select id="sort-order">
+              <option value="desc">降序 / Descending</option>
+              <option value="asc">升序 / Ascending</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="page-size">每页条数 / Page size</label>
+            <select id="page-size">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit">应用筛选 / Apply filters</button>
+      </form>
+    </section>
+
+    <section class="section">
+      <div class="summary-grid">
+        <div class="summary-card">
+          <span>消费者总数 / Total consumers</span>
+          <strong id="overall-total">—</strong>
+          <small id="overall-sub"></small>
+        </div>
+        <div class="summary-card">
+          <span>当前结果 / Current results</span>
+          <strong id="filtered-total">—</strong>
+          <small id="filtered-sub"></small>
+        </div>
+      </div>
+      <div class="chips" id="player-chips"></div>
+      <div class="inline-stats" id="inline-stats" style="margin-top:12px"></div>
+
+      <div class="table-wrapper">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th><th>消费者姓名 / Name</th><th>客户等级 / Level</th><th>会员等级 / VIP</th><th>状态 / Status</th>
+              <th>累计消费 / Total spend</th><th>最后登录 / Last login</th><th>会员分组 / Segment</th><th>操作 / Actions</th>
+            </tr>
+          </thead>
+          <tbody id="players-body"></tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <button type="button" class="button-secondary" id="prev">上一页 / Previous</button>
+        <span class="muted">页码 / Page</span>
+        <span id="page-label">Page 1 of 1</span>
+        <button type="button" class="button-secondary" id="next">下一页 / Next</button>
+      </div>
+    </section>
+
+    <div class="detail-card" id="player-detail" hidden>
+      <div class="section-header">
+        <h3>消费者详情 / Customer detail</h3>
+        <button type="button" class="button-secondary button-sm" id="close-detail">关闭 / Close</button>
+      </div>
+      <div class="chips" id="detail-chips"></div>
+      <dl class="detail-grid" id="detail-grid"></dl>
+      <div class="button-row" style="margin-top:8px">
+        <span class="chip chip--gap">真实构建中此处只有只读详情；封禁与补偿走 /gm/ban_account 与 /gm/grant_compensation，这两个端点前端未接入</span>
+      </div>
+    </div>
+  </main>
+
+  <footer id="gm-footer"></footer>
+</div>
+
+<div class="modal-backdrop" id="gm-modal-backdrop"></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/prototype.js"></script>
+<script>
+GM.ready(function () {
+  GM.shell({ active: 'players' });
+
+  var all = GM_DATA.players.slice();
+
+  // Players.tsx 把搜索词拆成 search(输入框) / appliedSearch(提交后)，
+  // 排序与状态则是即时生效并重置到第 1 页——原型保留这个不对称行为。
+  var search = '';
+  var appliedSearch = '';
+  var statusFilter = 'all';
+  var sortBy = 'lastLogin';
+  var sortOrder = 'desc';
+  var pageSize = 10;
+  var page = 1;
+  var selectedId = null;
+
+  /* 状态枚举是后端契约（online / offline / banned），界面标签换成电商口径；
+     CSS 类名仍由枚举值派生，配色与真实构建一致。 */
+  var STATUS_LABEL = { online: '活跃', offline: '沉默', banned: '已封禁' };
+  var NEW_MEMBER_GROUP = '新客群';
+
+  function statusTag(value) {
+    var cls = 'status-tag status-' + String(value || '').toLowerCase();
+    return '<span class="' + cls + '">' + GM.esc(STATUS_LABEL[value] || value) + '</span>';
+  }
+
+  function fmtYuan(value) {
+    if (typeof value !== 'number') return '—';
+    return '¥' + value.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  }
+
+  function matchesSearch(player, needle) {
+    if (!needle) return true;
+    var n = needle.toLowerCase();
+    return String(player.id).indexOf(needle) === 0 ||
+      player.name.toLowerCase().indexOf(n) !== -1 ||
+      (player.guild ? player.guild.toLowerCase().indexOf(n) !== -1 : false);
+  }
+
+  function filtered() {
+    return all.filter(function (p) {
+      if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+      return matchesSearch(p, appliedSearch);
+    }).sort(function (a, b) {
+      var av = a[sortBy];
+      var bv = b[sortBy];
+      var cmp;
+      if (sortBy === 'name') cmp = a.name.localeCompare(b.name);
+      else if (sortBy === 'level' || sortBy === 'vipLevel') cmp = a.level - b.level;
+      else if (sortBy === 'totalSpend') cmp = a.totalSpend - b.totalSpend;
+      else cmp = new Date(a.lastLogin).getTime() - new Date(b.lastLogin).getTime();
+      return sortOrder === 'desc' ? -cmp : cmp;
+    });
+  }
+
+  function render() {
+    var rows = filtered();
+    var overall = GM_DATA.playerStats(all);
+    var current = GM_DATA.playerStats(rows);
+    var totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+
+    if (page > totalPages) page = totalPages;
+    if (page < 1) page = 1;
+
+    var slice = rows.slice((page - 1) * pageSize, page * pageSize);
+
+    document.getElementById('overall-total').textContent = overall.total.toLocaleString();
+    document.getElementById('overall-sub').textContent =
+      '活跃 / Active ' + overall.online + ' · 已封禁 / Banned ' + overall.banned;
+    document.getElementById('filtered-total').textContent = current.total.toLocaleString();
+    document.getElementById('filtered-sub').textContent =
+      '活跃 / Active ' + current.online + ' · 平均等级 / Avg tier ' + current.averageLevel;
+
+    document.getElementById('player-chips').innerHTML = [
+      '<span class="chip">高消费客户（全部）/ High value overall ' + overall.highValue + '</span>',
+      '<span class="chip">高消费客户（筛选）/ High value filtered ' + current.highValue + '</span>',
+      '<span class="chip">沉默 / Silent filtered ' + current.offline + '</span>'
+    ].join('');
+
+    document.getElementById('inline-stats').innerHTML =
+      '<span>显示 <b>' + slice.length + '</b> / <b>' + current.total + '</b> 位消费者</span>' +
+      '<span>活跃 / Active: <b>' + current.online + '</b></span>' +
+      '<span>沉默 / Silent: <b>' + current.offline + '</b></span>' +
+      '<span>已封禁 / Banned: <b>' + current.banned + '</b></span>' +
+      '<span>平均等级 / Avg tier: <b>' + current.averageLevel + '</b></span>';
+
+    var body = document.getElementById('players-body');
+    if (!slice.length) {
+      body.innerHTML =
+        '<tr><td colspan="9" class="empty-state">' +
+        '没有符合条件的消费者 / No players found' +
+        '</td></tr>';
+    } else {
+      body.innerHTML = slice.map(function (p) {
+        return '<tr class="' + (selectedId === p.id ? 'active' : '') + '">' +
+          '<td class="num">' + p.id + '</td>' +
+          '<td>' + GM.esc(p.name) + '</td>' +
+          '<td class="num">' + p.level + '</td>' +
+          '<td class="num">' + p.vipLevel + '</td>' +
+          '<td>' + statusTag(p.status) + '</td>' +
+          '<td class="num">' + fmtYuan(p.totalSpend) + '</td>' +
+          '<td class="nowrap">' + GM.fmtDateTime(p.lastLogin) + '</td>' +
+          '<td>' + GM.esc(p.guild || '—') + '</td>' +
+          '<td class="table-actions">' +
+            '<button type="button" class="button-secondary button-sm" data-view="' + p.id + '">查看 / View</button>' +
+          '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    // 分页标签是前端写死的字面量（回归脚本逐字断言），保持不变
+    document.getElementById('page-label').textContent = 'Page ' + page + ' of ' + totalPages;
+    document.getElementById('prev').disabled = page <= 1;
+    document.getElementById('next').disabled = page >= totalPages;
+
+    if (selectedId !== null && !rows.some(function (p) { return p.id === selectedId; })) {
+      selectedId = null;
+    }
+    renderDetail();
+  }
+
+  function renderDetail() {
+    var box = document.getElementById('player-detail');
+    var player = all.filter(function (p) { return p.id === selectedId; })[0];
+    if (!player) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    document.getElementById('detail-chips').innerHTML =
+      '<span class="chip">状态 / Status: ' + (STATUS_LABEL[player.status] || player.status) + ' (' + player.status + ')</span>' +
+      '<span class="chip">会员等级 / VIP ' + player.vipLevel + '</span>' +
+      (player.guild && player.guild.indexOf(NEW_MEMBER_GROUP) === 0
+        ? '<span class="chip">新規会員 / New member</span>' : '') +
+      (player.region ? '<span class="chip">地区 / Region: ' + GM.esc(player.region) + '</span>' : '');
+
+    document.getElementById('detail-grid').innerHTML = [
+      ['Player ID（消费者 ID）', player.id],
+      ['Name（消费者姓名）', player.name],
+      ['Guild（会员分组）', player.guild || '—'],
+      ['Level（客户等级）', player.level],
+      ['Total spend（累计消费）', fmtYuan(player.totalSpend)],
+      ['Last login（最后登录）', GM.fmtDateTime(player.lastLogin)]
+    ].map(function (row) {
+      return '<div><dt>' + row[0] + '</dt><dd>' + GM.esc(row[1]) + '</dd></div>';
+    }).join('');
+  }
+
+  /* --------------------------------------------------------------- events */
+
+  document.getElementById('filters').addEventListener('submit', function (e) {
+    e.preventDefault();
+    appliedSearch = search.trim();
+    page = 1;
+    render();
+  });
+
+  // 下拉同时监听 change 与 input：真实构建用 React onChange（等价 change），
+  // 但部分自动化/辅助技术只派发 input，两个都绑可避免"看起来能选却不生效"。
+  ['status-filter', 'sort-by', 'sort-order', 'page-size'].forEach(function (id) {
+    var apply = function () {
+      statusFilter = document.getElementById('status-filter').value;
+      sortBy = document.getElementById('sort-by').value;
+      sortOrder = document.getElementById('sort-order').value;
+      pageSize = Number(document.getElementById('page-size').value);
+      page = 1;
+      render();
+    };
+    var node = document.getElementById(id);
+    node.addEventListener('change', apply);
+    node.addEventListener('input', apply);
+  });
+
+  document.getElementById('search').addEventListener('input', function () {
+    search = this.value;
+  });
+
+  document.getElementById('prev').addEventListener('click', function () { page -= 1; render(); });
+  document.getElementById('next').addEventListener('click', function () { page += 1; render(); });
+
+  document.getElementById('refresh').addEventListener('click', function () {
+    this.disabled = true;
+    this.textContent = '刷新中…';
+    setTimeout(function () { render(); }, 300);
+    var btn = this;
+    setTimeout(function () { btn.disabled = false; btn.textContent = '刷新 / Refresh'; }, 320);
+  });
+
+  document.getElementById('players-body').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-view]');
+    if (!btn) return;
+    selectedId = Number(btn.getAttribute('data-view'));
+    render();
+    document.getElementById('player-detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  document.getElementById('close-detail').addEventListener('click', function () {
+    selectedId = null;
+    render();
+  });
+
+  render();
+  GM.footer({ doc: 'RGS-DTL-036 Player域详细设计书 · RGS-DTL-001 §player_db 物理 DDL' });
+});
+</script>
+</body>
+</html>

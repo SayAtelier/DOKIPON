@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DOKIPON 运营后台 — HTML 原型索引</title>
+<link rel="stylesheet" href="assets/prototype.css">
+</head>
+<body>
+<div class="shell">
+  <header class="topbar" id="gm-topbar"></header>
+
+  <main>
+    <section class="section">
+      <div class="section-header">
+        <h2>DOKIPON 运营后台 · HTML 高保真原型</h2>
+        <span class="chip chip--doc">9 屏 · 32 条后端路由</span>
+      </div>
+      <p class="section-description">
+        本原型是 <span class="mono">tools/gm-console/frontend</span>（React 18 + Vite + TS，9 个页面组件 2 526 行，
+        前端共 14 个源文件 3 190 行）的静态等价物，配合 <span class="mono">crates/gm-backend</span>
+        （Actix-web，<span class="mono">/gm</span> 作用域 30 条路由 + 2 条健康探针，共 32 条）与
+        <span class="mono">docs/</span> 下的 IPA 设计文档使用。字段名、状态标签语义、色彩与交互流程均以源码为准，
+        不做美化性改写；新增的仅为原型可读性层（文档编号标注、路由覆盖矩阵、差距清单）。
+        <br><b>界面文案已按电商口径改写</b>（游戏服务器 → 电商），但<b>接口字段名与状态枚举一律保持原样</b>——
+        对照关系见文末「游戏服务器 → 电商 改造对照表」。
+      </p>
+      <div class="chips">
+        <span class="chip">离线双击 index.html 即可打开</span>
+        <span class="chip">无构建、无依赖、无网络请求</span>
+        <span class="chip">全部数据为内置演示值</span>
+        <span class="chip">视觉取自 App.css</span>
+      </div>
+      <div class="banner banner--gap" style="margin-top:16px">
+        <div>
+          <strong>走查时请注意</strong>
+          本原型不含任何后端调用。表单提交、状态流转、启停服务实例等动作只改变本页状态，不产生真实副作用；
+          后端真实行为见「路由覆盖矩阵」中的备注。
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>屏幕索引</h3>
+      <p class="section-description">点击进入。登录页可体验真实构建中的 role→roles 映射与错误分支。文件名镜像后端端点族，不随界面改名。</p>
+      <div class="metric-grid">
+        <a class="metric-card" href="login.html" style="text-decoration:none">
+          <span>01 · 登录</span>
+          <strong>运营后台登录</strong>
+          <small>POST /gm/login · bcrypt · JWT 3600s</small>
+        </a>
+        <a class="metric-card" href="dashboard.html" style="text-decoration:none">
+          <span>02 · 总览</span>
+          <strong>经营总览</strong>
+          <small>GET /gm/summary + /gm/metrics + SSE</small>
+        </a>
+        <a class="metric-card" href="players.html" style="text-decoration:none">
+          <span>03 · 消费者</span>
+          <strong>消费者</strong>
+          <small>GET /gm/players · 筛选 / 排序 / 分页</small>
+        </a>
+        <a class="metric-card" href="servers.html" style="text-decoration:none">
+          <span>04 · 服务实例</span>
+          <strong>服务实例</strong>
+          <small>GET /gm/servers + start / stop</small>
+        </a>
+        <a class="metric-card" href="items.html" style="text-decoration:none">
+          <span>05 · 补偿发放</span>
+          <strong>补偿与兑换码发放</strong>
+          <small>POST /gm/items/grant + 历史</small>
+        </a>
+        <a class="metric-card" href="canvas.html" style="text-decoration:none">
+          <span>06 · 营销下发</span>
+          <strong>营销素材下发</strong>
+          <small>POST /gm/canvas/send · RGBA 图层</small>
+        </a>
+        <a class="metric-card" href="mall.html" style="text-decoration:none">
+          <span>07 · 店铺商品</span>
+          <strong>店铺商品</strong>
+          <small>mall/items 增删改查 · 行内编辑</small>
+        </a>
+        <a class="metric-card" href="reports.html" style="text-decoration:none">
+          <span>08 · 经营报表</span>
+          <strong>经营报表</strong>
+          <small>GET /gm/reports · 自由形状 metrics</small>
+        </a>
+        <a class="metric-card" href="support.html" style="text-decoration:none">
+          <span>09 · 售后</span>
+          <strong>售后工单</strong>
+          <small>工单 open / pending / resolved</small>
+        </a>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>路由覆盖矩阵</h3>
+      <p class="section-description">
+        逐条比对 <span class="mono">crates/gm-backend/src/lib.rs::register_routes</span> 与前端 9 页的实际调用。
+        「未接入」= 后端已实现并有测试覆盖，但前端没有任何页面调用它。
+      </p>
+      <div class="table-wrapper">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>方法</th>
+              <th>路径（<span class="mono">/gm</span> 前缀省略）</th>
+              <th>前端落点</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>POST</td><td class="mono">/login</td><td>login.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>GET</td><td class="mono">/ping</td><td>App.tsx 启动自检</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>GET</td><td class="mono">/summary</td><td>dashboard.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>GET</td><td class="mono">/metrics</td><td>dashboard.html（图表 5s 轮询）</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>GET</td><td class="mono">/events</td><td>dashboard.html（SSE 公告流）</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>POST</td><td class="mono">/broadcast</td><td>dashboard.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>GET</td><td class="mono">/players</td><td>players.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>GET</td><td class="mono">/servers</td><td>servers.html / dashboard.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>POST</td><td class="mono">/servers/{id}/start</td><td>servers.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>POST</td><td class="mono">/servers/{id}/stop</td><td>servers.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>POST</td><td class="mono">/items/grant</td><td>items.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>GET</td><td class="mono">/items/grants</td><td>items.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>GET</td><td class="mono">/canvas/anchors</td><td>canvas.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>POST</td><td class="mono">/canvas/send</td><td>canvas.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>GET</td><td class="mono">/mall/items</td><td>mall.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>POST</td><td class="mono">/mall/items</td><td>mall.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>PUT</td><td class="mono">/mall/items/{id}</td><td>mall.html（行内编辑）</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>DELETE</td><td class="mono">/mall/items/{id}</td><td>mall.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>POST</td><td class="mono">/support</td><td>support.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>GET</td><td class="mono">/support/tickets</td><td>support.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>PATCH</td><td class="mono">/support/tickets/{id}</td><td>support.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+            <tr><td>GET</td><td class="mono">/reports</td><td>reports.html</td><td><span class="status-tag status-online">已接入</span></td></tr>
+
+            <tr>
+              <td>GET</td><td class="mono">/health_view</td>
+              <td>—</td>
+              <td><span class="status-tag status-pending">后端有 · 前端无</span></td>
+            </tr>
+            <tr>
+              <td>POST</td><td class="mono">/ban_account</td>
+              <td>—</td>
+              <td><span class="status-tag status-pending">后端有 · 前端无</span></td>
+            </tr>
+            <tr>
+              <td>POST</td><td class="mono">/grant_compensation</td>
+              <td>—</td>
+              <td><span class="status-tag status-pending">后端有 · 前端无</span></td>
+            </tr>
+            <tr>
+              <td>POST</td><td class="mono">/set_maintenance</td>
+              <td>—</td>
+              <td><span class="status-tag status-pending">后端有 · 前端无</span></td>
+            </tr>
+            <tr>
+              <td>GET</td><td class="mono">/query_audit</td>
+              <td>—</td>
+              <td><span class="status-tag status-pending">后端有 · 前端无</span></td>
+            </tr>
+            <tr>
+              <td>GET / POST</td><td class="mono">/admins</td>
+              <td>—</td>
+              <td><span class="status-tag status-pending">后端有 · 前端无</span></td>
+            </tr>
+            <tr>
+              <td>GET</td><td class="mono">/broadcasts</td>
+              <td>—</td>
+              <td><span class="status-tag status-pending">后端有 · 前端无</span></td>
+            </tr>
+            <tr>
+              <td>GET</td><td class="mono">/healthz · /readyz</td>
+              <td>k8s 探针（8081 端口）</td>
+              <td><span class="status-tag status-offline">基础设施 · 不应有 UI</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>契约漂移矩阵</h3>
+      <p class="section-description">
+        本节是审核的核心产出。把前端的 TypeScript interface 与后端的 Rust struct 逐字段对照后，
+        发现 <b>13 处契约不一致</b>。原型按<b>前端期望</b>渲染（它是一份设计原型，不是联调测试），
+        但下表逐条列出真实环境下的实际表现——<b>接线后这些屏不是"少几个字段"，而是整块空白或 400</b>。
+        <br>2026-10-22 已按「后端对齐前端」路径全部修复，并由
+        <span class="mono">crates/gm-backend/tests/it_frontend_contract.rs</span>（CT1–CT9）锁定契约。
+      </p>
+      <div class="table-wrapper">
+        <table class="table">
+          <caption>前端 interface vs 后端 struct</caption>
+          <thead>
+            <tr><th>屏</th><th>前端期望</th><th>后端（修复前）</th><th>真实后果</th><th>修复动作</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>消费者</td>
+              <td class="mono">id:number, name, vipLevel, guild?, region?, totalSpend, lastLogin</td>
+              <td class="mono">id:String("player-100000"), display_name, total_spent, last_login</td>
+              <td>Name / VIP / Guild 列空；Total Spend 恒 <span class="mono">—</span>；Last Login 显示 <span class="mono">Invalid Date</span></td>
+              <td><span class="status-tag status-online">已修复</span> struct 改 camelCase；<span class="mono">display_name</span> 额外 <span class="mono">rename="name"</span>；补 <span class="mono">vip_level</span> / <span class="mono">guild</span> / <span class="mono">region</span></td>
+            </tr>
+            <tr>
+              <td>消费者</td>
+              <td>响应含 <span class="mono">stats.overall / stats.filtered</span></td>
+              <td>响应<b>无 stats 字段</b>（只有 players/total/page/page_size）</td>
+              <td><b>两张统计卡与三枚 chip 整块不渲染</b>（<span class="mono">stats && …</span> 守卫）</td>
+              <td><span class="status-tag status-online">已修复</span> <span class="mono">PlayersResponse</span> 补 <span class="mono">stats{overall,filtered}</span>，由同一份 mock 统计</td>
+            </tr>
+            <tr>
+              <td>消费者</td>
+              <td>搜索框写「Search by ID, name or guild」</td>
+              <td class="mono">list_players 只匹配 display_name 与 id，<b>无 guild</b></td>
+              <td>会员分组搜索在后端不存在</td>
+              <td><span class="status-tag status-online">已修复</span> 搜索条件加 <span class="mono">guild</span>（不区分大小写）</td>
+            </tr>
+            <tr>
+              <td>消费者</td>
+              <td>发 <span class="mono">sortBy / sortOrder</span> 参数</td>
+              <td class="mono">PlayersQuery 只有 search/status/page/page_size</td>
+              <td>排序参数被<b>静默忽略</b>，四个下拉对真实后端无效</td>
+              <td><span class="status-tag status-online">已修复</span> <span class="mono">PlayersQuery</span> 补两参 + 实现排序（level / name / totalSpend / lastLogin）</td>
+            </tr>
+            <tr>
+              <td>补偿发放</td>
+              <td class="mono">playerId, itemId, createdAt</td>
+              <td class="mono">player_id, item_id, created_at</td>
+              <td>Player / Item 列空；Created At 显示 <span class="mono">—</span></td>
+              <td><span class="status-tag status-online">已修复</span> <span class="mono">GrantEntry</span> 改 camelCase（<b>请求 DTO 保持 snake_case</b>）</td>
+            </tr>
+            <tr>
+              <td>售后工单</td>
+              <td class="mono">playerId, createdAt, updatedAt</td>
+              <td class="mono">player_id, created_at, updated_at</td>
+              <td>Player 列空；Created / Updated 显示 <span class="mono">—</span></td>
+              <td><span class="status-tag status-online">已修复</span> <span class="mono">TicketEntry</span> 改 camelCase（请求 DTO 不动）</td>
+            </tr>
+            <tr>
+              <td>营销下发</td>
+              <td class="mono">{clientId, instruction:{layer, rgbaBase64, opacity, scale, zIndex, position:{x,y,anchor}, durationMs}}</td>
+              <td class="mono">扁平 {layer, anchor, width, height, image_base64?, clear?}</td>
+              <td><b>必然 400</b>：后端 <span class="mono">anchor</span> 是必填，顶层缺失 → serde 提取失败。opacity / scale / zIndex / position / durationMs 后端不认；clientId 后端无对应字段</td>
+              <td><span class="status-tag status-online">已修复</span> DTO 重构为 <span class="mono">CanvasCommandRequest{clientId, instruction}</span>，逐字段对齐前端；响应 echo 全部归一化后的参数</td>
+            </tr>
+            <tr>
+              <td>营销下发 锚点</td>
+              <td class="mono">anchors: string[]</td>
+              <td class="mono">anchors: [{value, label}]</td>
+              <td>下拉项的值与标签全部错位（前端把对象当字符串处理，会抛 <span class="mono">value.split is not a function</span>）</td>
+              <td><span class="status-tag status-online">已修复</span> 改为返回字符串数组，标签由前端自行生成</td>
+            </tr>
+            <tr>
+              <td>经营报表</td>
+              <td class="mono">type|category|reportType / generatedAt|createdAt|updatedAt / summary|metrics</td>
+              <td class="mono">kind / generated_at / title + value</td>
+              <td>类型恒显「General」；Generated 恒「—」；Highlights 恒「—」；聚合卡不渲染；排序键全空 → 排序不稳定</td>
+              <td><span class="status-tag status-online">已修复</span> <span class="mono">kind</span> 序列化为 <span class="mono">type</span>；补 <span class="mono">summary</span> 与 <span class="mono">metrics</span> 供 Highlights 与聚合卡使用</td>
+            </tr>
+            <tr>
+              <td>公告历史</td>
+              <td>读 <span class="mono">/gm/summary.activity.recentBroadcasts</span></td>
+              <td class="mono">recentBroadcasts</b> 恒为 <span class="mono">[]</span></td>
+              <td>公告历史区永远空白（后端另有 <span class="mono">/gm/broadcasts</span> 可用，前端未接）</td>
+              <td><span class="status-tag status-online">已修复</span> 抽出 <span class="mono">recent_broadcasts()</span>，<span class="mono">/gm/broadcasts</span> 与 summary 共用</td>
+            </tr>
+            <tr>
+              <td>SSE 实时推送</td>
+              <td class="mono">entry.createdAt</td>
+              <td class="mono">entry.created_at</td>
+              <td>实时到达的公告时间显示 <span class="mono">Invalid Date</span>（消息与管理员正常）</td>
+              <td><span class="status-tag status-online">已修复</span> <span class="mono">BroadcastEntry</span> 改 camelCase（SSE 载荷同步生效）</td>
+            </tr>
+            <tr>
+              <td>经营总览 统计</td>
+              <td class="mono">playerStats</td>
+              <td class="mono">summary</b> 里 <b>硬编码</b> 1000/487/500/13/32.5/47</td>
+              <td>与 <span class="mono">/gm/players</span> 的统计对不上——后者每次请求重新随机生成 1000 条 mock，<b>同一后端两屏数字互相打架</b>，且翻页时行会漂移</td>
+              <td><span class="status-tag status-online">已修复</span> mock 改为<b>确定性生成</b>（固定 seed）；summary 统计从同一份数据算出</td>
+            </tr>
+            <tr>
+              <td>经营总览 工单数</td>
+              <td>标签写「Open Tickets」</td>
+              <td class="mono">support.open = status != "resolved"</td>
+              <td>含 pending，与 消费者 / 售后工单 页的 open 口径不同</td>
+              <td><span class="status-tag status-online">已修复</span> 改为只数 <span class="mono">status == "open"</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="banner banner--gap" style="margin-top:16px">
+        <div>
+          <strong>根因</strong>
+          后端 handler 全部用 <span class="mono">#[derive(Serialize)]</span> 输出 <b>snake_case</b> 字段名，
+          而前端按 <b>camelCase</b> 读；两者之间<b>没有 serde rename 规则</b>。
+          修法是给<b>响应</b>结构体加 <span class="mono">#[serde(rename_all = "camelCase")]</span>——
+          <b>请求 DTO 保持 snake_case</b>，因为前端发的就是 snake_case。
+          另有 <span class="mono">get_player_stats</span> 与 <span class="mono">get_server_stats</span>
+          两个 handler 已 <span class="mono">pub use</span> 导出却<b>没有任何路由指向</b>；
+          前者已改为 summary 复用的 <span class="mono">mock_player_stats()</span>。
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>走查时值得确认的 6 个问题</h3>
+      <p class="section-description">
+        以下均为对照「代码 ↔ 设计文档」时发现的事实性差异，原型不做修补，仅标注，便于评审时拍板。
+      </p>
+      <div class="table-wrapper">
+        <table class="table">
+          <caption>问题清单</caption>
+          <thead>
+            <tr><th>#</th><th>观察</th><th>证据</th><th>影响面</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td><strong>7 条运营端点（/gm/*）没有任何 UI</strong>：封禁、补偿、维护模式、审计查询、管理员管理、健康视图、公告历史</td>
+              <td class="mono">lib.rs:529-540 有路由，9 个页面均未调用</td>
+              <td>RGS-BAS-003 §3.1 账号/会话级、§3.2 场景/运行时级、§3.3 配置/发布级、§3.4 查询/审计级所定义的能力，在控制台上不可达</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td><strong>「营销素材下发」（原 Canvas）页 ≠ 拓扑无限画布</strong>：代码实现的是向 App / Web / LINE 客户端推送 <span class="mono">gm_overlay</span> 透明图层；<br>RGS-REQ-024 / RGS-BAS-021 描述的是 App 间数据流拓扑可视化</td>
+              <td class="mono">Canvas.tsx 全文为图层广播表单；前端无任何拓扑渲染代码</td>
+              <td>文件名「canvas」与设计文档语义不一致，易误读为已实现拓扑画布</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td><strong>角色只有两档</strong>：superadmin 额外获得 GM_ADMIN，其余一律 GM_READ + GM_WRITE。<br>后端对写操作未做 per-endpoint 角色校验</td>
+              <td class="mono">auth_handler.rs:44-48；is_superadmin() 仅用于 /admins</td>
+              <td>RGS-BAS-003 的 RBAC 矩阵扩展尚未落到「谁能执行哪条管控指令」这一层</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td><strong>高危操作无二次确认</strong>：发补偿项、停服务实例、下架商品在真实构建中均为单击直发</td>
+              <td class="mono">Servers.tsx:176、Items.tsx:150、Mall.tsx:261 均无确认框</td>
+              <td>原型已按「爆炸半径」原则补确认弹窗；是否纳入实现需与 RGS-BAS-003 对齐</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td><strong>金额以 f64 传输</strong>：<span class="mono">totalSpend</span> / <span class="mono">price</span> 为 JS number</td>
+              <td class="mono">players_handler.rs / mall_handler.rs 的 JSON 数值</td>
+              <td>与 Commerce 侧「整数最小货币单位 + ISO-4217」的约定不一致（见仓库 README Working agreements）</td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td><strong>两个 handler 是死代码</strong>：<span class="mono">get_player_stats</span> 与 <span class="mono">get_server_stats</span> 已导出但无路由指向；<br>前端拿到的 stats 只能来自 summary 的<b>硬编码</b>值</td>
+              <td class="mono">players_handler.rs:93 / servers_handler.rs:33 —— lib.rs 的 register_routes 中无对应 .route()</td>
+              <td>上一节的契约漂移矩阵第 2、11、12 条同源</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>设计令牌（取自 App.css）</h3>
+      <div class="metric-grid">
+        <div class="metric-card"><span>Page</span><strong style="font-size:15px">#f5f5f5</strong><small>body 背景</small></div>
+        <div class="metric-card"><span>Surface</span><strong style="font-size:15px">#ffffff</strong><small>卡片 / 表格</small></div>
+        <div class="metric-card"><span>Ink</span><strong style="font-size:15px">#1e1e1e</strong><small>主按钮 / 文字</small></div>
+        <div class="metric-card"><span>Indigo line</span><strong style="font-size:15px">#e3e8ff</strong><small>.section 描边</small></div>
+        <div class="metric-card"><span>Indigo fill</span><strong style="font-size:15px">#eef2ff</strong><small>.metric-card 渐变</small></div>
+        <div class="metric-card"><span>Muted</span><strong style="font-size:15px">#6c6f80</strong><small>说明文字</small></div>
+      </div>
+      <div class="chips" style="margin-top:14px">
+        <span class="status-tag status-open">open</span>
+        <span class="status-tag status-online">online</span>
+        <span class="status-tag status-offline">offline</span>
+        <span class="status-tag status-banned">banned</span>
+        <span class="status-tag status-pending">pending</span>
+        <span class="status-tag status-resolved">resolved</span>
+        <span class="chip chip--doc">chip--doc 原型新增</span>
+        <span class="chip chip--gap">chip--gap 原型新增</span>
+        <span class="chip chip--demo">chip--demo 原型新增</span>
+      </div>
+      <p class="muted" style="margin-top:10px">
+        状态标签类名取自后端枚举值：<span class="mono">open</span> 待处理 · <span class="mono">online</span> 活跃 ·
+        <span class="mono">offline</span> 沉默 · <span class="mono">banned</span> 已封禁 ·
+        <span class="mono">pending</span> 处理中 · <span class="mono">resolved</span> 已解决。
+      </p>
+    </section>
+
+    <section class="section">
+      <h3>游戏服务器 → 电商 改造对照表</h3>
+      <p class="section-description">
+        文件名镜像后端端点族（<span class="mono">/gm/players</span>、<span class="mono">/gm/mall/items</span> …），
+        <b>不随界面改名</b>；下表给出「文件 ↔ 屏 ↔ 后端端点」三者的对应关系，以及本轮电商化改造的措辞与演示数据口径。
+      </p>
+      <div class="table-wrapper">
+        <table class="table">
+          <caption>文件 ↔ 屏 ↔ 后端端点 ↔ 措辞对照</caption>
+          <thead>
+            <tr>
+              <th>文件</th><th>屏（电商化后）</th><th>后端端点族</th>
+              <th>原标题 → 新标题</th><th>界面措辞</th><th>演示数据语义</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="mono">login.html</td>
+              <td>运营后台登录</td>
+              <td class="mono">/gm/login</td>
+              <td>Login → 运营后台登录</td>
+              <td>品牌「GM Platform Dashboard」→「运营后台（电商）」；角色说明改为电商运营语义</td>
+              <td>演示账号与 role→roles 映射保持不变（契约）</td>
+            </tr>
+            <tr>
+              <td class="mono">dashboard.html</td>
+              <td>经营总览</td>
+              <td class="mono">/gm/summary · /gm/metrics · /gm/events · /gm/broadcast</td>
+              <td>GM Dashboard → 经营总览</td>
+              <td>Total Players→活跃消费者、Average Level→平均会员等级、Active Servers→运行中服务实例、Open Tickets→待处理售后、Mall Items→在售商品、Broadcasts Sent→已发公告</td>
+              <td>数值语义跟着改；公告内容由游戏维护公告换成电商运营公告</td>
+            </tr>
+            <tr>
+              <td class="mono">players.html</td>
+              <td>消费者</td>
+              <td class="mono">/gm/players</td>
+              <td>Players → 消费者</td>
+              <td>搜索框「Search by ID, name or guild」→「按 ID / 姓名 / 会员分组搜索」；Name→消费者姓名；VIP→会员等级；Guild→会员分组；Total Spend→累计消费；Status online/offline/banned→活跃/沉默/已封禁</td>
+              <td>姓名改真实电商顾客（中日英混合）；<span class="mono">guild</span> 值改「会员分组」语义（企业客户 / VIP客群 / 普通客群 / 新客群）</td>
+            </tr>
+            <tr>
+              <td class="mono">servers.html</td>
+              <td>服务实例</td>
+              <td class="mono">/gm/servers · /gm/servers/{id}/start|stop</td>
+              <td>Servers → 服务实例</td>
+              <td>Server→服务实例；分片→服务节点；Online Players→承载会话数</td>
+              <td>实例 id 改为 catalog-1 / cart-1 / order-1 / identity-1 / bff-1 / inventory-1 这类电商服务实例名；region 保留</td>
+            </tr>
+            <tr>
+              <td class="mono">items.html</td>
+              <td>补偿与兑换码发放</td>
+              <td class="mono">/gm/items/grant · /gm/items/grants</td>
+              <td>Item &amp; Activity Management → 补偿与兑换码发放</td>
+              <td>Player ID→消费者 ID；Item ID→补偿项 ID；Amount→发放数量；Recent Grants→近期发放记录</td>
+              <td><span class="mono">itemId</span> 改为 item_voucher_500 / item_credit_1000 / item_coupon_10pct 这类电商补偿项</td>
+            </tr>
+            <tr>
+              <td class="mono">canvas.html</td>
+              <td>营销素材下发</td>
+              <td class="mono">/gm/canvas/send · /gm/canvas/anchors</td>
+              <td>Canvas Broadcast → 营销素材下发</td>
+              <td>Client ID→目标客户端 ID；Layer→图层名（默认 <span class="mono">gm_overlay</span> 保留，它是真实协议值）；Clear existing layers→先清空已有图层</td>
+              <td>说明文案改为「向 App / Web / LINE 客户端推送营销素材」</td>
+            </tr>
+            <tr>
+              <td class="mono">mall.html</td>
+              <td>店铺商品</td>
+              <td class="mono">/gm/mall/items</td>
+              <td>Mall Items → 店铺商品</td>
+              <td>Name→商品名称；Price→售价；Add Item→新增商品；Catalog size→在售商品数</td>
+              <td>商品名改电商商品（咖啡豆礼盒 / 保温杯 / 会员月卡 …），价格用整数元显示</td>
+            </tr>
+            <tr>
+              <td class="mono">reports.html</td>
+              <td>经营报表</td>
+              <td class="mono">/gm/reports</td>
+              <td>Reports → 经营报表</td>
+              <td>Retention→复购率、Monetisation→GMV/客单价、Performance→履约时效</td>
+              <td>报表类型与指标改电商口径（转化率、客单价、GMV、退款率、履约时长）</td>
+            </tr>
+            <tr>
+              <td class="mono">support.html</td>
+              <td>售后工单</td>
+              <td class="mono">/gm/support · /gm/support/tickets · /gm/support/tickets/{id}</td>
+              <td>Customer Support → 售后工单</td>
+              <td>Ticket→售后工单；Message→客户诉求；Status open/pending/resolved→待处理/处理中/已解决</td>
+              <td>诉求内容改电商（未收到货 / 退款未到账 / 商品破损 / 发票问题 …）</td>
+            </tr>
+            <tr>
+              <td class="mono">index.html</td>
+              <td>原型索引</td>
+              <td class="mono">—（本页不对应后端端点）</td>
+              <td>原型索引 → 原型索引</td>
+              <td>屏幕索引卡片标题按上表电商化；路由覆盖矩阵 / 契约漂移矩阵 / 走查问题三表结构与行数不变</td>
+              <td>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="chips" style="margin-top:14px">
+        <span class="chip chip--gap">原型界面已电商化；后端字段名仍沿用游戏服务器词汇（playerId / vipLevel / guild / mall），属已知遗留，契约漂移本身已修复</span>
+      </div>
+      <p class="muted" style="margin-top:10px">
+        已知遗留清单：<span class="mono">playerId</span> / <span class="mono">vipLevel</span> /
+        <span class="mono">guild</span> / <span class="mono">mall</span> /
+        <span class="mono">items</span> / <span class="mono">broadcast</span> 等路径与字段名仍是游戏服务器词汇。
+        本轮<b>只改界面文案与演示数据</b>，不改后端契约、不改文件名、不改端点路径。
+      </p>
+    </section>
+  </main>
+
+  <footer id="gm-footer"></footer>
+</div>
+
+<script src="assets/data.js"></script>
+<script src="assets/prototype.js"></script>
+<script>
+GM.ready(function () {
+  GM.shell({ active: 'index' });
+  GM.footer({ doc: 'RGS-BAS-003 运维与GM后台管控 / RGS-REQ-024 GM后台拓扑可视化' });
+});
+</script>
+</body>
+</html>

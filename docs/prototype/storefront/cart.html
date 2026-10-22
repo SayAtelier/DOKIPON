@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>カート / Cart — GemArc Commerce 原型</title>
+<link rel="stylesheet" href="assets/storefront.css">
+</head>
+<body>
+<div class="workbench">
+  <header class="wb-head">
+    <div class="wb-title">
+      <h1>カート / Cart</h1>
+      <p>乐観的并发 + 服务器权威价格：客户端只显示快照，结算金额一律由服务端重算。</p>
+    </div>
+    <nav class="wb-nav">
+      <a href="index.html">suite</a>
+      <a href="catalog.html">catalog</a>
+      <a href="product.html">product</a>
+      <a href="cart.html" class="active">cart</a>
+      <a href="checkout.html">checkout</a>
+      <a href="order.html">order</a>
+      <a href="session.html">session</a>
+      <a href="problem.html">problem</a>
+    </nav>
+  </header>
+
+  <div class="stage">
+    <div class="phone">
+      <div class="phone__status">
+        <span>17:02</span>
+        <span>▲ ▪ 81%</span>
+      </div>
+      <div class="phone__body">
+        <div class="appbar" id="appbar">
+          <h2>カート<span class="appbar__sub" id="appbar-sub">Web · カート</span></h2>
+          <span class="appbar__icon">桐</span>
+        </div>
+
+        <div class="screen">
+          <div id="banner-slot"></div>
+
+          <div class="card">
+            <div class="btn-row" style="justify-content:space-between;margin-bottom:8px">
+              <span class="section-label">カート_contents</span>
+              <span class="chip chip--muted" id="cart-version">v6</span>
+            </div>
+            <div id="cart-lines"></div>
+            <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:12px">
+              <div class="btn-row" style="justify-content:space-between">
+                <span class="muted">小計（スナップショット）/ Subtotal (snapshot)</span>
+                <span class="price" id="cart-subtotal"></span>
+              </div>
+              <p class="muted" style="margin:8px 0 0">
+                表示額仅为快照。実際の請求額は決済時にサーバがカタログの権威価格から再計算します。
+              </p>
+            </div>
+          </div>
+
+          <div class="card">
+            <p class="card__title">楽観的並行制御 / Optimistic concurrency</p>
+            <p class="card__desc">
+              カートの更新は「変更の根拠にした version」を送ります。409 は上書きではなく
+              <b>再読込して再適用</b>。プレースホルダの version を故意に古くして衝突を再現できます。
+            </p>
+            <div class="btn-row">
+              <button type="button" class="btn btn--sm btn--outline" id="stale">
+                古い version で更新（409 を発生）
+              </button>
+              <button type="button" class="btn btn--sm btn--outline" id="reprice">
+                価額を再取得 / Re-price
+              </button>
+            </div>
+          </div>
+
+          <button type="button" class="btn btn--block" id="to-checkout">
+            レジへ進む / Proceed to checkout
+          </button>
+        </div>
+      </div>
+      <div class="toast" id="sf-toast"></div>
+    </div>
+
+    <div class="panel">
+      <h3>这个画面在证明什么</h3>
+      <p>
+        <span class="chip chip--api">GET /v1/carts/{cartId}</span>
+        <span class="chip chip--api">PATCH /v1/carts/{cartId}/items/{sku}</span>
+      </p>
+
+      <h4>购物车的四条硬规则</h4>
+      <ul class="muted" style="padding-left:18px;line-height:1.8">
+        <li><b>客户端小计只是快照</b> — <span class="mono">CartLine.unitAmountSnapshot</span> 是「显示用」；改它只改变用户看到的数字，不改变被收取的金额（服务端在结算时重算）。</li>
+        <li><b>每次变更都带 version</b> — <span class="mono">expected_version</span>；不一致返回 409 <span class="mono">cart.version_conflict</span>，客户端应重新拉取后重放，不是覆盖。</li>
+        <li><b>购物车会过期</b> — <span class="mono">expires_at_ms</span>。</li>
+        <li><b>货币不可混算</b> — <span class="mono">Money</span> 的加法在跨币种时抛错，而不是静默换算。</li>
+      </ul>
+
+      <h4>点一下试试</h4>
+      <div class="btn-row">
+        <button type="button" class="btn btn--sm btn--outline" id="sim-expiry">购物车过期</button>
+        <button type="button" class="btn btn--sm btn--outline" id="sim-empty">空购物车</button>
+        <button type="button" class="btn btn--sm btn--outline" id="sim-guest">游客身份</button>
+      </div>
+
+      <h4>服务器形状</h4>
+      <pre class="problem" id="cart-json"></pre>
+    </div>
+  </div>
+
+  <footer class="footer-note">
+    <span>GemArc Commerce ストアフロント原型 · データは全てデモ値 · 通信は行わない</span>
+    <span><a href="index.html">suite 索引</a> · <a href="../admin-console/index.html">运营后台原型</a></span>
+  </footer>
+</div>
+
+<script src="assets/storefront.js"></script>
+<script>
+SF.ready(function () {
+  var cart = JSON.parse(JSON.stringify(SF.CART));
+  var staleVersion = false;
+  var expired = false;
+  var empty = false;
+  var guest = false;
+
+  function productOf(sku) {
+    return SF.PRODUCTS.filter(function (p) { return p.sku === sku; })[0];
+  }
+
+  function render() {
+    var bannerSlot = SF.el('banner-slot');
+    var lines = empty ? [] : cart.items;
+
+    bannerSlot.innerHTML = guest
+      ? SF.banner(
+        '<strong>ゲストカート / Guest cart</strong>' +
+        '購入にはログインが必要です。<span class="muted">Sign in to check out.</span>',
+        'warning')
+      : (expired
+        ? SF.banner(
+          '<strong>カートの有効期限が切れました / Cart expired</strong>' +
+          '内容を確認して作り直してください。',
+          'danger')
+        : '');
+
+    SF.el('cart-version').textContent = 'v' + cart.version;
+    SF.el('cart-lines').innerHTML = lines.length
+      ? lines.map(function (line) {
+          var p = productOf(line.sku);
+          return '<div class="line-item">' +
+            '<div class="line-item__main">' +
+            '<div class="line-item__name">' + SF.esc(p ? p.title_i18n.ja : line.sku) + '</div>' +
+            '<div class="line-item__meta">' + line.sku + ' · ' +
+            SF.money(line.unit_amount_snapshot, line.currency) + ' / 個</div>' +
+            '</div>' +
+            '<div class="qty">' +
+            '<button type="button" data-dec="' + line.sku + '"' +
+            (line.quantity <= 1 ? ' disabled' : '') + '>−</button>' +
+            '<span>' + line.quantity + '</span>' +
+            '<button type="button" data-inc="' + line.sku + '">＋</button>' +
+            '</div>' +
+            '</div>';
+        }).join('')
+      : '<div class="empty">カートは空です / Your cart is empty</div>';
+
+    var subtotal = lines.reduce(function (acc, l) {
+      return acc + l.unit_amount_snapshot * l.quantity;
+    }, 0);
+    SF.el('cart-subtotal').textContent = SF.money(subtotal, 'JPY');
+
+    SF.el('cart-json').textContent = JSON.stringify(cart, null, 2);
+  }
+
+  function changeQty(sku, delta) {
+    var line = cart.items.filter(function (l) { return l.sku === sku; })[0];
+    if (!line) return;
+    line.quantity = Math.max(1, line.quantity + delta);
+    // 乐观并发：正常路径会带 version 一起提交
+    if (staleVersion) {
+      staleVersion = false;
+      SF.el('banner-slot').innerHTML = SF.banner(
+        '<strong>カートが更新されました / Cart changed elsewhere</strong>' +
+        'バージョン不一致（409 <span class="mono">cart.version_conflict</span>）。' +
+        '上書きせず再読込して変更を再適用します。',
+        'warning', '再読込 / Reload', 'reload');
+      return;
+    }
+    cart.version += 1;
+    render();
+  }
+
+  document.addEventListener('click', function (e) {
+    var inc = e.target.closest('[data-inc]');
+    var dec = e.target.closest('[data-dec]');
+    if (inc) changeQty(inc.getAttribute('data-inc'), 1);
+    if (dec) changeQty(dec.getAttribute('data-dec'), -1);
+    var act = e.target.closest('[data-action="reload"]');
+    if (act) { cart.version += 1; render(); }
+  });
+
+  SF.el('stale').addEventListener('click', function () {
+    staleVersion = true;
+    var line = cart.items[0];
+    if (line) changeQty(line.sku, 1);
+  });
+
+  SF.el('reprice').addEventListener('click', function () {
+    cart.items.forEach(function (l) {
+      var p = productOf(l.sku);
+      if (p) l.unit_amount_snapshot = p.amount_minor;
+    });
+    cart.version += 1;
+    render();
+    SF.toast('カタログ価格を再取得しました / Re-priced from catalogue');
+  });
+
+  SF.el('sim-expiry').addEventListener('click', function () { expired = !expired; render(); });
+  SF.el('sim-empty').addEventListener('click', function () { empty = !empty; render(); });
+  SF.el('sim-guest').addEventListener('click', function () { guest = !guest; render(); });
+  SF.el('to-checkout').addEventListener('click', function () {
+    SF.toast('レジへ進みます / Proceeding to checkout');
+  });
+
+  render();
+});
+</script>
+</body>
+</html>

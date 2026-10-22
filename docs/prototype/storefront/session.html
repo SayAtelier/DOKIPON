@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>セッション / Session — GemArc Commerce 原型</title>
+<link rel="stylesheet" href="assets/storefront.css">
+</head>
+<body>
+<div class="workbench">
+  <header class="wb-head">
+    <div class="wb-title">
+      <h1>セッション / Session 与降级</h1>
+      <p>LINE 登录失败<b>永不循环</b>：任何情况下都退化为游客会话，浏览继续，只是不能结算。</p>
+    </div>
+    <nav class="wb-nav">
+      <a href="index.html">suite</a>
+      <a href="catalog.html">catalog</a>
+      <a href="product.html">product</a>
+      <a href="cart.html">cart</a>
+      <a href="checkout.html">checkout</a>
+      <a href="order.html">order</a>
+      <a href="session.html" class="active">session</a>
+      <a href="problem.html">problem</a>
+    </nav>
+  </header>
+
+  <div class="stage">
+    <div class="phone">
+      <div class="phone__status">
+        <span>17:12</span>
+        <span>▲ ▪ 80%</span>
+      </div>
+      <div class="phone__body">
+        <div class="appbar" id="appbar">
+          <h2>セッション<span class="appbar__sub" id="appbar-sub">LINE MINI App</span></h2>
+          <span class="appbar__icon" id="appbar-avatar">G</span>
+        </div>
+
+        <div class="screen">
+          <div id="banner-slot"></div>
+
+          <div class="card">
+            <p class="card__title">現在のセッション / Current session</p>
+            <dl class="kv" id="session-kv"></dl>
+            <div class="chips" style="margin-top:10px" id="session-chips"></div>
+          </div>
+
+          <div class="card">
+            <p class="card__title">起動シーケンス / Boot sequence</p>
+            <p class="card__desc">
+              <span class="mono">SessionController.boot()</span> の順序。途中で失敗しても
+              <b>必ず</b>游客セッションで終わる。
+            </p>
+            <ol class="muted" style="padding-left:18px;line-height:1.9" id="boot-steps"></ol>
+          </div>
+
+          <div class="card">
+            <p class="card__title">起動結果 / Boot outcome</p>
+            <div class="btn-row" id="outcomes"></div>
+          </div>
+        </div>
+      </div>
+      <div class="toast" id="sf-toast"></div>
+    </div>
+
+    <div class="panel">
+      <h3>这个画面在证明什么</h3>
+      <p>
+        <span class="chip chip--api">GET /v1/storefront</span>
+        <span class="chip chip--api">POST /v1/sessions/line</span>
+        <span class="chip chip--api">POST /v1/sessions/guest</span>
+      </p>
+
+      <h4>SessionController.boot() 的四步（storefront_state/session_controller.dart L48-L80）</h4>
+      <ol class="muted" style="padding-left:18px;line-height:1.9">
+        <li>向 LIFF 询问当前环境（是否在 LINE 客户端内、是否已登录、能否取到 id_token）</li>
+        <li>若能取到 id_token → 换取<b>短期服务端会话</b>，token 用完即弃、<b>从不落盘</b></li>
+        <li>若 LIFF 不可用 / 被拒 / 在外部浏览器 → 退化为<b>游客会话</b></li>
+        <li>只有游客会话也失败时，才提示「无法连接商店」</li>
+      </ol>
+
+      <h4>五种降级提示（LIFF-002 ~ 006）</h4>
+      <table class="tbl">
+        <tr><th>场景</th><th>提示</th></tr>
+        <tr><td>LIFF-002 未配置</td><td>不提示（开发构建不打扰用户）</td></tr>
+        <tr><td>LIFF-003 SDK 加载失败</td><td>LINE 機能を利用できません／閲覧は可能です</td></tr>
+        <tr><td>LIFF-004 外部浏览器</td><td>LINE アプリ内で開くと本番の機能が使えます</td></tr>
+        <tr><td>LIFF-005 未登录</td><td>ログインすると購入できます</td></tr>
+        <tr><td>LIFF-006 令牌被拒</td><td>LINE 連携に失敗したため、ゲストとして閲覧しています</td></tr>
+      </table>
+
+      <h4>游客能不能结算</h4>
+      <p class="muted">
+        不能。<span class="mono">Session.canCheckout</span> 只对 <span class="mono">line_user</span> 为真，
+        服务端也会拒（401）。UI 不应给出明知会失败的结算按钮。
+      </p>
+    </div>
+  </div>
+
+  <footer class="footer-note">
+    <span>GemArc Commerce ストアフロント原型 · データは全てデモ値 · 通信は行わない</span>
+    <span><a href="index.html">suite 索引</a> · <a href="../admin-console/index.html">运营后台原型</a></span>
+  </footer>
+</div>
+
+<script src="assets/storefront.js"></script>
+<script>
+SF.ready(function () {
+  var outcome = 'guest';
+  var appbar = SF.el('appbar');
+
+  var OUTCOMES = {
+    line_ok: {
+      kind: 'line_user', channel: 'line', sessionId: 'sess-3f81c2', expiresIn: 1800,
+      notice: null, avatar: '桐',
+      steps: [
+        'LIFF 読み込み完了（LINE クライアント内 / ログイン済み）',
+        'id_token を取得（サーバに 1 回だけ提示、以降は破棄）',
+        'POST /v1/sessions/line → line_user セッション取得',
+        'セッション ID のみ保持（LIFF トークンは保存しない）'
+      ]
+    },
+    guest: {
+      kind: 'guest', channel: 'line', sessionId: 'sess-guest-9a2', expiresIn: 0,
+      notice: null, avatar: 'G',
+      steps: [
+        'LIFF 読み込み完了（ログイン未実施）',
+        'id_token を取れず → 游客へ降格',
+        'POST /v1/sessions/guest → guest セッション取得',
+        '閲覧は可能、決済は不可（サーバーも 401 で拒否）'
+      ]
+    },
+    liff_unavailable: {
+      kind: 'guest', channel: 'line', sessionId: 'sess-guest-9a2', expiresIn: 0,
+      notice: 'line_sdk_unavailable', avatar: 'G',
+      steps: [
+        'LIFF SDK 読み込み失敗（LIFF-003）',
+        '警告を表示しつつ閲覧は継続',
+        'POST /v1/sessions/guest → guest セッション取得',
+        'ループしない（リダイレクトもしない）'
+      ]
+    },
+    external_browser: {
+      kind: 'guest', channel: 'line', sessionId: 'sess-guest-9a2', expiresIn: 0,
+      notice: 'external_browser', avatar: 'G',
+      steps: [
+        '外部ブラウザで起動（LIFF-004）',
+        '「LINE アプリ内で開くと本番の機能が使えます」を表示',
+        'POST /v1/sessions/guest → guest セッション取得',
+        '権限は externalBrowserOpen = true のみ'
+      ]
+    },
+    needs_login: {
+      kind: 'guest', channel: 'line', sessionId: 'sess-guest-9a2', expiresIn: 0,
+      notice: 'needs_login', avatar: 'G',
+      steps: [
+        'LINE クライアント内だが未ログイン（LIFF-005）',
+        '「ログインすると購入できます」を表示',
+        'POST /v1/sessions/guest → guest セッション取得',
+        '購入ボタンは押せない（canCheckout = false）'
+      ]
+    },
+    line_rejected: {
+      kind: 'guest', channel: 'line', sessionId: 'sess-guest-9a2', expiresIn: 0,
+      notice: 'line_rejected', avatar: 'G',
+      steps: [
+        'id_token を取得 → POST /v1/sessions/line',
+        'サーバがトークンを拒否（失効 / 改ざん）→ LIFF-006',
+        '警告を表示して游客へ降格',
+        '再試行しない（リダイレクトループを防ぐ）'
+      ]
+    }
+  };
+
+  var NOTICE_TEXT = {
+    line_sdk_unavailable: ['<strong>LINE 機能を読み込めませんでした / LINE features unavailable</strong>' +
+      'ブラウズは可能です。', 'warning'],
+    external_browser: ['<strong>LINE アプリ内で開くと本番の機能が使えます / ' +
+      'Open inside LINE for the full experience.</strong>', 'info'],
+    needs_login: ['<strong>ログインすると購入できます / Sign in to check out.</strong>', 'info'],
+    line_rejected: ['<strong>LINE 連携に失敗したため、ゲストとして閲覧しています / ' +
+      'LINE sign-in failed; browsing as a guest.</strong>', 'warning']
+  };
+
+  function render() {
+    var o = OUTCOMES[outcome];
+
+    appbar.classList.toggle('appbar--line', o.channel === 'line');
+    SF.el('appbar-sub').textContent = SF.CHANNEL_LABEL[o.channel] + ' · ' +
+      (o.kind === 'line_user' ? 'サインイン済' : 'ゲスト');
+    SF.el('appbar-avatar').textContent = o.avatar;
+
+    SF.el('banner-slot').innerHTML = o.notice && NOTICE_TEXT[o.notice]
+      ? SF.banner(NOTICE_TEXT[o.notice][0], NOTICE_TEXT[o.notice][1])
+      : (o.kind === 'guest'
+        ? SF.banner(
+          '<strong>ゲスト表示です / Browsing as a guest</strong>' +
+          '購入にはログインが必要です。閲覧は可能です。',
+          'warning')
+        : '');
+
+    SF.el('session-kv').innerHTML =
+      '<div><dt>sessionId</dt><dd class="mono">' + o.sessionId + '</dd></div>' +
+      '<div><dt>kind</dt><dd>' + o.kind + '</dd></div>' +
+      '<div><dt>channel</dt><dd>' + o.channel + '</dd></div>' +
+      '<div><dt>canCheckout</dt><dd>' + (o.kind === 'line_user' ? 'true' : 'false') + '</dd></div>' +
+      '<div><dt>expires_at_ms</dt><dd>' + (o.expiresIn ? o.expiresIn + 's' : '0（無期限/非登录）') + '</dd></div>' +
+      '<div><dt>LIFF token</dt><dd>保存しない</dd></div>';
+
+    SF.el('session-chips').innerHTML =
+      '<span class="chip ' + (o.kind === 'line_user' ? 'chip--ok' : 'chip--warn') + '">' +
+      (o.kind === 'line_user' ? '認証済み' : '游客') + '</span>' +
+      (o.notice ? '<span class="chip chip--muted">' + o.notice + '</span>' : '') +
+      '<span class="chip chip--muted">canCheckout=' + (o.kind === 'line_user' ? 'true' : 'false') + '</span>';
+
+    SF.el('boot-steps').innerHTML = o.steps.map(function (s) {
+      return '<li>' + SF.esc(s) + '</li>';
+    }).join('');
+  }
+
+  SF.el('outcomes').innerHTML = [
+    ['line_ok', '正常：LINE ログイン'],
+    ['guest', '游客に降格'],
+    ['liff_unavailable', 'LIFF-003 SDK 失敗'],
+    ['external_browser', 'LIFF-004 外部ブラウザ'],
+    ['needs_login', 'LIFF-005 未ログイン'],
+    ['line_rejected', 'LIFF-006 トークン拒否']
+  ].map(function (o) {
+    return '<button type="button" class="btn btn--sm btn--outline" data-outcome="' + o[0] + '">' +
+      o[1] + '</button>';
+  }).join('');
+
+  SF.el('outcomes').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-outcome]');
+    if (!btn) return;
+    outcome = btn.getAttribute('data-outcome');
+    render();
+  });
+
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商品詳細 / Product — GemArc Commerce 原型</title>
+<link rel="stylesheet" href="assets/storefront.css">
+</head>
+<body>
+<div class="workbench">
+  <header class="wb-head">
+    <div class="wb-title">
+      <h1>商品詳細 / Product detail</h1>
+      <p>サーバが持つ<b>権威価格</b>と<b>バージョン</b>を提示する画面。価格改定は決済時に再評価される。</p>
+    </div>
+    <nav class="wb-nav">
+      <a href="index.html">suite</a>
+      <a href="catalog.html">catalog</a>
+      <a href="product.html" class="active">product</a>
+      <a href="cart.html">cart</a>
+      <a href="checkout.html">checkout</a>
+      <a href="order.html">order</a>
+      <a href="session.html">session</a>
+      <a href="problem.html">problem</a>
+    </nav>
+  </header>
+
+  <div class="stage">
+    <div class="phone">
+      <div class="phone__status">
+        <span>16:58</span>
+        <span>▲ ▪ 82%</span>
+      </div>
+      <div class="phone__body">
+        <div class="appbar" id="appbar">
+          <h2>GemArc<span class="appbar__sub" id="appbar-sub">Web · ストア</span></h2>
+          <span class="appbar__icon">桐</span>
+        </div>
+
+        <div class="screen">
+          <div id="banner-slot"></div>
+
+          <div class="card">
+            <p class="card__title" id="p-title">—</p>
+            <p class="muted" id="p-desc"></p>
+            <div class="price price--lg" style="margin:12px 0 10px">
+              <span id="p-price"></span><span class="price__cur" id="p-currency"></span>
+            </div>
+            <div id="p-availability"></div>
+            <div class="chips" style="margin-top:12px" id="p-chips"></div>
+          </div>
+
+          <div class="card">
+            <p class="card__title">在庫とチャネル / Stock &amp; channel</p>
+            <table class="tbl" id="p-table"></table>
+          </div>
+
+          <div class="card" id="p-version-card">
+            <p class="card__title">価格バージョン / Price version</p>
+            <p class="card__desc" id="p-version-desc"></p>
+            <div class="btn-row">
+              <button type="button" class="btn btn--sm btn--outline" id="bump-version">
+                バージョンを進める / Bump version
+              </button>
+            </div>
+          </div>
+
+          <button type="button" class="btn btn--block" id="add-cart" disabled>
+            カートに入れる / Add to cart
+          </button>
+        </div>
+      </div>
+      <div class="toast" id="sf-toast"></div>
+    </div>
+
+    <div class="panel">
+      <h3>この画面が指すもの</h3>
+      <p>
+        <span class="chip chip--api">GET /v1/products/{productId}</span>
+        <span class="chip chip--api">x-channel: web | app | line</span>
+      </p>
+
+      <h4>ProductDetail が持つ情報</h4>
+      <table class="tbl">
+        <tr><th>フィールド</th><th>意味</th></tr>
+        <tr><td><span class="mono">productId</span></td><td>商品 ID</td></tr>
+        <tr><td><span class="mono">sku</span></td><td>SKU（在庫・価格はこの単位）</td></tr>
+        <tr><td><span class="mono">price</span></td><td>権威価格。<span class="mono">Money</span>（整数最小単位 + ISO-4217）</td></tr>
+        <tr><td><span class="mono">version</span></td><td>サーバ側価格版。古い版をカートに持ったまま決済すると再評価される</td></tr>
+        <tr><td><span class="mono">stockPolicy</span></td><td><span class="mono">unbounded</span> / <span class="mono">reserved</span> / <span class="mono">made_to_order</span>。<b>reserved のみ</b>が在庫 Saga に参加</td></tr>
+        <tr><td><span class="mono">availability</span></td><td>在庫表示（在庫あり / 残りわずか / 在庫切れ / 受注生産）</td></tr>
+        <tr><td><span class="mono">channelEligibility</span></td><td>チャネル別販売可否。LINE は他チャネルより厳格</td></tr>
+        <tr><td><span class="mono">titleI18n</span></td><td>多言語タイトル。フォールバックは request → ja → 最初の要素</td></tr>
+      </table>
+
+      <h4>操作</h4>
+      <ul class="muted" style="padding-left:18px;line-height:1.8">
+        <li><b>バージョンを進める</b> — 価格改定を再現。カートに古い版が入っていると、決済時に再評価される。</li>
+        <li><b>チャネル切替</b> — 非対応チャネルでは販売不可。</li>
+        <li><b>在庫切れ</b> — 追加ボタンが無効化される（<span class="mono">ProductCard</span> と同じ扱い）。</li>
+      </ul>
+
+      <h4>注意（実装現状）</h4>
+      <p class="muted">
+        サーバの <span class="mono">commerce-catalog</span> は
+        <span class="mono">product_id / amount_minor / stock_policy / channel_eligibility</span> を snake_case で返すが、
+        Dart クライアントの <span class="mono">ProductDetail.fromJson</span> は
+        <span class="mono">productId / stockPolicy / channelEligibility</span>（camelCase のみ）を読む。
+        差分は suite 索引の「真实实现现状」表に全件掲載。
+      </p>
+    </div>
+  </div>
+
+  <footer class="footer-note">
+    <span>GemArc Commerce ストアフロント原型 · データは全てデモ値 · 通信は行わない</span>
+    <span><a href="index.html">suite 索引</a> · <a href="../admin-console/index.html">运营后台原型</a></span>
+  </footer>
+</div>
+
+<script src="assets/storefront.js"></script>
+<script>
+SF.ready(function () {
+  var channel = 'web';
+  var product = SF.PRODUCTS[0];
+  var version = product.version;
+  var bannerSlot = SF.el('banner-slot');
+
+  function eligible(p) {
+    var e = p.channel_eligibility;
+    if (channel === 'line') return e.line_mini_app;
+    if (channel === 'app') return e.app;
+    return e.web;
+  }
+
+  function render() {
+    var appbar = SF.el('appbar');
+    appbar.classList.toggle('appbar--line', channel === 'line');
+    SF.el('appbar-sub').textContent = SF.CHANNEL_LABEL[channel] + ' · 商品詳細';
+
+    var ok = eligible(product);
+    var purchasable = SF.isPurchasable(product.availability);
+
+    bannerSlot.innerHTML = !ok
+      ? SF.banner(
+        '<strong>このチャネルでは販売していません / Not sold on this channel</strong>' +
+        'チャネル対応状況はサーバが判定します。',
+        'warning')
+      : '';
+
+    SF.el('p-title').textContent = product.title_i18n.ja;
+    SF.el('p-desc').textContent = product.description_i18n.ja;
+    SF.el('p-price').textContent = SF.money(product.amount_minor, product.currency);
+    SF.el('p-currency').textContent = product.currency;
+    SF.el('p-availability').innerHTML = SF.availabilityBadge(product.availability, false);
+
+    SF.el('p-chips').innerHTML = [
+      '<span class="chip chip--muted">' + product.product_id + '</span>',
+      '<span class="chip chip--muted">' + product.sku + '</span>',
+      '<span class="chip chip--muted">v' + version + '</span>',
+      '<span class="chip chip--muted">' + product.category_id + '</span>'
+    ].join('');
+
+    var e = product.channel_eligibility;
+    SF.el('p-table').innerHTML =
+      '<tr><th>stockPolicy</th><td class="mono">' + product.stock_policy + '</td></tr>' +
+      '<tr><th>在庫 Saga</th><td>' +
+      (product.stock_policy === 'reserved'
+        ? '参加する（決済前にリザーブ）'
+        : '参加しない（在庫の概念を持たない）') + '</td></tr>' +
+      '<tr><th>Web</th><td>' + (e.web ? '販売可' : '販売不可') + '</td></tr>' +
+      '<tr><th>App</th><td>' + (e.app ? '販売可' : '販売不可') + '</td></tr>' +
+      '<tr><th>LINE MINI App</th><td>' + (e.line_mini_app ? '販売可' : '販売不可') + '</td></tr>';
+
+    SF.el('p-version-desc').innerHTML =
+      '現在 <b>v' + version + '</b>。この版より古い <span class="mono">version</span> をカートが持っている場合、' +
+      '決済時にサーバがカタログの権威価格へ再評価します（クライアントの小計表示は請求額に影響しません）。';
+
+    var add = SF.el('add-cart');
+    add.disabled = !ok || !purchasable;
+    add.textContent = !ok ? '販売不可 / Not sold here' :
+      (purchasable ? 'カートに入れる / Add to cart' : '不可 / N/A');
+  }
+
+  SF.el('add-cart').addEventListener('click', function () {
+    SF.toast('カートに追加しました / Added to cart');
+  });
+
+  SF.el('bump-version').addEventListener('click', function () {
+    version += 1;
+    product.version = version;
+    render();
+    SF.toast('価格版 v' + version + ' に更新 / Price version bumped');
+  });
+
+  var switcher = document.createElement('div');
+  switcher.innerHTML = SF.channelSwitcher(channel);
+  switcher.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-channel]');
+    if (!btn) return;
+    channel = btn.getAttribute('data-channel');
+    switcher.innerHTML = SF.channelSwitcher(channel);
+    render();
+  });
+  switcher.style.marginTop = '12px';
+  SF.el('banner-slot').parentNode.insertBefore(switcher, SF.el('banner-slot').nextSibling);
+
+  render();
+});
+</script>
+</body>
+</html>

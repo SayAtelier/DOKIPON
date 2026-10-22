@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>经营总览 — DOKIPON 运营后台原型</title>
+<link rel="stylesheet" href="assets/prototype.css">
+</head>
+<body>
+<div class="shell">
+  <header class="topbar" id="gm-topbar"></header>
+  <div id="gm-demo-banner"></div>
+
+  <main>
+    <section class="section">
+      <div class="section-header">
+        <h2>经营总览</h2>
+        <button type="button" id="refresh">刷新指标 / Refresh metrics</button>
+      </div>
+      <p class="section-description">
+        电商交易系统的经营总览：实时查看消费者活跃度、服务实例健康度与运营动作。
+        卡片口径已按电商语义重述，数值仍来自同一份演示数据。
+      </p>
+
+      <div class="metric-grid">
+        <div class="metric-card"><span>活跃消费者 / Active consumers</span><strong id="m-players">—</strong><small id="m-players-sub"></small></div>
+        <div class="metric-card"><span>平均会员等级 / Avg membership tier</span><strong id="m-level">—</strong><small id="m-level-sub"></small></div>
+        <div class="metric-card"><span>运行中服务实例 / Running instances</span><strong id="m-servers">—</strong><small id="m-servers-sub"></small></div>
+        <div class="metric-card"><span>待处理售后 / Open tickets</span><strong id="m-tickets">—</strong><small id="m-tickets-sub"></small></div>
+        <div class="metric-card"><span>在售商品 / Items on sale</span><strong id="m-mall">—</strong><small id="m-mall-sub"></small></div>
+        <div class="metric-card"><span>已发公告 / Broadcasts sent</span><strong id="m-broadcasts">—</strong><small>实时推送自动更新 / Live feed updates automatically</small></div>
+      </div>
+
+      <div class="chips" id="summary-chips"></div>
+      <p class="muted" id="last-refreshed" style="margin-top:10px"></p>
+    </section>
+
+    <section class="section">
+      <h3>快速导航 / Quick Navigation</h3>
+      <p class="section-description">
+        直接进入消费者、服务实例、补偿发放、店铺商品、经营报表与售后工单模块。
+      </p>
+      <div class="metric-grid" style="margin-bottom:0">
+        <a class="metric-card" href="players.html" style="text-decoration:none;padding:12px"><strong style="font-size:15px">消费者</strong></a>
+        <a class="metric-card" href="servers.html" style="text-decoration:none;padding:12px"><strong style="font-size:15px">服务实例</strong></a>
+        <a class="metric-card" href="items.html" style="text-decoration:none;padding:12px"><strong style="font-size:15px">补偿发放</strong></a>
+        <a class="metric-card" href="mall.html" style="text-decoration:none;padding:12px"><strong style="font-size:15px">店铺商品</strong></a>
+        <a class="metric-card" href="reports.html" style="text-decoration:none;padding:12px"><strong style="font-size:15px">经营报表</strong></a>
+        <a class="metric-card" href="support.html" style="text-decoration:none;padding:12px"><strong style="font-size:15px">售后工单</strong></a>
+      </div>
+    </section>
+
+    <section class="section" id="snapshot-section">
+      <div class="section-header">
+        <h3>服务实例快照 / Service instance snapshot</h3>
+        <span class="muted" id="snapshot-count"></span>
+      </div>
+      <p class="section-description">
+        取承载会话数最多的 6 个服务实例（<span class="mono">Dashboard.tsx</span> 按 onlinePlayers 降序截断）。
+      </p>
+      <div class="table-wrapper">
+        <table class="table">
+          <thead>
+            <tr><th>ID</th><th>Name</th><th>Region</th><th>Status</th><th>承载会话数 / Sessions</th><th>Last Updated</th></tr>
+          </thead>
+          <tbody id="snapshot-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <h3>活跃会话（最近采样）/ Active sessions</h3>
+        <span class="muted" id="chart-status">polling /gm/metrics every 5s</span>
+      </div>
+      <p class="section-description">
+        <span class="mono">ActiveUsersChart.tsx</span> 每 5s 拉一次 <span class="mono">/gm/metrics</span>，
+        用 <span class="mono">/online_connections\s+(\d+)/</span> 从 Prometheus 文本里抓当前连接数，保留最近 20 个采样点。
+        该指标的真实语义是<b>各服务实例 online_players 之和</b>（<span class="mono">servers_handler.rs::metrics</span>），
+        原型基线取本页实例表求和，其后的<b>抖动为模拟</b>。
+      </p>
+      <div id="chart"></div>
+      <details style="margin-top:12px">
+        <summary class="muted" style="cursor:pointer">查看被抓取的 /gm/metrics 原文</summary>
+        <pre class="raw" id="metrics-raw"></pre>
+      </details>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <h3>公告下发 / Broadcast</h3>
+        <button type="button" class="button-secondary" id="clear-broadcast">清空 / Clear</button>
+      </div>
+      <p class="section-description">
+        向 App / Web / LINE 客户端推送全局公告，在线消费者立即可见。
+        对应 <span class="mono">POST /gm/broadcast</span>，在线客户端经 <span class="mono">GET /gm/events</span>（SSE）即时收到。
+      </p>
+      <input id="broadcast-input" placeholder="公告内容 / Message">
+      <button type="button" id="send-broadcast">发送公告 / Send broadcast</button>
+      <p class="status-message" id="broadcast-status"></p>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <h3>近期公告 / Recent broadcasts</h3>
+        <div class="button-row">
+          <span class="muted" id="broadcast-total"></span>
+          <button type="button" class="button-secondary button-sm" id="simulate-sse">模拟一条 SSE 推送</button>
+        </div>
+      </div>
+      <p class="section-description">
+        列表上限 10 条，新事件前置并按 id 去重（<span class="mono">source.onmessage</span> 的实际行为）。
+      </p>
+      <ul class="list" id="broadcast-list"></ul>
+    </section>
+
+    <div class="banner banner--gap">
+      <div>
+        <strong>走查提示</strong>
+        <span class="mono">GET /gm/broadcasts</span> 已在后端实现，但本页公告列表取自
+        <span class="mono">/gm/summary.activity.recentBroadcasts</span>，该端点前端从未调用。
+      </div>
+    </div>
+  </main>
+
+  <footer id="gm-footer"></footer>
+</div>
+
+<div class="modal-backdrop" id="gm-modal-backdrop"></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/prototype.js"></script>
+<script>
+GM.ready(function () {
+  GM.shell({ active: 'dashboard' });
+
+  var summary = GM_DATA.buildSummary();
+  var broadcasts = summary.activity.recentBroadcasts.slice();
+  var points = [];
+  // online_connections 的真实语义 = 各服务实例 online_players 之和（servers_handler.rs::metrics），
+  // 因此基线取实例表求和，而不是另编一个互不相干的数字；随后按真实采样节奏做小幅游走。
+  var online = GM_DATA.onlineConnections();
+  var sseSeq = 9100;
+
+  /* ----------------------------------------------------------- renderers */
+
+  function renderSummary() {
+    var ps = summary.playerStats;
+    document.getElementById('m-players').textContent = ps.total.toLocaleString();
+    document.getElementById('m-players-sub').textContent =
+      '本周期有消费记录 · 近期登录 ' + ps.online.toLocaleString() + ' · 已封禁 ' + ps.banned;
+
+    document.getElementById('m-level').textContent = ps.averageLevel;
+    document.getElementById('m-level-sub').textContent = '高消费客户 / High value: ' + ps.highValue;
+
+    document.getElementById('m-servers').textContent = summary.servers.stats.running;
+    document.getElementById('m-servers-sub').textContent = '服务实例总数 / Total instances: ' + summary.servers.stats.total;
+
+    document.getElementById('m-tickets').textContent = summary.support.open;
+    document.getElementById('m-tickets-sub').textContent = '售后工单总数 / Total tickets: ' + summary.support.total;
+
+    document.getElementById('m-mall').textContent = summary.mall.totalItems;
+    document.getElementById('m-mall-sub').textContent = '累计补偿发放 / Compensation issued: ' + summary.activity.totalGrants.toLocaleString();
+
+    document.getElementById('m-broadcasts').textContent = summary.activity.totalBroadcasts.toLocaleString();
+
+    var offline = Math.max(0, summary.servers.stats.total - summary.servers.stats.running);
+    document.getElementById('summary-chips').innerHTML = [
+      '<span class="chip">活跃消费者 / Active ' + ps.online + '</span>',
+      '<span class="chip">平均会员等级 / Avg tier ' + ps.averageLevel + '</span>',
+      '<span class="chip">离线实例 / Offline instances ' + offline + '</span>'
+    ].join('');
+
+    document.getElementById('last-refreshed').textContent =
+      '最后刷新 / Last refreshed at ' + new Date().toLocaleTimeString();
+  }
+
+  function renderSnapshot() {
+    var list = summary.servers.list
+      .slice()
+      .sort(function (a, b) { return (b.onlinePlayers || 0) - (a.onlinePlayers || 0); })
+      .slice(0, 6);
+
+    document.getElementById('snapshot-count').textContent =
+      summary.servers.stats.running + ' of ' + summary.servers.stats.total + ' running';
+
+    document.getElementById('snapshot-body').innerHTML = list.map(function (s) {
+      return '<tr>' +
+        '<td class="mono">' + GM.esc(s.id) + '</td>' +
+        '<td>' + GM.esc(s.name) + '</td>' +
+        '<td>' + GM.esc(s.region || '—') + '</td>' +
+        '<td>' + GM.statusTag(s.status, true) + '</td>' +
+        '<td class="num">' + (s.onlinePlayers || 0).toLocaleString() + '</td>' +
+        '<td class="nowrap">' + GM.fmtDateTime(s.lastUpdated) + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function renderBroadcasts(freshId) {
+    document.getElementById('broadcast-total').textContent =
+      '公告总数 / Total ' + summary.activity.totalBroadcasts.toLocaleString() + ' broadcasts';
+
+    if (!broadcasts.length) {
+      document.getElementById('broadcast-list').innerHTML =
+        '<li class="empty-state">暂无公告 / No broadcasts yet.</li>';
+      return;
+    }
+
+    document.getElementById('broadcast-list').innerHTML = broadcasts.map(function (b) {
+      return '<li' + (b.id === freshId ? ' class="is-fresh"' : '') + '>' +
+        '<div class="list-title">' + GM.esc(b.message) + '</div>' +
+        '<div class="list-meta"><span>by ' + GM.esc(b.admin) + '</span>' +
+        '<span>' + GM.fmtDateTime(b.createdAt) + '</span></div>' +
+        '</li>';
+    }).join('');
+  }
+
+  /* ------------------------------------------------------------- metrics */
+
+  var chart = null;
+
+  function pushSample() {
+    // 模拟 online_connections 在实例求和基线附近的小幅波动
+    var drift = (Math.random() - 0.48) * 260;
+    online = Math.max(0, Math.round(online + drift));
+    points.push({ x: Date.now(), y: online });
+    points = points.slice(-20);
+    if (chart) chart.render();
+    document.getElementById('metrics-raw').textContent = GM_DATA.metricsText(online);
+    document.getElementById('chart-status').textContent =
+      'polling /gm/metrics every 5s · sample ' + points.length + '/20';
+  }
+
+  /* -------------------------------------------------------------- events */
+
+  document.getElementById('refresh').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = '刷新中…';
+    setTimeout(function () {
+      renderSummary();
+      btn.disabled = false;
+      btn.textContent = '刷新指标 / Refresh metrics';
+    }, 320);
+  });
+
+  document.getElementById('send-broadcast').addEventListener('click', function () {
+    var input = document.getElementById('broadcast-input');
+    var status = document.getElementById('broadcast-status');
+    var message = input.value.trim();
+
+    // Dashboard.tsx: 空消息走 warning 分支，不发请求
+    // （提示文案是前端写死的字面量，回归脚本逐字断言，保持不变）
+    if (!message) {
+      GM.setStatus(status, 'Please enter a broadcast message', 'warning');
+      return;
+    }
+
+    var s = GM.session();
+    var entry = {
+      id: ++sseSeq,
+      message: message,
+      admin: s ? s.username : 'demo_operator',
+      createdAt: new Date().toISOString()
+    };
+
+    // 与 source.onmessage 一致：前置 + 按 id 去重 + 截断 10 条
+    broadcasts = [entry].concat(broadcasts.filter(function (b) { return b.id !== entry.id; })).slice(0, 10);
+    summary.activity.totalBroadcasts += 1;
+    renderBroadcasts(entry.id);
+    renderSummary();
+    GM.setStatus(status, 'ok', 'success');
+    input.value = '';
+  });
+
+  document.getElementById('clear-broadcast').addEventListener('click', function () {
+    document.getElementById('broadcast-input').value = '';
+    GM.setStatus(document.getElementById('broadcast-status'), '');
+  });
+
+  document.getElementById('simulate-sse').addEventListener('click', function () {
+    var pool = [
+      '支付服务实例 payment-1 已恢复，结算队列正在清空。',
+      '09-14 订单故障补偿第二轮：每单再补偿 50 元代金券。',
+      '维护窗口改到 05:00–05:30 JST。',
+      '咖啡豆礼盒今日 24:00 JST 结束特惠。'
+    ];
+    var entry = {
+      id: ++sseSeq,
+      message: pool[Math.floor(Math.random() * pool.length)],
+      admin: 'cluster-ops',
+      createdAt: new Date().toISOString()
+    };
+    broadcasts = [entry].concat(broadcasts.filter(function (b) { return b.id !== entry.id; })).slice(0, 10);
+    summary.activity.totalBroadcasts += 1;
+    renderBroadcasts(entry.id);
+    renderSummary();
+  });
+
+  /* ---------------------------------------------------------------- boot */
+
+  renderSummary();
+  renderSnapshot();
+  renderBroadcasts();
+
+  chart = GM.lineChart(document.getElementById('chart'), { points: points, id: 'chart' });
+
+  // 预热 6 个采样点，避免首屏空白（真实构建首个请求返回后只有 1 个点）
+  for (var i = 0; i < 6; i++) {
+    online = Math.max(0, Math.round(online + (Math.random() - 0.5) * 380));
+    points.push({ x: Date.now() - (6 - i) * 5000, y: online });
+  }
+  chart.render();
+  document.getElementById('metrics-raw').textContent = GM_DATA.metricsText(online);
+  document.getElementById('chart-status').textContent = 'polling /gm/metrics every 5s · sample ' + points.length + '/20';
+
+  setInterval(pushSample, 5000);
+
+  GM.footer({ doc: 'RGS-BAS-004 埋点与日志规范（指标目录） · RGS-BAS-017 数据分析管线' });
+});
+</script>
+</body>
+</html>
