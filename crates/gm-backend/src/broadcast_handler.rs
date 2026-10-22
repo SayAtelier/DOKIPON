@@ -16,6 +16,7 @@ use serde_json::json;
 use crate::{extract_claims, verify_jwt, AppState, AuditLogEntry, Claims};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BroadcastEntry {
     pub id: u64,
     pub message: String,
@@ -67,8 +68,17 @@ pub async fn list_broadcasts(state: web::Data<AppState>) -> HttpResponse {
     // 2026-09-01 22:30 JST Phase D D6 修复: 实际从 audit_store 反查
     // (per broadcast_handler.rs L60-72) — broadcast 现在写 audit action="broadcast"
     // (per WBS v0.2 桶 10 Phase D D6, commit 84edf26)
-    let entries = state.audit_store.list_entries(50).await;
-    let broadcasts: Vec<BroadcastEntry> = entries
+    let broadcasts = recent_broadcasts(&state, 50).await;
+    HttpResponse::Ok().json(json!({"broadcasts": broadcasts}))
+}
+
+/// 从审计流反查最近的广播记录。
+///
+/// `/gm/broadcasts` 与 `/gm/summary.activity.recentBroadcasts` 共用此函数——
+/// 后者此前硬编码为 `[]`，导致 Dashboard 的「Recent Broadcasts」区永远空白。
+pub async fn recent_broadcasts(state: &AppState, limit: usize) -> Vec<BroadcastEntry> {
+    let entries = state.audit_store.list_entries(limit).await;
+    entries
         .into_iter()
         .filter(|e| e.action == "broadcast")
         .map(|e| BroadcastEntry {
@@ -79,8 +89,7 @@ pub async fn list_broadcasts(state: web::Data<AppState>) -> HttpResponse {
                 .map(|d| d.to_rfc3339())
                 .unwrap_or_default(),
         })
-        .collect();
-    HttpResponse::Ok().json(json!({"broadcasts": broadcasts}))
+        .collect()
 }
 
 // ============================================================================

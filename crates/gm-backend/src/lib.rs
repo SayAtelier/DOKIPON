@@ -86,9 +86,17 @@ pub use business_handler::{
     HealthViewQuery, MaintenanceRequestBody as SetMaintenanceRequestBody, QueryAuditLogQuery,
 };
 pub use auth_handler::{login, LoginRequest, LoginResponse, AdminRecord};
-pub use players_handler::{list_players, get_player_stats, PlayersQuery, PlayersResponse, PlayerStatsResponse};
-pub use broadcast_handler::{broadcast, list_broadcasts, BroadcastRequest, BroadcastEntry, sse_events};
-pub use canvas_handler::{list_anchors, send_canvas_command, CanvasCommandRequest, AnchorOption};
+pub use players_handler::{
+    list_players, mock_player_stats, PlayersQuery, PlayersResponse,
+    PlayersStats, PlayerStatsResponse, PlayerEntry, MOCK_PLAYER_COUNT,
+};
+pub use broadcast_handler::{
+    broadcast, list_broadcasts, recent_broadcasts, BroadcastRequest, BroadcastEntry, sse_events,
+};
+pub use canvas_handler::{
+    list_anchors, send_canvas_command, CanvasCommandRequest, CanvasInstruction, CanvasPosition,
+    ALLOWED_ANCHORS,
+};
 pub use servers_handler::{list_servers, get_server_stats, start_server, stop_server, metrics, ServerEntry, ServerStats};
 pub use mall_handler::{list_mall_items, create_mall_item, update_mall_item, delete_mall_item, MallItem};
 pub use items_handler::{grant_item, list_grants, GrantRequest, GrantEntry};

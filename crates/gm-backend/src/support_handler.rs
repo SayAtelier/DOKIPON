@@ -9,6 +9,7 @@ use serde_json::json;
 use crate::{extract_claims, AppState, Claims};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TicketEntry {
     pub id: u64,
     pub player_id: String,
@@ -19,6 +20,7 @@ pub struct TicketEntry {
     pub updated_at: String,
 }
 
+/// 请求 DTO 保持 snake_case：前端 `Support.tsx` 发的就是 `player_id`
 #[derive(Debug, Deserialize)]
 pub struct CreateTicketRequest {
     pub player_id: String,

@@ -508,7 +508,7 @@ async fn it_server_start_stop_state_transitions() {
     let start_body: serde_json::Value = test::read_body_json(start_resp).await;
     assert_eq!(start_body["status"], "started");
     assert_eq!(start_body["server"]["status"], "running");
-    assert!(start_body["server"]["online_players"].as_u64().unwrap() >= 50);
+    assert!(start_body["server"]["onlinePlayers"].as_u64().unwrap() >= 50);
 
     // 3) stop social-1
     let stop_req = test::TestRequest::post().uri("/gm/servers/social-1/stop").to_request();
@@ -516,7 +516,7 @@ async fn it_server_start_stop_state_transitions() {
     let stop_body: serde_json::Value = test::read_body_json(stop_resp).await;
     assert_eq!(stop_body["status"], "stopped");
     assert_eq!(stop_body["server"]["status"], "stopped");
-    assert_eq!(stop_body["server"]["online_players"], 0);
+    assert_eq!(stop_body["server"]["onlinePlayers"], 0);
 
     // 4) start 不存在的 server
     let bad_req = test::TestRequest::post().uri("/gm/servers/nonexistent/start").to_request();

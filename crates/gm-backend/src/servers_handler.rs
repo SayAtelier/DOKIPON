@@ -10,6 +10,7 @@ use serde_json::json;
 use crate::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerEntry {
     pub id: String,
     pub name: String,
@@ -20,6 +21,7 @@ pub struct ServerEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerStats {
     pub total: u32,
     pub running: u32,

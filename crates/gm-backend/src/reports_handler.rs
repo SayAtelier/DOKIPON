@@ -6,17 +6,25 @@ use chrono::Utc;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::BTreeMap;
 
 use crate::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReportEntry {
     pub id: String,
     pub title: String,
-    pub kind: String, // "revenue" / "dau" / "conversion" / "churn"
+    /// 对外字段名为 `type`（前端 `Reports.tsx` 按 `type → category → reportType` 回退取值）
+    #[serde(rename = "type")]
+    pub kind: String,
     pub period: String,
     pub value: f64,
     pub generated_at: String,
+    /// 摘要文案：前端 Highlights 列优先取 `summary`，缺失时退回 metrics 前 3 项
+    pub summary: String,
+    /// 指标集合：前端用它渲染 Highlights 回退值与聚合卡片
+    pub metrics: BTreeMap<String, f64>,
 }
 
 /// 启动时填充 mock 报表 (5 类 × 14 天)
@@ -33,13 +41,18 @@ pub fn seed_reports(state: &AppState) {
                 "churn" => 0.02 + rand::thread_rng().gen_range(-0.005..0.005),
                 _ => 0.0,
             };
+            let value = (value * 100.0).round() / 100.0;
+            let mut metrics = BTreeMap::new();
+            metrics.insert("value".to_string(), value);
             reports.push(ReportEntry {
                 id: format!("{}-{}", kind, date.format("%Y%m%d")),
                 title: format!("{} report", kind),
                 kind: kind.to_string(),
                 period: date.format("%Y-%m-%d").to_string(),
-                value: (value * 100.0).round() / 100.0,
+                value,
                 generated_at: date.to_rfc3339(),
+                summary: format!("{} · {}", kind, value),
+                metrics,
             });
         }
     }

@@ -9,6 +9,7 @@ use serde_json::json;
 use crate::{extract_claims, AppState, Claims};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GrantEntry {
     pub id: u64,
     pub player_id: String,
@@ -18,6 +19,7 @@ pub struct GrantEntry {
     pub created_at: String,
 }
 
+/// 请求 DTO 保持 snake_case：前端 `Items.tsx` 发的就是 `player_id` / `item_id`
 #[derive(Debug, Deserialize)]
 pub struct GrantRequest {
     pub player_id: String,
