@@ -212,11 +212,17 @@ pub fn build(admin: commerce_admin::AdminState) -> (Router, EdgeServices) {
             // These SKUs must match the catalogue's seed: the checkout path
             // looks stock up by sku, and a sku that exists in one service but
             // not the other makes a purchasable product fail at the last step.
+            //
+            // Only the `Reserved` skus are here. `Unbounded` and
+            // `MadeToOrder` need no stock (`StockPolicy::needs_inventory`),
+            // which is why `sku-cami-01` is absent.
             ("sku-bra-01", 42),
             ("sku-brief-01", 7),
             ("sku-set-01", 0),
             ("sku-night-01", 28),
             ("sku-adult-01", 3),
+            ("sku-swim-01", 12),
+            ("sku-sale-01", 5),
         ]),
     ));
     let identity = Arc::new(std::sync::RwLock::new(

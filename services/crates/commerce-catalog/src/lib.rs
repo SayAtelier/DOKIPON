@@ -151,16 +151,28 @@ impl CatalogStore {
         // the channel-eligibility rule needs a product that actually exercises
         // it, and the "restricted" flag is a real product property, not a
         // styling choice.
-        let demo: [(&str, &str, &str, i64, Currency, StockPolicy, i64, ChannelEligibility); 6] = [
-            ("p-bra-01", "sku-bra-01", "DOKIPON Triple ノ-wire ブラ / Triple Wireless Bra", 8900, Currency::Jpy, StockPolicy::Reserved, 42, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-brief-01", "sku-brief-01", "DOKIPON 百合 ショーツ / Lily Brief", 3900, Currency::Jpy, StockPolicy::Reserved, 7, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-set-01", "sku-set-01", "DOKIPON 黒蝶 ブラ＆ショーツセット / Black Butterfly Set", 12900, Currency::Jpy, StockPolicy::Reserved, 0, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-night-01", "sku-night-01", "DOKIPON 月光 ナイトブラ / Moonlight Night Bra", 4900, Currency::Jpy, StockPolicy::Reserved, 28, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-cami-01", "sku-cami-01", "DOKIPON 霞 キャミソール / Haze Camisole", 6900, Currency::Jpy, StockPolicy::MadeToOrder, -1, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-adult-01", "sku-adult-01", "DOKIPON 深紅 ストッキング / Crimson Stockings", 5800, Currency::Jpy, StockPolicy::Reserved, 3, ChannelEligibility { web: true, app: false, line_mini_app: false }),
+        //
+        // The categories are the ones the storefront's category strip offers
+        // (`packages/design_system/.../storefront_app.dart` -> `_CategoryNav`).
+        // The strip is a filter, not decoration: tapping an entry re-queries
+        // the catalogue with that `categoryId`. A demo catalogue where most
+        // of the entries lead to an empty shelf would make the filter look
+        // broken, so every category the strip offers has at least one
+        // product here. The ids are the ones the strip sends.
+        let demo: [(&str, &str, &str, &str, i64, Currency, StockPolicy, i64, ChannelEligibility); 10] = [
+            ("p-bra-01", "sku-bra-01", "DOKIPON Triple ノ-wire ブラ / Triple Wireless Bra", "cat-bra-sets", 8900, Currency::Jpy, StockPolicy::Reserved, 42, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-brief-01", "sku-brief-01", "DOKIPON 百合 ショーツ / Lily Brief", "cat-lingerie", 3900, Currency::Jpy, StockPolicy::Reserved, 7, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-set-01", "sku-set-01", "DOKIPON 黒蝶 ブラ＆ショーツセット / Black Butterfly Set", "cat-bra-sets", 12900, Currency::Jpy, StockPolicy::Reserved, 0, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-night-01", "sku-night-01", "DOKIPON 月光 ナイトブラ / Moonlight Night Bra", "cat-nightwear", 4900, Currency::Jpy, StockPolicy::Reserved, 28, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-cami-01", "sku-cami-01", "DOKIPON 霞 キャミソール / Haze Camisole", "cat-lingerie", 6900, Currency::Jpy, StockPolicy::MadeToOrder, -1, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-adult-01", "sku-adult-01", "DOKIPON 深紅 ストッキング / Crimson Stockings", "cat-lingerie", 5800, Currency::Jpy, StockPolicy::Reserved, 3, ChannelEligibility { web: true, app: false, line_mini_app: false }),
+            ("p-swim-01", "sku-swim-01", "DOKIPON 潮騒 スイムビーフ / Shiosai Swim Brief", "cat-swim", 5900, Currency::Jpy, StockPolicy::Reserved, 12, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-beauty-01", "sku-beauty-01", "DOKIPON 雪輪 ボディケアセット / Yukiwa Body Care Set", "cat-beauty", 2400, Currency::Jpy, StockPolicy::Unbounded, 0, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-goods-01", "sku-goods-01", "DOKIPON 星屑 ヘアピン / Hoshikuzu Hair Pin", "cat-goods", 1800, Currency::Jpy, StockPolicy::Unbounded, 0, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-sale-01", "sku-sale-01", "DOKIPON 薄暮 セール セット / Twilight Sale Set", "cat-sale", 3900, Currency::Jpy, StockPolicy::Reserved, 5, ChannelEligibility { web: true, app: true, line_mini_app: true }),
         ];
 
-        for (pid, skuid, title, amount, cur, policy, qty, channels) in demo {
+        for (pid, skuid, title, category, amount, cur, policy, qty, channels) in demo {
             let (ja, en) = title.split_once(" / ").map_or((title.to_string(), title.to_string()), |(j, e)| (j.to_string(), e.to_string()));
             products.insert(
                 pid.to_string(),
@@ -169,7 +181,7 @@ impl CatalogStore {
                     sku: skuid.to_string(),
                     title_i18n: HashMap::from([("ja".into(), ja), ("en".into(), en)]),
                     description_i18n: HashMap::new(),
-                    category_id: "cat-lingerie".into(),
+                    category_id: category.into(),
                     published: true,
                     channel_eligibility: channels,
                 },
@@ -408,5 +420,37 @@ mod tests {
         assert!(!restricted.channel_eligibility.app);
         assert!(restricted.channel_eligibility.web);
         assert!(s.products["p-bra-01"].channel_eligibility.line_mini_app);
+    }
+
+    /// The storefront's category strip offers exactly these categories
+    /// (`packages/design_system/.../storefront_app.dart` -> `_CategoryNav`),
+    /// and tapping one of them filters the catalogue by that id. Every one of
+    /// them must have at least one product in the demo catalogue: a strip
+    /// whose entries mostly lead to an empty shelf makes a working filter
+    /// look broken. This test is the seam between the Dart side and this
+    /// side — if either renames a category, this fails.
+    #[test]
+    fn the_demo_catalogue_covers_every_category_the_strip_offers() {
+        const STRIP: [&str; 7] = [
+            "cat-lingerie",
+            "cat-bra-sets",
+            "cat-nightwear",
+            "cat-swim",
+            "cat-beauty",
+            "cat-goods",
+            "cat-sale",
+        ];
+        let s = CatalogStore::seed_demo();
+        for category in STRIP {
+            let n = s
+                .products
+                .values()
+                .filter(|p| p.category_id == category)
+                .count();
+            assert!(
+                n > 0,
+                "category `{category}` has no product in the demo catalogue"
+            );
+        }
     }
 }
