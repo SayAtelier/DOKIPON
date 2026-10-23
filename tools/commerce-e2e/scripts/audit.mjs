@@ -504,7 +504,7 @@ async function auditSurface(browser, name, path) {
           report.controls.push({
             role: control.role,
             label: control.label,
-            problems: [`could not be tested: ${String(e && e.message ? e.message : e).split('\n')[0]}`],
+            unmeasured: `could not be tested: ${String(e && e.message ? e.message : e).split('\n')[0]}`,
           });
         }
       }
@@ -523,36 +523,45 @@ async function auditSurface(browser, name, path) {
     (c) => c.problems && c.problems.length === 1 && c.problems[0].startsWith('inert:'),
   );
   if (noOps.length > 0 && active.length > 0) {
-    const primer = active[0];
     const ctx2 = await browser.newContext({ viewport: VIEWPORT });
     const p2 = await ctx2.newPage();
     try {
       for (const c of noOps) {
-        await p2.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: BOOT_TIMEOUT });
-        await waitForFlutter(p2);
-        await enableSemantics(p2);
-        if (name === 'admin' && report.login && report.login.ok) await tryAdminLogin(p2);
-        // Change the page first.
-        await p2.locator(CONTROL_SELECTOR).nth(primer.index).click({ force: true, timeout: 8000 }).catch(() => {});
-        await p2.waitForTimeout(SETTLE_MS);
-        // Then the control that did nothing.
-        const target = p2.locator(CONTROL_SELECTOR).nth(c.index);
-        const before2 = await probe(p2);
-        let clickError2 = null;
-        try {
-          await target.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
-          await target.click({ timeout: 5000, force: true });
-        } catch (e) {
-          clickError2 = String(e && e.message ? e.message : e).split('\n')[0];
+        let resolved = false;
+        // Every control that changed the page is tried as a primer. The first
+        // one is often not the one that changes the state this control
+        // depends on - on the admin console it was 'Sign out', not the other tab.
+        // Six primers is enough: the state-changing controls are few, and
+        // every primer costs a full page load.
+        for (const primer of active.slice(0, 6)) {
+          await p2.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: BOOT_TIMEOUT });
+          await waitForFlutter(p2);
+          await enableSemantics(p2);
+          if (name === 'admin' && report.login && report.login.ok) await tryAdminLogin(p2);
+          // Change the page first.
+          await p2.locator(CONTROL_SELECTOR).nth(primer.index).click({ force: true, timeout: 8000 }).catch(() => {});
+          await p2.waitForTimeout(SETTLE_MS);
+          // Then the control that did nothing.
+          const target = p2.locator(CONTROL_SELECTOR).nth(c.index);
+          const before2 = await probe(p2);
+          let clickError2 = null;
+          try {
+            await target.click({ timeout: 5000, force: true });
+          } catch (e) {
+            clickError2 = String(e && e.message ? e.message : e).split('\n')[0];
+          }
+          await p2.waitForTimeout(SETTLE_MS);
+          const after2 = await probe(p2);
+          const reacted = after2.url !== before2.url || after2.signature !== before2.signature;
+          if (reacted && !clickError2) {
+            c.problems = [];
+            c.note = 'state-dependent no-op: nothing happens in the initial state and it reacts once the page has changed - correct behaviour, not a dead button';
+            resolved = true;
+            break;
+          }
         }
-        await p2.waitForTimeout(SETTLE_MS);
-        const after2 = await probe(p2);
-        const reacted = after2.url !== before2.url || after2.signature !== before2.signature;
-        if (reacted && !clickError2) {
-          c.problems = [];
-          c.note = 'state-dependent no-op: nothing happens in the initial state and it reacts once the page has changed — correct behaviour, not a dead button';
-        } else {
-          c.problems = ['inert: the click changed nothing, in the initial state or after another control changed the page'];
+        if (!resolved) {
+          c.problems = ['inert: the click changed nothing, in the initial state or after any other control changed the page'];
         }
       }
     } finally {
@@ -567,6 +576,7 @@ async function auditSurface(browser, name, path) {
 
   const broken = report.controls.filter((c) => c.problems && c.problems.length);
   report.brokenControls = broken.length;
+  report.unmeasuredControls = (report.controls || []).filter((c) => c.unmeasured).length;
   report.skippedControls = report.controls.filter((c) => c.skipped).length;
 
   await context.close();
@@ -604,8 +614,13 @@ async function main() {
   out.verdict = {
     apiFindings: apiProblems.length,
     brokenControls: brokenTotal,
+    unmeasuredControls: unmeasuredTotal,
     surfacesWithProblems: surfaceProblems.length,
-    pass: apiProblems.length === 0 && brokenTotal === 0 && surfaceProblems.length === 0,
+    pass:
+      apiProblems.length === 0 &&
+      brokenTotal === 0 &&
+      unmeasuredTotal === 0 &&
+      surfaceProblems.length === 0,
   };
 
   const stamp = started.replace(/[:.]/g, '-');
@@ -622,6 +637,7 @@ async function main() {
   lines.push('');
   lines.push(`- API findings: **${out.verdict.apiFindings}**`);
   lines.push(`- broken controls: **${out.verdict.brokenControls}**`);
+  lines.push(`- unmeasured controls (the network did not deliver the page): **${out.verdict.unmeasuredControls}**`);
   lines.push(`- surfaces with problems: **${out.verdict.surfacesWithProblems}**`);
   lines.push(`- overall: **${out.verdict.pass ? 'PASS' : 'FAIL'}**`);
   lines.push('');
@@ -652,8 +668,16 @@ async function main() {
       for (const e of s.pageErrors.slice(0, 10)) lines.push(`- ${e.split('\n')[0]}`);
       lines.push('');
     }
-    lines.push(`Controls found: **${s.controlCount ?? 0}**, broken: **${s.brokenControls ?? 0}**, skipped (off-screen): **${s.skippedControls ?? 0}**`);
+    lines.push(`Controls found: **${s.controlCount ?? 0}**, broken: **${s.brokenControls ?? 0}**, skipped (off-screen): **${s.skippedControls ?? 0}**, unmeasured: **${s.unmeasuredControls ?? 0}**`);
     lines.push('');
+    const unmeasured = (s.controls || []).filter((c) => c.unmeasured);
+    if (unmeasured.length) {
+      lines.push('Not measured (network):');
+      for (const c of unmeasured) {
+        lines.push(`- ${(c.label || '').replace(/\n/g, ' ').slice(0, 60)}: ${c.unmeasured}`);
+      }
+      lines.push('');
+    }
     const broken = (s.controls || []).filter((c) => c.problems && c.problems.length);
     if (broken.length) {
       lines.push('| role | label | problems |');
