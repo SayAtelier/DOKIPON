@@ -50,7 +50,12 @@ nul
 k3s-deploy/
 docker/
 k3s/
-deploy/
+
+# k3s 版与 Multipass 版的部署材料, Vercel 这一版用不到.
+# 注意: 不要排除整个 deploy/ 目录 —— services/deploy/vercel/ 是
+# Vercel 函数版自己的家 (构建脚本 + 函数实现), 它必须进上传集.
+/services/deploy/k3s/
+/services/deploy/deploy.sh
 
 # The game-server images. They build the RGS player-service and admin-service
 # containers for the k3s/Envoy deployment, which this deployment replaces.
@@ -79,3 +84,4 @@ graphify-out/
 .DS_Store
 Thumbs.db
 *.swp
+

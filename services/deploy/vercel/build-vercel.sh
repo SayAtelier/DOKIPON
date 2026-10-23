@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 PUBLIC="$REPO/public"
 
 # The Flutter SDK. On a developer machine it is already installed; on the
