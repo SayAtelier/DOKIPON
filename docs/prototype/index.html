@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DOKIPON — GemArc Commerce プロトタイプ集</title>
+<link rel="stylesheet" href="storefront/assets/storefront.css">
+<style>
+  body { background: var(--surface-alt); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 72px; }
+  .hero { background: #fff; border: 1px solid var(--border); border-radius: var(--r-lg); padding: 28px; margin-bottom: 22px; }
+  .hero h1 { margin: 0 0 8px; font-size: 24px; letter-spacing: -0.01em; }
+  .hero p { color: var(--ink-muted); margin: 0 0 16px; max-width: 84ch; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { background: var(--surface-alt); border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--ink-muted); }
+  .suites { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 22px; }
+  .suite { background: #fff; border: 1px solid var(--border); border-radius: var(--r-lg); padding: 24px 26px; display: flex; flex-direction: column; }
+  .suite h2 { margin: 0 0 6px; font-size: 18px; }
+  .suite > p.lead { color: var(--ink-muted); margin: 0 0 16px; font-size: 13.5px; max-width: 88ch; }
+  .suite .badge { display: inline-block; align-self: flex-start; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; margin-bottom: 10px; }
+  .badge--live { background: #dcfce7; color: var(--success); }
+  .badge--legacy { background: #fef3c7; color: var(--warning); }
+  .screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .screen-card { display: block; text-decoration: none; color: var(--ink); background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; }
+  .screen-card:hover { border-color: var(--brand); background: #fff; }
+  .screen-card b { display: block; font-size: 14px; margin-bottom: 2px; }
+  .screen-card span { font-size: 11.5px; color: var(--ink-muted); }
+  .btn-row { margin-top: auto; display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn { display: inline-block; background: var(--brand); color: #fff; border-radius: var(--r-md); padding: 9px 16px; font-size: 13.5px; text-decoration: none; }
+  .btn:hover { background: var(--brand-dark); }
+  .btn--outline { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
+  .btn--outline:hover { background: #eff6ff; }
+  .sec { background: #fff; border: 1px solid var(--border); border-radius: var(--r-lg); padding: 24px 26px; margin-bottom: 22px; }
+  .sec h2 { margin: 0 0 6px; font-size: 18px; }
+  .sec > p.lead { color: var(--ink-muted); margin: 0 0 16px; max-width: 88ch; font-size: 13.5px; }
+  .sec h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-muted); margin: 20px 0 8px; }
+  .verdict { border-left: 3px solid var(--brand); background: #f8fafc; padding: 12px 14px; border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: 13px; margin: 12px 0 0; }
+  .verdict--warn { border-left-color: var(--warning); background: #fffbeb; }
+  .k { color: #1d4ed8; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+  .footer-note { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--border); color: var(--ink-muted); font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <h1>DOKIPON — GemArc Commerce プロトタイプ集</h1>
+    <p>
+      本ページは DOKIPON リポジトリの <b>静的プロトタイプ集</b> の入口です。
+      二つの	suite を並べ置いています —— どちらが<b>現役</b>で、どの画面が<b>遗留</b>なのかを
+      隐さず見せるためです。哪一个套件都是真实源码的静态等价物：
+      字段、文案、状态分支取自源码，<b>数据为演示值，交互规则为真实规则</b>。
+    </p>
+    <div class="chips">
+      <span class="chip">依据：packages/design_system</span>
+      <span class="chip">依据：packages/domain_models</span>
+      <span class="chip">依据：packages/storefront_state</span>
+      <span class="chip">依据：packages/api_client</span>
+      <span class="chip">依据：crates/gm-backend</span>
+      <span class="chip">依据：tools/gm-console/frontend</span>
+    </div>
+  </header>
+
+  <div class="suites">
+
+    <section class="suite">
+      <span class="badge badge--live">现役 / Active</span>
+      <h2>消费者端 storefront</h2>
+      <p class="lead">
+        电商交易系统的消费者端，8 屏。三端（App / Web / LINE MINI App）共用同一套
+        Flutter 组件与状态控制器。
+      </p>
+      <div class="screens">
+        <a class="screen-card" href="storefront/index.html"><b>套件索引</b><span>实现现状对照</span></a>
+        <a class="screen-card" href="storefront/catalog.html"><b>商品列表</b><span>CatalogScreen</span></a>
+        <a class="screen-card" href="storefront/product.html"><b>商品详情</b><span>ProductDetail</span></a>
+        <a class="screen-card" href="storefront/cart.html"><b>购物车</b><span>Cart · 乐观并发</span></a>
+        <a class="screen-card" href="storefront/checkout.html"><b>结算</b><span>CheckoutStatus FSM</span></a>
+        <a class="screen-card" href="storefront/order.html"><b>订单</b><span>Outbox / 对账</span></a>
+        <a class="screen-card" href="storefront/session.html"><b>会话与降级</b><span>SessionController</span></a>
+        <a class="screen-card" href="storefront/problem.html"><b>错误显示</b><span>ApiProblem</span></a>
+      </div>
+      <div class="btn-row">
+        <a class="btn" href="storefront/index.html">套件索引へ / Index</a>
+        <a class="btn btn--outline" href="storefront/catalog.html">商品列表から見る / Start</a>
+      </div>
+    </section>
+
+    <section class="suite">
+      <span class="badge badge--legacy">遗留线 / Legacy line</span>
+      <h2>运营后台 admin console</h2>
+      <p class="lead">
+        游戏服务器遗留线，9 屏。界面已电商化，但<b>底层字段名仍沿用游戏域词汇</b>
+        （<span class="k">playerId</span> / <span class="k">vipLevel</span> / <span class="k">guild</span> / <span class="k">mall</span>），
+        逐屏对照表见索引页。
+      </p>
+      <div class="screens">
+        <a class="screen-card" href="admin-console/index.html"><b>套件索引</b><span>改造对照表</span></a>
+        <a class="screen-card" href="admin-console/login.html"><b>登录</b><span>Login</span></a>
+        <a class="screen-card" href="admin-console/dashboard.html"><b>总览</b><span>Dashboard</span></a>
+        <a class="screen-card" href="admin-console/players.html"><b>玩家</b><span>Players</span></a>
+        <a class="screen-card" href="admin-console/servers.html"><b>服务器</b><span>Servers</span></a>
+        <a class="screen-card" href="admin-console/items.html"><b>商品</b><span>Items</span></a>
+        <a class="screen-card" href="admin-console/canvas.html"><b>画布</b><span>Canvas</span></a>
+        <a class="screen-card" href="admin-console/mall.html"><b>商城</b><span>Mall</span></a>
+        <a class="screen-card" href="admin-console/reports.html"><b>报表</b><span>Reports</span></a>
+        <a class="screen-card" href="admin-console/support.html"><b>工单</b><span>Support</span></a>
+      </div>
+      <div class="btn-row">
+        <a class="btn" href="admin-console/index.html">套件索引へ / Index</a>
+        <a class="btn btn--outline" href="admin-console/dashboard.html">总覧から見る / Start</a>
+      </div>
+    </section>
+
+  </div>
+
+  <section class="sec">
+    <h2>诚实边界 / What this is not</h2>
+    <p class="lead">
+      原型是<b>设计评审物</b>，不是联调测试。三条边界必须明说，否则会被误读成"线上预览"。
+    </p>
+    <h3>1. 数据全是演示值</h3>
+    <div class="verdict">
+      页面上的每一个数字都是内置演示值，<b>不代表任何一次真实请求</b>。没有后端连接，没有网络请求。
+    </div>
+    <h3>2. 消费者端与服务端有 6 处已知形状差异</h3>
+    <div class="verdict">
+      消费者端按<b>客户端期望</b>的形状渲染；服务端实际返回的形状与之有 6 处差异，
+      逐条列在 <a href="storefront/index.html">storefront/index.html</a> 的「真实实现现状」里 ——
+      那是<b>真实代码里待修的接线缺口</b>，原型无法替它们补上。
+    </div>
+    <h3>3. 运营后台后端字段名仍是游戏域词汇</h3>
+    <div class="verdict verdict--warn">
+      界面已电商化，但 <span class="k">crates/gm-backend</span> 实际返回的字段名仍是
+      <span class="k">playerId</span> / <span class="k">vipLevel</span> / <span class="k">guild</span> / <span class="k">mall</span>。
+      逐屏对照关系见 <a href="admin-console/index.html">admin-console/index.html</a>。
+    </div>
+  </section>
+
+  <div class="footer-note">
+    <span>DOKIPON / GemArc Commerce — プロトタイプ集 (static)</span>
+    <span>No build · No server · No network requests</span>
+  </div>
+
+</div>
+</body>
+</html>

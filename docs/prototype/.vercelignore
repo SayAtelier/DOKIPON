@@ -1,0 +1,3 @@
+# 仅发布原型页面本身；tools/ 是本地校验脚本与 dev server，不进公开部署面。
+tools/
+README.md

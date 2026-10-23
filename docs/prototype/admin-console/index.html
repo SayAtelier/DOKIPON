@@ -491,6 +491,13 @@
         <span class="mono">items</span> / <span class="mono">broadcast</span> 等路径与字段名仍是游戏服务器词汇。
         本轮<b>只改界面文案与演示数据</b>，不改后端契约、不改文件名、不改端点路径。
       </p>
+      <p class="muted" style="margin-top:8px">
+        <b>演示值与真实 mock 也不一致，这是有意的：</b>
+        原型把会员分组演示为「VIP客群 / 普通客群 / 新客群」，
+        而 <span class="mono">gm-backend</span> 的 mock 仍返回「蒼嵐 / Valkyrie / Iron Pact」。
+        原型展示的是电商化后的**界面形态**，不是后端当前产出的数据；
+        真跑一次就会看到游戏域的公会名 —— 那正是本节要说明的遗留状态。
+      </p>
     </section>
   </main>
 

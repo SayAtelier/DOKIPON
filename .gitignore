@@ -178,3 +178,11 @@ target-w*/**
 # 跟 workspace Cargo.lock 重复, 兜底防未清理污染 git status
 /Cargo.lock
 
+# 静态发布暂存目录 (per 10/22 Vercel 部署)
+# 纯构建产物副本, 由 docs/prototype/ 复制而来, 不入 commit
+/.deploy/
+
+# Vercel CLI 本地项目链接目录 (per 10/22 Vercel 部署)
+# 含 projectId/orgId, 属本机状态, 不入 commit
+.vercel/
+
