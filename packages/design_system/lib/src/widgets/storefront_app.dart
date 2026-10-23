@@ -174,6 +174,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
   Widget build(BuildContext context) {
     final catalog = widget.catalog;
     final session = widget.session;
+    // The applied category filter, if any. The controller owns it — the
+    // nav only reflects it and asks for a change.
+    final selectedCategory = catalog.categoryId;
 
     return Scaffold(
       backgroundColor: DokColors.canvas,
@@ -184,7 +187,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             SliverToBoxAdapter(child: _BrandHeader(cart: widget.cart, onCartTap: _openCart)),
-            const SliverToBoxAdapter(child: _CategoryNav()),
+            SliverToBoxAdapter(
+              child: _CategoryNav(
+                selectedCategory: catalog.categoryId,
+                onSelect: (id) => catalog.selectCategory(id),
+              ),
+            ),
             if (session.notice != null)
               SliverToBoxAdapter(
                 child: _Notice(
@@ -201,7 +209,13 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 ),
               ),
             const SliverToBoxAdapter(child: _HeroBanner()),
-            const SliverToBoxAdapter(child: _SectionRule('NEW ARRIVALS')),
+            SliverToBoxAdapter(
+              child: _SectionRule(
+                selectedCategory == null
+                    ? 'NEW ARRIVALS'
+                    : _CategoryNav.labelOf(selectedCategory),
+              ),
+            ),
             if (widget.booting || (catalog.isLoading && catalog.items.isEmpty))
               const SliverToBoxAdapter(
                 child: Padding(
@@ -224,11 +238,18 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 ),
               )
             else if (catalog.isEmpty)
-              const SliverToBoxAdapter(
+              SliverToBoxAdapter(
                 child: Padding(
-                  padding: EdgeInsets.all(DokSpace.huge),
+                  padding: const EdgeInsets.all(DokSpace.huge),
                   child: Center(
-                    child: Text('商品がありません / No products available'),
+                    child: Text(
+                      selectedCategory == null
+                          ? '商品がありません / No products available'
+                          : '「${_CategoryNav.labelOf(selectedCategory)}」の商品が'
+                              'ありません / No products in '
+                              '${_CategoryNav.labelOf(selectedCategory)}',
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
               )
@@ -533,18 +554,45 @@ class _UtilityIcon extends StatelessWidget {
 
 /// The category strip. Horizontally scrollable, which is how a real shop
 /// handles more categories than fit.
+///
+/// The strip is a filter, not decoration: tapping an entry re-queries the
+/// catalogue with that category, and the entry that is applied is marked. A
+/// control that looks selectable but does nothing is worse than no control
+/// at all.
 class _CategoryNav extends StatelessWidget {
-  const _CategoryNav();
+  const _CategoryNav({
+    required this.selectedCategory,
+    required this.onSelect,
+  });
 
-  static const categories = <(String, String)>[
-    ('LINGERIE', 'ランジェリー'),
-    ('BRA & SETS', 'ブラ＆セット'),
-    ('NIGHTWEAR', 'ナイトウェア'),
-    ('SWIM', 'スイム'),
-    ('BEAUTY', 'ボディケア'),
-    ('GOODS', 'グッズ'),
-    ('SALE', 'セール'),
+  /// The category the catalogue is currently filtered by; `null` means
+  /// "everything", which is how the strip opens.
+  final String? selectedCategory;
+
+  /// Called with the category id of the tapped entry.
+  final ValueChanged<String> onSelect;
+
+  /// (category id, English label, Japanese label).
+  ///
+  /// The id is the one the catalogue stores on a product and the one the
+  /// server filters on (`categoryId` on `GET /v1/products`).
+  static const categories = <(String, String, String)>[
+    ('cat-lingerie', 'LINGERIE', 'ランジェリー'),
+    ('cat-bra-sets', 'BRA & SETS', 'ブラ＆セット'),
+    ('cat-nightwear', 'NIGHTWEAR', 'ナイトウェア'),
+    ('cat-swim', 'SWIM', 'スイム'),
+    ('cat-beauty', 'BEAUTY', 'ボディケア'),
+    ('cat-goods', 'GOODS', 'グッズ'),
+    ('cat-sale', 'SALE', 'セール'),
   ];
+
+  /// The label of [categoryId], for the "nothing in this category" state.
+  static String labelOf(String categoryId) {
+    for (final (id, en, _) in categories) {
+      if (id == categoryId) return en;
+    }
+    return categoryId;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -562,21 +610,38 @@ class _CategoryNav extends StatelessWidget {
               itemCount: categories.length,
               separatorBuilder: (_, _) => const SizedBox(width: DokSpace.xl),
               itemBuilder: (context, index) {
-                final (en, ja) = categories[index];
+                final (id, en, ja) = categories[index];
+                final selected = id == selectedCategory;
                 return Center(
                   child: Semantics(
                     button: true,
+                    selected: selected,
                     label: '$ja / $en',
                     excludeSemantics: true,
                     child: InkWell(
-                      onTap: () {},
-                      child: Text(
-                        en,
-                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                              color: DokColors.ink,
-                              letterSpacing: 1.4,
-                              fontWeight: FontWeight.w600,
-                            ),
+                      onTap: () => onSelect(id),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            en,
+                            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                  color: selected ? DokColors.crimson : DokColors.ink,
+                                  letterSpacing: 1.4,
+                                  fontWeight:
+                                      selected ? FontWeight.w700 : FontWeight.w600,
+                                ),
+                          ),
+                          // A hairline under the applied entry. The strip
+                          // stays quiet, but the shopper can still see which
+                          // filter is in force.
+                          Container(
+                            height: 2,
+                            margin: const EdgeInsets.only(top: 4),
+                            color:
+                                selected ? DokColors.crimson : Colors.transparent,
+                          ),
+                        ],
                       ),
                     ),
                   ),
