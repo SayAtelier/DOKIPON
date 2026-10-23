@@ -7,7 +7,7 @@
 //! - Compensating a confirmed order releases the reservation; a rejected or
 //!   cancelled order releases too. Only a confirmed order commits.
 
-use axum::{extract::State, http::StatusCode, routing::{get, post}, Json, Router};
+use axum::{extract::{Query, State}, http::StatusCode, routing::{get, post}, Json, Router};
 use commerce_core::{
     error::{status, AppError},
     ReservationState,
@@ -22,6 +22,24 @@ use std::{
 pub type SharedInventory = Arc<RwLock<InventoryStore>>;
 
 pub const RESERVATION_TTL_MS: i64 = 15 * 60 * 1000; // 15 minutes
+
+/// The demo stock levels the service starts with.
+///
+/// These SKUs must match the catalogue's seed: the checkout path looks stock
+/// up by sku, and a sku that exists in one service but not the other makes a
+/// purchasable product fail at the last step of the checkout. A made-to-order
+/// SKU is absent here for the same reason it is absent from the catalogue's
+/// stock map — it has no stock concept.
+///
+/// The list route publishes these SKUs, so a seed that drifts from the
+/// catalogue's shows up in the admin console as a SKU with no product.
+pub const DEMO_STOCK_SEED: &[(&str, i64)] = &[
+    ("sku-bra-01", 42),
+    ("sku-brief-01", 7),
+    ("sku-set-01", 0),
+    ("sku-night-01", 28),
+    ("sku-adult-01", 3),
+];
 
 #[derive(Debug, Clone, Default)]
 pub struct StockLevel {
@@ -212,8 +230,51 @@ pub struct ReservationPath {
     pub reservation_id: String,
 }
 
+/// The query of `GET /v1/inventory`.
+///
+/// `cursor` is the offset of the next page, as the catalogue's list route
+/// defines it. `limit` is clamped to `1..=100` so one caller cannot ask for
+/// the whole store in a single response.
+#[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// One row of `GET /v1/inventory`.
+///
+/// The field names are camelCase because that is what the rest of the
+/// commerce API emits: `onHand` / `reserved` / `available` are the three
+/// numbers the stock row carries everywhere else in the codebase.
+///
+/// The row is keyed by SKU, and only by SKU. SKU is the inventory service's
+/// key — it is what the reservation ledger stores and what the checkout path
+/// looks up — while product identity belongs to the catalogue. There is no
+/// product id here, because the inventory service does not know one.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StockLevelRow {
+    pub sku: String,
+    pub on_hand: i64,
+    pub reserved: i64,
+    pub available: i64,
+}
+
+/// A page of stock levels: `items` plus `next_cursor`.
+///
+/// The envelope is the one the catalogue's list route uses, so a client that
+/// already pages the catalogue pages this the same way. `next_cursor` keeps
+/// its snake_case spelling because that is the spelling the contract uses for
+/// every list route.
+#[derive(Debug, Clone, Serialize)]
+pub struct StockPage {
+    pub items: Vec<StockLevelRow>,
+    pub next_cursor: Option<String>,
+}
+
 pub fn router(state: SharedInventory) -> Router {
     Router::new()
+        .route("/v1/inventory", get(list_inventory))
         .route("/v1/inventory/reservations", post(reserve))
         .route("/v1/inventory/reservations/{reservation_id}/commit", post(commit))
         .route("/v1/inventory/reservations/{reservation_id}/release", post(release))
@@ -223,6 +284,58 @@ pub fn router(state: SharedInventory) -> Router {
 
 async fn health() -> StatusCode {
     StatusCode::OK
+}
+
+/// `inventory.list` — the stock levels this service actually holds.
+///
+/// The admin facade proxies `GET /admin/v1/inventory` here, so the rows are
+/// the live state of the ledger rather than a copy of it.
+///
+/// The read is pure: it does not sweep expired reservations. A reservation
+/// past its TTL stays reserved in the ledger until it is committed or
+/// released — `expire_stale` exists for the Order service's compensation
+/// queue, and nothing schedules it here — so a read must not change the
+/// ledger it reports on.
+async fn list_inventory(
+    State(store): State<SharedInventory>,
+    Query(q): Query<ListQuery>,
+) -> Result<Json<StockPage>, AppError> {
+    let limit = q.limit.unwrap_or(20).clamp(1, 100) as usize;
+    let offset = q
+        .cursor
+        .as_deref()
+        .and_then(|c| c.parse::<usize>().ok())
+        .unwrap_or(0);
+
+    let guard = store
+        .read()
+        .map_err(|_| AppError::Internal("inventory lock poisoned".into()))?;
+
+    // Sorted by SKU so a page is stable: the same cursor returns the same
+    // rows as long as the store does not change underneath it.
+    let mut sorted: Vec<(&str, &StockLevel)> = guard
+        .stock
+        .iter()
+        .map(|(sku, level)| (sku.as_str(), level))
+        .collect();
+    sorted.sort_by(|a, b| a.0.cmp(b.0));
+
+    let total = sorted.len();
+    let items: Vec<StockLevelRow> = sorted
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|(sku, level)| StockLevelRow {
+            sku: sku.to_string(),
+            on_hand: level.on_hand,
+            reserved: level.reserved,
+            available: level.available(),
+        })
+        .collect();
+
+    let next_cursor = (offset + items.len() < total).then(|| (offset + items.len()).to_string());
+
+    Ok(Json(StockPage { items, next_cursor }))
 }
 
 async fn reserve(
@@ -258,6 +371,141 @@ async fn release(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    /// `GET /v1/inventory` and parse the answer.
+    async fn get_json(app: &Router, uri: &str) -> serde_json::Value {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("the route must answer");
+        assert_eq!(response.status(), StatusCode::OK, "{uri} must answer 200");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        serde_json::from_slice(&body).expect("json body")
+    }
+
+    /// The list route must serve the levels the store really holds, in the
+    /// wire shape the contract names.
+    ///
+    /// The admin facade proxies `GET /admin/v1/inventory` to this route, so
+    /// while the route did not exist the admin route answered 404 and the
+    /// console had no stock view at all.
+    #[tokio::test]
+    async fn the_list_route_serves_the_stock_levels() {
+        let store: SharedInventory = Arc::new(RwLock::new(InventoryStore::new(DEMO_STOCK_SEED)));
+        let app = router(store);
+
+        let json = get_json(&app, "/v1/inventory").await;
+
+        let items = json["items"].as_array().expect("items array");
+        assert_eq!(items.len(), DEMO_STOCK_SEED.len());
+        // Sorted by SKU, so the page is stable.
+        assert_eq!(items[0]["sku"], "sku-adult-01");
+        assert_eq!(items[0]["onHand"], 3);
+        assert_eq!(items[0]["reserved"], 0);
+        assert_eq!(items[0]["available"], 3);
+        assert!(
+            json["next_cursor"].is_null(),
+            "one page holds the whole store"
+        );
+    }
+
+    /// An open reservation must show up in the listing, and the availability
+    /// must drop by exactly the reserved amount.
+    #[tokio::test]
+    async fn the_list_route_reports_the_open_reservations() {
+        let store: SharedInventory = Arc::new(RwLock::new(InventoryStore::new(&[("sku-a", 10)])));
+        {
+            let mut guard = store.write().unwrap();
+            guard.reserve("sku-a", "order-1", 3).unwrap();
+        }
+        let app = router(store);
+
+        let json = get_json(&app, "/v1/inventory").await;
+
+        assert_eq!(json["items"][0]["onHand"], 10);
+        assert_eq!(json["items"][0]["reserved"], 3);
+        assert_eq!(json["items"][0]["available"], 7);
+    }
+
+    /// The listing pages by cursor, so a caller can walk a store that is
+    /// larger than one page.
+    #[tokio::test]
+    async fn the_list_route_pages_by_cursor() {
+        let store: SharedInventory = Arc::new(RwLock::new(InventoryStore::new(&[
+            ("sku-a", 1),
+            ("sku-b", 2),
+            ("sku-c", 3),
+        ])));
+        let app = router(store);
+
+        let first = get_json(&app, "/v1/inventory?limit=1").await;
+        assert_eq!(first["items"].as_array().unwrap().len(), 1);
+        assert_eq!(first["items"][0]["sku"], "sku-a");
+        assert_eq!(first["next_cursor"], "1");
+
+        let second = get_json(&app, "/v1/inventory?limit=1&cursor=1").await;
+        assert_eq!(second["items"][0]["sku"], "sku-b");
+        assert_eq!(second["next_cursor"], "2");
+
+        let last = get_json(&app, "/v1/inventory?limit=1&cursor=2").await;
+        assert_eq!(last["items"][0]["sku"], "sku-c");
+        assert!(last["next_cursor"].is_null(), "the last page ends the walk");
+    }
+
+    /// The published SKUs must be the catalogue's SKUs.
+    ///
+    /// The list route publishes the store's SKUs, so a seed that had drifted
+    /// from the catalogue's would show an operator a SKU that no product has
+    /// — and a product that the catalogue sells but the inventory does not
+    /// know would fail at the last step of the checkout.
+    #[test]
+    fn the_demo_stock_seed_matches_the_catalogue_seed() {
+        let catalogue = commerce_catalog::CatalogStore::seed_demo();
+        let inventory = InventoryStore::new(DEMO_STOCK_SEED);
+
+        let catalogue_levels: Vec<(&str, i64)> = catalogue
+            .stock
+            .iter()
+            .map(|(sku, quantity)| (sku.as_str(), *quantity))
+            .collect();
+        let inventory_levels: Vec<(&str, i64)> = inventory
+            .stock
+            .iter()
+            .map(|(sku, level)| (sku.as_str(), level.on_hand))
+            .collect();
+
+        let mut catalogue_levels = catalogue_levels;
+        catalogue_levels.sort_by(|a, b| a.0.cmp(b.0));
+        let mut inventory_levels = inventory_levels;
+        inventory_levels.sort_by(|a, b| a.0.cmp(b.0));
+
+        assert_eq!(
+            inventory_levels
+                .iter()
+                .map(|(sku, _)| *sku)
+                .collect::<Vec<_>>(),
+            catalogue_levels
+                .iter()
+                .map(|(sku, _)| *sku)
+                .collect::<Vec<_>>(),
+            "the inventory and the catalogue must know the same SKUs"
+        );
+        assert_eq!(
+            inventory_levels,
+            catalogue_levels,
+            "the inventory and the catalogue must agree on the quantities"
+        );
+    }
 
     #[test]
     fn reserve_then_commit_reduces_both_on_hand_and_reserved() {

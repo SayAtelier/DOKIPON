@@ -469,6 +469,16 @@ struct ProductsQuery {
     cursor: Option<String>,
 }
 
+/// The page parameters of `GET /admin/v1/inventory`.
+///
+/// The facade forwards them to the inventory service's listing route, so a
+/// console that pages the catalogue pages the stock the same way.
+#[derive(Debug, Deserialize)]
+struct InventoryQuery {
+    limit: Option<u32>,
+    cursor: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct PaymentsQuery {
     limit: Option<u32>,
@@ -853,16 +863,35 @@ async fn product_detail(
     .await
 }
 
+/// `GET /admin/v1/inventory` — the stock levels the inventory service holds.
+///
+/// The facade proxies this to the inventory service's listing route and
+/// forwards the answer unchanged, so the console sees the live ledger rather
+/// than a copy of it. The rows are keyed by SKU: SKU is the inventory
+/// service's key, and product identity belongs to the catalogue.
+///
+/// An upstream that cannot be reached is still an error — `admin.upstream_error`
+/// for an upstream that answers with a failure the facade cannot interpret,
+/// `admin.upstream_unavailable` for one that cannot be reached at all. A
+/// listing that cannot be served must not read as an empty stock list.
 async fn inventory_levels(
     State(state): State<AdminState>,
+    Query(query): Query<InventoryQuery>,
     Extension(correlation): Extension<CorrelationId>,
 ) -> Result<Response, AppError> {
+    let mut pairs = Vec::new();
+    if let Some(value) = query.limit {
+        pairs.push(("limit".to_string(), value.to_string()));
+    }
+    if let Some(value) = query.cursor {
+        pairs.push(("cursor".to_string(), value));
+    }
     request_upstream(
         &state,
         &state.upstreams.inventory,
         "/v1/inventory",
         Method::GET,
-        None,
+        encode_query(pairs),
         None,
         &correlation,
     )
@@ -1152,4 +1181,186 @@ fn init_tracing() {
         .with_env_filter(filter)
         .json()
         .init();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::routing::any;
+    use http_body_util::BodyExt;
+    use std::sync::Mutex;
+    use tower::ServiceExt;
+
+    /// The URIs the mock upstream was called with.
+    #[derive(Clone, Default)]
+    struct Observed {
+        uris: Arc<Mutex<Vec<String>>>,
+    }
+
+    /// A stand-in for an upstream service.
+    ///
+    /// It records every URI it is called with, so a test can assert that the
+    /// facade called the route it is supposed to call and not something else.
+    async fn mock_upstream(status: StatusCode, body: String) -> (String, Observed) {
+        let observed = Observed::default();
+        let sink = observed.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new().fallback(any(move |request: Request| {
+            let sink = sink.clone();
+            let body = body.clone();
+            async move {
+                sink.uris.lock().unwrap().push(request.uri().to_string());
+                (status, [("content-type", "application/json")], body)
+            }
+        }));
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        (format!("http://{address}"), observed)
+    }
+
+    /// The admin state, with every upstream pointing at the mock.
+    fn test_state(base_url: &str) -> AdminState {
+        AdminState {
+            auth: AuthStore::new(vec![Credential {
+                user: "admin".to_string(),
+                password: "admin-pass".to_string(),
+                role: Role::Admin,
+            }]),
+            client: Client::builder()
+                .timeout(Duration::from_secs(5))
+                .no_proxy()
+                .redirect(Policy::none())
+                .build()
+                .expect("client"),
+            upstreams: Upstreams::all_to(base_url),
+            admin_session_id: "admin-console".to_string(),
+        }
+    }
+
+    /// Log in and return the bearer token.
+    async fn login(app: &Router) -> String {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/admin/v1/sessions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"username":"admin","password":"admin-pass"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .expect("the login route must answer");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&body).expect("json body");
+        json["token"].as_str().expect("a token").to_string()
+    }
+
+    /// An authenticated `GET` against the admin router.
+    async fn auth_get(app: &Router, token: &str, uri: &str) -> Response {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("the route must answer")
+    }
+
+    async fn body_json(response: Response) -> Value {
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        serde_json::from_slice(&body).expect("json body")
+    }
+
+    /// The admin facade must serve the inventory listing by proxying it to
+    /// the inventory service's listing route.
+    ///
+    /// The route used to answer 404, because the inventory service had no
+    /// read route to proxy to: the console had no stock view at all.
+    #[tokio::test]
+    async fn the_inventory_listing_is_proxied_to_the_inventory_service() {
+        let (base_url, observed) = mock_upstream(
+            StatusCode::OK,
+            r#"{"items":[{"sku":"sku-bra-01","onHand":42,"reserved":0,"available":42}],"next_cursor":null}"#
+                .to_string(),
+        )
+        .await;
+        let app = router(test_state(&base_url));
+        let token = login(&app).await;
+
+        let response = auth_get(&app, &token, "/admin/v1/inventory").await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_json(response).await;
+        assert_eq!(json["items"][0]["sku"], "sku-bra-01");
+        assert_eq!(json["items"][0]["onHand"], 42);
+        assert_eq!(json["items"][0]["available"], 42);
+        // The facade must call the inventory service's listing route.
+        assert_eq!(
+            observed.uris.lock().unwrap().clone(),
+            vec!["/v1/inventory".to_string()],
+        );
+    }
+
+    /// The page parameters the contract declares must reach the upstream, or
+    /// a console that asks for one page gets the whole store.
+    #[tokio::test]
+    async fn the_inventory_listing_forwards_the_page_parameters() {
+        let (base_url, observed) = mock_upstream(
+            StatusCode::OK,
+            r#"{"items":[],"next_cursor":null}"#.to_string(),
+        )
+        .await;
+        let app = router(test_state(&base_url));
+        let token = login(&app).await;
+
+        let response = auth_get(&app, &token, "/admin/v1/inventory?limit=1&cursor=2").await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            observed.uris.lock().unwrap().clone(),
+            vec!["/v1/inventory?limit=1&cursor=2".to_string()],
+        );
+    }
+
+    /// An upstream that fails is still an error.
+    ///
+    /// The facade used to relay the inventory service's 404 as
+    /// `admin.upstream_error`; now that the service has the route, this is
+    /// the path a genuine upstream failure takes, and it must not be turned
+    /// into an empty stock list.
+    #[tokio::test]
+    async fn a_failing_upstream_is_still_an_error() {
+        let (base_url, _observed) = mock_upstream(StatusCode::NOT_FOUND, String::new()).await;
+        let app = router(test_state(&base_url));
+        let token = login(&app).await;
+
+        let response = auth_get(&app, &token, "/admin/v1/inventory").await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let json = body_json(response).await;
+        assert_eq!(json["code"], "admin.upstream_error");
+    }
+
+    /// An upstream that cannot be reached at all is a 503, not an empty list.
+    #[tokio::test]
+    async fn an_unreachable_upstream_is_a_problem_response() {
+        // Port 1 on loopback refuses connections.
+        let app = router(test_state("http://127.0.0.1:1"));
+        let token = login(&app).await;
+
+        let response = auth_get(&app, &token, "/admin/v1/inventory").await;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let json = body_json(response).await;
+        assert_eq!(json["code"], "admin.upstream_unavailable");
+    }
 }

@@ -16,3 +16,7 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 commerce-core = { path = "../commerce-core" }
+
+[dev-dependencies]
+commerce-catalog = { path = "../commerce-catalog" }
+http-body-util.workspace = true
