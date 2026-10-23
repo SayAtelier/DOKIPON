@@ -1,0 +1,81 @@
+# What Vercel uploads.
+#
+# The repository is large — the Rust target directory alone is gigabytes, and
+# the Flutter SDK and the local dev stack are not part of the deployment. Vercel
+# uploads everything not ignored, so this file is not an optimisation: it is
+# what keeps the upload to a size the platform accepts.
+
+# Build artifacts. The Rust build happens on Vercel's builder, and the
+# Flutter build happens in the build command.
+target/
+**/target/
+**/build/
+**/.dart_tool/
+**/.gradle/
+**/node_modules/
+**/.git/
+
+# The local cross-compilation directory for the Vercel function. It is a
+# Linux build of the same source the builder compiles, kept for local
+# experiments; it is 380 MB and has no business in the upload.
+.vercel-target/
+
+# The Flutter SDK, when `scripts/build-vercel.sh` has installed it locally
+# instead of on the builder.
+.flutter-sdk/
+
+# The Flutter Web bundles are built by `scripts/build-vercel.sh` during the
+# build, so the checked-in copies are not uploaded. `public/` is the output
+# directory: it IS uploaded, and the build command rewrites it in place.
+apps/shop_web/build/
+apps/admin_web/build/
+apps/line_web/build/
+apps/shop_app/build/
+
+# Local development state.
+.vercel/
+.env
+.env.*
+!.env.example
+*.local
+shots-local/
+**/shots-local/
+logs/
+**/logs/
+nul
+
+# The k3s deployment manifests and the container build context. They describe
+# a different deployment (a cluster behind Envoy) and the merged edge
+# supersedes them for this one.
+k3s-deploy/
+docker/
+k3s/
+deploy/
+
+# The game-server images. They build the RGS player-service and admin-service
+# containers for the k3s/Envoy deployment, which this deployment replaces.
+# They are also a hazard here: a Dockerfile anywhere in the uploaded tree
+# makes Vercel detect the container preset, and the container preset serves
+# the game server and ignores both the function and the static build. The
+# images are built from git by .github/workflows/docker-build.yml and
+# gm-backend-publish-ghcr.yml, so excluding them from the upload costs the
+# pipeline nothing.
+Dockerfile
+Dockerfile.*
+**/Dockerfile
+**/Dockerfile.*
+
+# Documentation and design notes. They are not part of the deployment.
+docs/
+docs-parallel/
+graphify-out/
+.audit-reports/
+.autopilot/
+.audit/
+
+# Editor and OS noise.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp

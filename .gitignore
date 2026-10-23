@@ -176,7 +176,13 @@ target-w*/**
 
 # 根目录 Cargo.lock (per 9/7 13:30 JST)
 # 跟 workspace Cargo.lock 重复, 兜底防未清理污染 git status
+#
+# 例外: 根目录现在是一个独立的 package (`dokipon-vercel`), 不是 workspace 成员,
+# 它的 Cargo.lock 锁的是 Vercel 函数的依赖 (vercel_runtime 2.4.1 等), 与
+# services/Cargo.lock 不是同一份. 它必须入 commit, 否则 Vercel 上的构建每次
+# 都重新解析依赖, crates.io 一发新版本就可能把线上部署打挂.
 /Cargo.lock
+!/Cargo.lock
 
 # Flutter / Dart 构建产物 (per 2026-10-18 admin_web 首次构建)
 # apps/*/build/ 是 `flutter build web` 的输出 (40MB canvaskit + 2.6MB bundle),
@@ -186,3 +192,19 @@ target-w*/**
 **/.flutter-plugins
 **/.flutter-plugins-dependencies
 
+.vercel
+.env*
+
+# Vercel deployment artifacts (per 2026-10-23 Vercel 部署)
+# .vercel-target/  是给 Vercel 函数做 Linux 交叉编译的本地 cargo 输出目录
+#                  (约 380 MB), 只用于本地实验, 不入 commit
+# public/          是 scripts/build-vercel.sh 的产物 (Flutter Web 静态包, 约 54 MB),
+#                  由 Vercel 构建命令在 builder 上重新生成, 不入 commit
+# shots-local/     是本地截图, 不入 commit
+# .env.local       是 vercel link 写入的 OIDC token, 属本机状态, 不入 commit
+.vercel-target/
+/public/
+shots-local/
+**/shots-local/
+.env.local
+nul

@@ -1,100 +1,27 @@
-[workspace]
-members = [
-    "crates/rgs-hello",
-    "crates/player-service",
-    "crates/economy-service",
-    "crates/match-service",
-    "crates/social-service",
-    "crates/admin-service",
-    "crates/cluster-ops",
-    "crates/shared-platform",
-    "crates/gm-backend",
-    "crates/rgs-testkit",
-    "crates/rgs-certgen",
-    "crates/function-plane",
-    "crates/rgs-arc-olu",
-    "crates/rgs-overflow-alert",
-    "crates/rgs-asset-download",
-    "crates/card-service",
-    "crates/i18n-service",
-    "crates/leaderboard-service",
-    "crates/replay-service",
-    "crates/network-gateway",
-    "crates/scene-service",
-    "crates/battle-service",
-    "crates/batch-service",
-    "crates/activity-service",
-    "crates/gm-extra-service",
-    "crates/guild-service",
-    "crates/leaderboard-extra-service",
-    "crates/operate-service",
-    "crates/pvp-full-service",
-    "crates/replay-extra-service",
-    "crates/social-extra-service",
-    "tools/rgs-grpc-bridge",
-]
-resolver = "2"
-
-[workspace.package]
+[package]
+name = "dokipon-vercel"
+version = "0.1.0"
 edition = "2021"
-# 2026-09-05 升级 1.98 → 1.98.1 (per https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/)
-# 修复 vtable miscompilation UB (issue 161441).
-rust-version = "1.98.1"
 license = "Apache-2.0"
-repository = "https://github.com/UlyssesLeoLee/RustGameServer"
-authors = ["Ulysses <UlyssesLeoLee@users.noreply.github.com>"]
+rust-version = "1.85"
+description = "The DOKIPON commerce edge, packaged for the Vercel Rust runtime."
 
-[workspace.dependencies]
-# 公共服务依赖（53.2 占位声明；54.1 启用）
+[dependencies]
+commerce-edge = { path = "services/crates/commerce-edge" }
+commerce-admin = { path = "services/crates/commerce-admin" }
+
+vercel_runtime = { version = "2.4", features = ["axum"] }
 tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "1"
-anyhow = "1"
+tower = "0.5"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-async-trait = "0.1"
-# 54.1 启用：gRPC / DB / 时间 / UUID
-tonic = { version = "0.12", features = ["transport", "tls", "tls-roots"] }
-# 9/10 wave 3 mTLS 真实接入 (per DDD Review v0.3.1 §7.3 Phase C):
-#   rustls 0.23 默认 features 不带 crypto provider, 必须显式选 ring 或 aws-lc-rs
-#   加 rustls workspace dep + rgs-testkit/lib.rs 显式 install_default() 避免 27 test panic
-#   (rustls-0.23.43/src/crypto/mod.rs:249:14 CryptoProvider::install_default required)
-rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
-# 9/10 wave 3 mTLS 真实接入 (per DDD Review v0.3.1 §7.3 Phase C):
-#   rgs-testkit lib 加载时用 #[ctor::ctor] 自动 install rustls ring crypto provider,
-#   避免 27 test panic (rustls-0.23.43/src/crypto/mod.rs:249:14)
-ctor = "0.2"
-# grpc.health.v1.Health 服务（k8s exec 探针走 grpc_health_probe + mTLS，per Phase 0.5 探针修复）
-tonic-health = "0.12"
-prost = "0.13"
-prost-types = "0.13"
-# 54.1 sqlx 0.8：5 域各自独立 DATABASE_URL（per ARC-008 5 独立 DB 原则）
-# 54.4 加 migrate feature（sqlx::migrate! 宏）
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "macros", "migrate", "uuid", "chrono", "json"] }
-# 时间戳 + UUID
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4", "serde"] }
-# 54.4 tonic-build 启用时用
-tonic-build = { version = "0.12", features = ["prost"] }
-# 54.1 接受：opentelemetry 启用待 53.12 OTel SDK 接入（54.13）
-opentelemetry = "0.24"
-opentelemetry-otlp = { version = "0.17", features = ["tonic"] }
-opentelemetry_sdk = { version = "0.24", features = ["rt-tokio"] }
-# RGS-INC-001 v0.2 §8/§9/§15 mock: WASM runtime + WAT text format
-wasmtime = "19"
-wat = "1"
-# 2026-08-27 超限排队 + 邮件告警（per 任务 §2.1）
-# - async-nats 0.42（与 shared-platform::producer 同主线，已在 lock）
-# - lettre 0.11：tokio1-rustls-tls 组合 feature（per .worker-tmp/HANDOFF-ENV-CHECK.md §5）
-async-nats = "0.42"
-lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[bin]]
+name = "dokipon-edge"
+path = "api/index.rs"
 
 [profile.release]
-lto = "thin"
 codegen-units = 1
+lto = "fat"
+opt-level = 3
 strip = "symbols"
-
-[profile.dev]
-opt-level = 0
-debug = 1
