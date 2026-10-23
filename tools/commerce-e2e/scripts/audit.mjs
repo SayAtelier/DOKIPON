@@ -67,13 +67,19 @@ const EXPECT = JSON.parse(
 );
 
 const VIEWPORT = { width: 1280, height: 900 };
-const BOOT_TIMEOUT = 60_000;
+const BOOT_TIMEOUT = 120_000;
 const SETTLE_MS = 1000;
 
 /** The elements that prove a Flutter Web app is alive in Flutter 3.47. */
 const ALIVE_SELECTOR = 'flutter-view, flt-glass-pane';
 
-/** Per-target collectors. Reset between targets so one page cannot pollute the next. */
+/**
+ * Per-target collectors.
+ *
+ * The listeners are attached **once per page**: a page that is reloaded for
+ * every control would otherwise collect a new set of listeners on each pass
+ * and report the same event several times.
+ */
 function collectors(page) {
   const state = { consoleErrors: [], pageErrors: [], badResponses: [], failedRequests: [], requests: [] };
   page.on('console', (m) => {
@@ -89,6 +95,15 @@ function collectors(page) {
     if (r.status() >= 400) state.badResponses.push(`${r.status()} ${r.url()}`);
   });
   return state;
+}
+
+/** Clear the collected events so each control is measured on its own. */
+function resetCollectors(state) {
+  state.consoleErrors.length = 0;
+  state.pageErrors.length = 0;
+  state.badResponses.length = 0;
+  state.failedRequests.length = 0;
+  state.requests.length = 0;
 }
 
 /**
@@ -194,8 +209,8 @@ function isResourceNoise(text) {
  * be mistaken for the next one's, and so a control that navigated away does
  * not make the following controls unreachable.
  */
-async function auditControl(page, control) {
-  const state = collectors(page);
+async function auditControl(page, control, state) {
+  resetCollectors(state);
   const before = await probe(page);
 
   const target = page.locator(CONTROL_SELECTOR).nth(control.index);
@@ -261,24 +276,40 @@ async function auditControl(page, control) {
  * Sign the admin console in, so the audit can reach the screens behind the
  * login. The admin facade falls back to its development credentials when the
  * environment does not set them.
+ *
+ * The fields are typed, not filled. Flutter's web text editing mirrors
+ * genuine key input into its `TextEditingController`; a programmatic `fill()`
+ * sets the DOM input's value, which the controller never sees. (The first
+ * version of this audit used `fill()`, and the form came back with "Enter
+ * your password." — the controller was empty even though the DOM input was
+ * not.) The pause after the click matters too: typing before Flutter has
+ * attached its editing state drops the first keystrokes.
  */
 async function tryAdminLogin(page) {
-  const inputs = page.locator('flt-semantics input, flt-semantics textarea');
+  const inputs = page.locator('input, textarea');
   const n = await inputs.count();
   if (n < 2) return { ok: false, reason: 'no credential fields found' };
   const user = (process.env.ADMIN_USER || 'admin');
   const password = (process.env.ADMIN_PASSWORD || 'dev-only-admin');
   try {
-    await inputs.nth(0).fill(user);
-    await inputs.nth(1).fill(password);
+    await inputs.nth(0).click();
+    await page.waitForTimeout(300);
+    await page.keyboard.type(user, { delay: 40 });
+    await inputs.nth(1).click();
+    await page.waitForTimeout(300);
+    await page.keyboard.type(password, { delay: 40 });
   } catch (e) {
-    return { ok: false, reason: `could not fill the credentials: ${String(e.message).split('\n')[0]}` };
+    return { ok: false, reason: `could not type the credentials: ${String(e.message).split('\n')[0]}` };
+  }
+  const typed = await page.evaluate(() => [...document.querySelectorAll('input, textarea')].map((n) => n.value));
+  if (typed[1] !== password) {
+    return { ok: false, reason: `the password field ended up as "${typed[1]}" instead of the credential` };
   }
   const signIn = page.locator(CONTROL_SELECTOR).filter({ hasText: /sign in|ログイン/i }).first();
   if ((await signIn.count()) === 0) return { ok: false, reason: 'no sign-in button found' };
   await signIn.click({ force: true, timeout: 5000 }).catch(() => {});
-  await page.waitForTimeout(2000);
-  const stillLogin = await page.locator('flt-semantics input').count();
+  await page.waitForTimeout(2500);
+  const stillLogin = await page.locator('input, textarea').count();
   return { ok: stillLogin === 0, reason: stillLogin === 0 ? '' : 'the console still shows the credential fields' };
 }
 
@@ -379,9 +410,23 @@ async function auditSurface(browser, name, path) {
     pageErrors: [],
   };
 
+  // The errors from the initial load. The per-control loop resets the
+  // collectors so each control is measured on its own; this list is what
+  // happened while the page was simply loading.
+  const loadErrors = {
+    consoleErrors: [],
+    pageErrors: [],
+    badResponses: [],
+    failedRequests: [],
+  };
+
   try {
     await page.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: BOOT_TIMEOUT });
     await waitForFlutter(page);
+    loadErrors.consoleErrors = [...state.consoleErrors];
+    loadErrors.pageErrors = [...state.pageErrors];
+    loadErrors.badResponses = [...state.badResponses];
+    loadErrors.failedRequests = [...state.failedRequests];
     const semanticsOn = await enableSemantics(page);
     report.semanticsEnabled = semanticsOn;
 
@@ -395,26 +440,26 @@ async function auditSurface(browser, name, path) {
       report.controlCount = controls.length;
 
       for (const control of controls) {
-        // A fresh page per control: one control's navigation must not hide
-        // the next one, and each measurement starts from the same state.
-        const ctx = await browser.newContext({ viewport: VIEWPORT });
-        const p2 = await ctx.newPage();
+        // The **same page** is reloaded, not a fresh context. A fresh context
+        // means a cold HTTP cache, and the Flutter bundle is ~45 MB (the
+        // canvaskit runtime plus the app); on a slow link that does not
+        // finish booting inside the timeout, and every control is reported
+        // as "could not be tested" — an artefact of the instrument, not of
+        // the app. Reloading the same page keeps the cache warm.
         try {
-          await p2.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: BOOT_TIMEOUT });
-          await waitForFlutter(p2);
-          await enableSemantics(p2);
+          await page.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: BOOT_TIMEOUT });
+          await waitForFlutter(page);
+          await enableSemantics(page);
           if (name === 'admin' && report.login && report.login.ok) {
-            await tryAdminLogin(p2);
+            await tryAdminLogin(page);
           }
-          report.controls.push(await auditControl(p2, control));
+          report.controls.push(await auditControl(page, control, state));
         } catch (e) {
           report.controls.push({
             role: control.role,
             label: control.label,
             problems: [`could not be tested: ${String(e && e.message ? e.message : e).split('\n')[0]}`],
           });
-        } finally {
-          await ctx.close();
         }
       }
     }
@@ -422,10 +467,13 @@ async function auditSurface(browser, name, path) {
     report.problems.push(`the surface did not load: ${String(e && e.message ? e.message : e).split('\n')[0]}`);
   }
 
-  report.consoleErrors = state.consoleErrors;
-  report.pageErrors = state.pageErrors;
-  report.badResponses = state.badResponses;
-  report.failedRequests = state.failedRequests;
+  // Snapshot the errors from the initial load. The per-control loop resets
+  // the collectors so each control is measured on its own; the surface-level
+  // list is what happened while the page was simply loading.
+  report.consoleErrors = loadErrors.consoleErrors;
+  report.pageErrors = loadErrors.pageErrors;
+  report.badResponses = loadErrors.badResponses;
+  report.failedRequests = loadErrors.failedRequests;
 
   const broken = report.controls.filter((c) => c.problems && c.problems.length);
   report.brokenControls = broken.length;

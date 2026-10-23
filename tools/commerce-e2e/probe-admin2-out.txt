@@ -1,0 +1,19 @@
+input count = 2
+dom values after typing = ["admin","ev-only-admin"]
+  HTTP 401 POST https://dokipon-commerce.vercel.app/admin/v1/sessions
+dom values after sign-in = ["admin","ev-only-admin"]
+nodes after sign-in = [
+ "-|Commerce administrationSign in with your operator ",
+ "-|Commerce administrationSign in with your operator ",
+ "-|Commerce administrationSign in with your operator ",
+ "-|Commerce administrationSign in with your operator ",
+ "group|Commerce administrationSign in with your operator ",
+ "-|Commerce administrationSign in with your operator ",
+ "-|Commerce administration",
+ "-|Sign in with your operator account.",
+ "-|Invalid username or password.",
+ "-|",
+ "-|",
+ "button|Sign in"
+]
+errors: ["console: Failed to load resource: the server responded with a status of 404 ()","console: Failed to load resource: the server responded with a status of 401 ()"]

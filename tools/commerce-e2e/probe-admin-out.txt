@@ -1,0 +1,137 @@
+
+===== after semantics =====
+inputs: [
+ {
+  "tag": "INPUT",
+  "type": "text",
+  "aria": "Username",
+  "ph": "",
+  "val": "",
+  "rect": [
+   444,
+   433,
+   400,
+   54
+  ]
+ },
+ {
+  "tag": "INPUT",
+  "type": "password",
+  "aria": "Password",
+  "ph": "",
+  "val": "",
+  "rect": [
+   444,
+   493,
+   400,
+   54
+  ]
+ }
+]
+nodes: [
+ "-|Commerce administrationSign in with your",
+ "-|Commerce administrationSign in with your",
+ "-|Commerce administrationSign in with your",
+ "-|Commerce administrationSign in with your",
+ "group|Commerce administrationSign in with your",
+ "-|Commerce administrationSign in with your",
+ "-|Commerce administration",
+ "-|Sign in with your operator account.",
+ "-|",
+ "-|",
+ "button|Sign in"
+]
+
+input count = 2
+
+===== after fill =====
+inputs: [
+ {
+  "tag": "INPUT",
+  "type": "text",
+  "aria": "Username",
+  "ph": "",
+  "val": "admin",
+  "rect": [
+   444,
+   433,
+   400,
+   54
+  ]
+ },
+ {
+  "tag": "INPUT",
+  "type": "password",
+  "aria": "Password",
+  "ph": "",
+  "val": "",
+  "rect": [
+   444,
+   493,
+   400,
+   54
+  ]
+ }
+]
+nodes: [
+ "-|Commerce administrationSign in with your",
+ "-|Commerce administrationSign in with your",
+ "-|Commerce administrationSign in with your",
+ "-|Commerce administrationSign in with your",
+ "group|Commerce administrationSign in with your",
+ "-|Commerce administrationSign in with your",
+ "-|Commerce administration",
+ "-|Sign in with your operator account.",
+ "-|",
+ "-|",
+ "button|Sign in"
+]
+
+sign-in button count = 1
+
+===== after sign-in =====
+inputs: [
+ {
+  "tag": "INPUT",
+  "type": "text",
+  "aria": "Username",
+  "ph": "",
+  "val": "admin",
+  "rect": [
+   444,
+   422,
+   400,
+   54
+  ]
+ },
+ {
+  "tag": "INPUT",
+  "type": "password",
+  "aria": "Password",
+  "ph": "",
+  "val": "",
+  "rect": [
+   444,
+   482,
+   400,
+   75
+  ]
+ }
+]
+nodes: [
+ "-|Commerce administrationSign in with your",
+ "-|Commerce administrationSign in with your",
+ "-|Commerce administrationSign in with your",
+ "-|Commerce administrationSign in with your",
+ "group|Commerce administrationSign in with your",
+ "-|Commerce administrationSign in with your",
+ "-|Commerce administration",
+ "-|Sign in with your operator account.",
+ "-|",
+ "-|Enter your password.",
+ "-|Enter your password.",
+ "button|Sign in"
+]
+
+errors: ["console: Failed to load resource: the server responded with a status of 404 ()"]
+inputs still present = 2
