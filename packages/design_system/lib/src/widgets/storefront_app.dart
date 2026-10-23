@@ -187,6 +187,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
     // nav only reflects it and asks for a change.
     final selectedCategory = catalog.categoryId;
 
+    // The products the shopper is looking at: the loaded page, narrowed by
+    // the search term.
+    final visible = _visibleItems(catalog.items);
+
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: DokColors.canvas,
@@ -196,7 +200,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            SliverToBoxAdapter(child: _BrandHeader(cart: widget.cart, onCartTap: _openCart)),
+            SliverToBoxAdapter(
+              child: _BrandHeader(
+                cart: widget.cart,
+                onCartTap: _openCart,
+                onSearchTap: _openSearch,
+                onAccountTap: _openAccount,
+              ),
+            ),
             SliverToBoxAdapter(
               child: _CategoryNav(
                 selectedCategory: catalog.categoryId,
@@ -218,7 +229,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       'Browsing as a guest — sign in to check out.',
                 ),
               ),
-            const SliverToBoxAdapter(child: _HeroBanner()),
+            SliverToBoxAdapter(child: _HeroBanner(onShopAll: _showAll)),
             SliverToBoxAdapter(
               child: _SectionRule(
                 selectedCategory == null
@@ -247,17 +258,22 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   ),
                 ),
               )
-            else if (catalog.isEmpty)
+            else if (catalog.isEmpty || visible.isEmpty)
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.all(DokSpace.huge),
                   child: Center(
                     child: Text(
-                      selectedCategory == null
-                          ? '商品がありません / No products available'
-                          : '「${_CategoryNav.labelOf(selectedCategory)}」の商品が'
-                              'ありません / No products in '
-                              '${_CategoryNav.labelOf(selectedCategory)}',
+                      // Three different emptinesses, three different
+                      // messages: the catalogue is empty, the chosen category
+                      // is empty, or the search matched nothing.
+                      !catalog.isEmpty
+                          ? '条件に一致する商品がありません / No products match'
+                          : selectedCategory == null
+                              ? '商品がありません / No products available'
+                              : '「${_CategoryNav.labelOf(selectedCategory)}」の商品が'
+                                  'ありません / No products in '
+                                  '${_CategoryNav.labelOf(selectedCategory)}',
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -293,14 +309,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       ),
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
-                          final product = catalog.items[index];
+                          final product = visible[index];
                           return ProductCard(
                             product: product,
                             onOpen: () => _showDetail(product),
                             onAdd: () => _addToCart(product),
                           );
                         },
-                        childCount: catalog.items.length,
+                        childCount: visible.length,
                       ),
                     );
                   },
@@ -352,6 +368,106 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
   void _closeCart() {
     Navigator.of(context).maybePop();
+  }
+
+  /// The search term.
+  ///
+  /// The catalogue route has no text-search parameter
+  /// (`contracts/openapi.yaml` -> `GET /v1/products` takes `cursor`, `limit`,
+  /// `locale` and `categoryId`), so this narrows the products that are
+  /// **on screen** rather than the whole catalogue — and the field says so,
+  /// in the same words, so nobody is promised a search that is not there.
+  String _query = '';
+
+  /// The products the shopper is looking at.
+  List<ProductSummary> _visibleItems(List<ProductSummary> items) {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return items;
+    return items
+        .where((p) => p.title.toLowerCase().contains(q))
+        .toList(growable: false);
+  }
+
+  /// Ask for the whole collection again — the way back to everything after
+  /// the category strip has narrowed the catalogue down.
+  Future<void> _showAll() async {
+    await widget.catalog.selectCategory(null);
+  }
+
+  /// Search the products on screen.
+  Future<void> _openSearch() async {
+    final controller = TextEditingController(text: _query);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('商品を探す / Search products'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: '表示中の商品を絞り込む / Filter the products on screen',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('キャンセル / Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('適用 / Apply'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null) return;
+    setState(() => _query = result);
+  }
+
+  /// Who the shopper is, and what they are allowed to do.
+  ///
+  /// A guest can browse but not check out; a LINE user can do both. The
+  /// degraded notice (LIFF-002..006) is shown here too, because the session
+  /// controller is the only place that knows about it.
+  Future<void> _openAccount() async {
+    final session = widget.session;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('アカウント / Account', style: theme.textTheme.titleLarge),
+              const SizedBox(height: 12),
+              Text(
+                session.isGuest
+                    ? 'セッション / Session: ゲスト / Guest'
+                    : 'セッション / Session: LINE ユーザー / LINE user',
+                style: theme.textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                session.canCheckout
+                    ? '購入できます / You can check out.'
+                    : 'ゲストは閲覧のみ。購入にはログインが必要です / '
+                        'Guests can browse only; checking out needs a sign-in.',
+                style: theme.textTheme.bodyMedium,
+              ),
+              if (session.notice != null) ...[
+                const SizedBox(height: 10),
+                Text(session.notice!, style: theme.textTheme.bodySmall),
+              ],
+            ],
+          ),
+        );
+      },
+    );
   }
 
   /// Submit the checkout.
@@ -426,10 +542,17 @@ class _ContentWidth extends StatelessWidget {
 /// bottom. The reference storefront does exactly this — the brand is the
 /// loudest thing on the page and the utility icons stay quiet.
 class _BrandHeader extends StatelessWidget {
-  const _BrandHeader({required this.cart, required this.onCartTap});
+  const _BrandHeader({
+    required this.cart,
+    required this.onCartTap,
+    required this.onSearchTap,
+    required this.onAccountTap,
+  });
 
   final CartController cart;
   final VoidCallback onCartTap;
+  final VoidCallback onSearchTap;
+  final VoidCallback onAccountTap;
 
   @override
   Widget build(BuildContext context) {
@@ -445,7 +568,11 @@ class _BrandHeader extends StatelessWidget {
           Row(
             children: [
               if (!compact)
-                const _UtilityIcon(icon: Icons.search_outlined, label: '検索 / Search'),
+                _UtilityIcon(
+                  icon: Icons.search_outlined,
+                  label: '検索 / Search',
+                  onTap: onSearchTap,
+                ),
               const Spacer(),
               const Text(
                 'DOKIPON',
@@ -460,7 +587,11 @@ class _BrandHeader extends StatelessWidget {
               const Spacer(),
               if (!compact) ...[
                 _CartButton(count: cart.itemCount, onTap: onCartTap),
-                const _UtilityIcon(icon: Icons.person_outline, label: 'アカウント / Account'),
+                _UtilityIcon(
+                  icon: Icons.person_outline,
+                  label: 'アカウント / Account',
+                  onTap: onAccountTap,
+                ),
               ],
             ],
           ),
@@ -469,9 +600,17 @@ class _BrandHeader extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const _UtilityIcon(icon: Icons.search_outlined, label: '検索'),
+                _UtilityIcon(
+                  icon: Icons.search_outlined,
+                  label: '検索',
+                  onTap: onSearchTap,
+                ),
                 _CartButton(count: cart.itemCount, onTap: onCartTap),
-                const _UtilityIcon(icon: Icons.person_outline, label: 'アカウント'),
+                _UtilityIcon(
+                  icon: Icons.person_outline,
+                  label: 'アカウント',
+                  onTap: onAccountTap,
+                ),
               ],
             ),
           ],
@@ -539,10 +678,22 @@ class _CartButton extends StatelessWidget {
 }
 
 class _UtilityIcon extends StatelessWidget {
-  const _UtilityIcon({required this.icon, required this.label});
+  const _UtilityIcon({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   final IconData icon;
   final String label;
+
+  /// Every utility icon does something.
+  ///
+  /// The action is part of the constructor on purpose: a control that is
+  /// announced as a button and does nothing is worse than no control at all,
+  /// and an empty `onTap: () {}` made that possible twice. A new utility icon
+  /// cannot be added without deciding what it does.
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -551,7 +702,7 @@ class _UtilityIcon extends StatelessWidget {
       label: label,
       excludeSemantics: true,
       child: InkWell(
-        onTap: () {},
+        onTap: onTap,
         child: SizedBox(
           width: kMinTouchTarget,
           height: kMinTouchTarget,
@@ -672,7 +823,12 @@ class _CategoryNav extends StatelessWidget {
 /// reference site runs a topics strip of editorial links; this is the same
 /// idea in one line.
 class _HeroBanner extends StatelessWidget {
-  const _HeroBanner();
+  const _HeroBanner({required this.onShopAll});
+
+  /// "Show the whole collection" — clears the category filter the strip
+  /// applies, so the button is the way back to everything after a shopper
+  /// has narrowed the catalogue down.
+  final VoidCallback onShopAll;
 
   @override
   Widget build(BuildContext context) {
@@ -708,7 +864,7 @@ class _HeroBanner extends StatelessWidget {
           ),
           const SizedBox(height: DokSpace.xl),
           OutlinedButton(
-            onPressed: () {},
+            onPressed: onShopAll,
             child: const Text('SHOP COLLECTION'),
           ),
         ],
