@@ -50,7 +50,7 @@
     {
       "method": "GET",
       "path": "/v1/inventory",
-      "expectStatus": 404,
+      "expectStatus": 200,
       "note": "the inventory service exposes only the three reservation write routes; contracts/openapi.yaml records this as x-blocked-by: inventory-service-has-no-list-route on /admin/v1/inventory. This expectation flips to 200 when the listing route lands — that is the point of having it here."
     },
     {

@@ -438,6 +438,10 @@ async function auditSurface(browser, name, path) {
   // The errors from the initial load. The per-control loop resets the
   // collectors so each control is measured on its own; this list is what
   // happened while the page was simply loading.
+  // Controls that changed the page when they were clicked. One of them is
+  // used as a primer for the second attempt below.
+  const active = [];
+
   const loadErrors = {
     consoleErrors: [],
     pageErrors: [],
@@ -463,10 +467,6 @@ async function auditSurface(browser, name, path) {
       }
       const controls = await listControls(page);
       report.controlCount = controls.length;
-
-      // Controls that changed the page when they were clicked. One of them
-      // is used as a primer for the second attempt below.
-      const active = [];
 
       for (const control of controls) {
         // The **same page** is reloaded, not a fresh context. A fresh context
