@@ -1,8 +1,14 @@
-//! Authoritative pricing for the order service.
+//! Authoritative pricing, shared by every service that touches a price.
 //!
-//! The order service must never trust a client-supplied amount. The design
-//! documents state this as a hard rule ("the server is the only authority"),
-//! and the client is free to claim whatever it likes.
+//! The cart and the order service must never trust a client-supplied amount.
+//! The design documents state this as a hard rule ("the server is the only
+//! authority"), and the client is free to claim whatever it likes.
+//!
+//! This lives in `commerce-core` rather than in one service because two
+//! independent copies of a money rule is two chances to get it wrong. The
+//! cart needs it too: a cart whose displayed price the client can set is a
+//! cart that shows the shopper a different number from the one they are
+//! charged.
 //!
 //! ## The bug this module exists to prevent
 //!
@@ -70,6 +76,34 @@ struct CatalogPage {
     items: Vec<CatalogItem>,
 }
 
+/// The authority the order and cart services ask for a price.
+///
+/// A trait rather than a concrete type so a deployment that hosts the
+/// catalogue in the same process can serve the price without an HTTP round
+/// trip, and so the two services do not have to know how the catalogue is
+/// reached. The cluster deployment uses the HTTP implementation; the merged
+/// edge uses the in-process one.
+#[async_trait::async_trait]
+pub trait PriceSource: Send + Sync + 'static {
+    /// The authoritative price for every SKU in the basket.
+    ///
+    /// A SKU the catalogue does not know is simply absent from the result;
+    /// the caller decides what that means (the order service treats it as
+    /// "price unavailable" and rejects the checkout, because a line it
+    /// cannot price must not be charged at the client's claim).
+    async fn fetch_prices(&self, skus: &[String]) -> Result<Vec<(String, Money)>, String>;
+}
+
+#[async_trait::async_trait]
+impl PriceSource for PriceAuthority {
+    async fn fetch_prices(
+        &self,
+        skus: &[String],
+    ) -> Result<Vec<(String, Money)>, String> {
+        self.fetch_prices_over_http(skus).await
+    }
+}
+
 impl PriceAuthority {
     pub fn new(catalog_base_url: String) -> Self {
         let client = reqwest::Client::builder()
@@ -84,14 +118,11 @@ impl PriceAuthority {
         }
     }
 
-    /// Fetch the authoritative price for every SKU in the basket.
+    /// Fetch the authoritative price for every SKU in the basket over HTTP.
     ///
-    /// Returns a map of sku -> (amount_minor, currency). A SKU the catalogue
-    /// does not know is simply absent from the map; the caller decides what
-    /// that means (the order service treats it as "price unavailable" and
-    /// rejects the checkout, because a line it cannot price must not be
-    /// charged at the client's claim).
-    pub async fn fetch_prices(
+    /// The catalogue is queried once per checkout for the whole basket, not
+    /// once per line: a checkout of five lines is one HTTP call.
+    pub async fn fetch_prices_over_http(
         &self,
         skus: &[String],
     ) -> Result<Vec<(String, Money)>, String> {

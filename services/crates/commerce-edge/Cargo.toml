@@ -1,0 +1,58 @@
+[package]
+name = "commerce-edge"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.85"
+description = "Single-process edge for the DOKIPON commerce stack — one binary that serves every service behind one router."
+
+[dependencies]
+commerce-core = { path = "../commerce-core" }
+commerce-catalog = { path = "../commerce-catalog" }
+commerce-cart = { path = "../commerce-cart" }
+commerce-order = { path = "../commerce-order" }
+commerce-inventory = { path = "../commerce-inventory" }
+commerce-identity = { path = "../commerce-identity" }
+commerce-payment-adapter = { path = "../commerce-payment-adapter" }
+commerce-admin = { path = "../commerce-admin" }
+commerce-content = { path = "../commerce-content" }
+commerce-bff = { path = "../commerce-bff" }
+
+async-trait = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+# The Vercel Rust runtime. Optional: only the deployment binary needs it.
+vercel_runtime = { version = "2.4", features = ["axum"], optional = true }
+
+[lib]
+name = "commerce_edge"
+path = "src/lib.rs"
+
+[features]
+default = []
+# Enables the Vercel function binary.
+vercel = ["dep:vercel_runtime"]
+
+[[bin]]
+name = "commerce-edge"
+path = "src/main.rs"
+
+# The Vercel function entry point. It is a second binary in the same crate so
+# the `vercel_runtime` dependency — which only the deployment needs — does not
+# end up in the standalone binary's dependency tree.
+[[bin]]
+name = "vercel"
+path = "src/bin/vercel.rs"
+required-features = ["vercel"]
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3

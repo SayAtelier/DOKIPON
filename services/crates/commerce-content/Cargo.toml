@@ -1,0 +1,16 @@
+[package]
+name = "commerce-content"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Content: collections, series, trends, topics, pages, FAQ, banners, size guides"
+
+[dependencies]
+axum.workspace = true
+tokio.workspace = true
+tower.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+commerce-core = { path = "../commerce-core" }

@@ -32,6 +32,9 @@ use axum::{
 #[derive(Debug, Clone)]
 pub struct Upstreams {
     pub order_base_url: String,
+
+    /// Where the content document lives.
+    pub content_base_url: String,
 }
 
 /// The request headers the BFF forwards to the order service.
@@ -62,6 +65,46 @@ impl Upstreams {
                 .unwrap_or_else(|_| "http://commerce-order:8085".to_string())
                 .trim_end_matches('/')
                 .to_string(),
+            content_base_url: std::env::var("CONTENT_URL")
+                .unwrap_or_else(|_| "http://commerce-content:8096".to_string())
+                .trim_end_matches('/')
+                .to_string(),
+        }
+    }
+
+    /// Fetch the editable content document.
+    ///
+    /// The storefront renders its collections, series, trends, topics, pages,
+    /// FAQ, banners and size guides from this one document. Fetching it
+    /// through the edge keeps the browser on a single origin, so the page
+    /// does not need a CORS preflight to render its navigation.
+    ///
+    /// A content service that is down must not take the catalogue down with
+    /// it: an empty document is returned and the storefront falls back to its
+    /// own defaults.
+    pub async fn fetch_content(&self, client: &reqwest::Client) -> Response {
+        let url = format!("{}/v1/content", self.content_base_url);
+        match client.get(&url).send().await {
+            Ok(response) if response.status().is_success() => match response.bytes().await {
+                Ok(bytes) => (
+                    StatusCode::OK,
+                    [("content-type", "application/json")],
+                    bytes.to_vec(),
+                )
+                    .into_response(),
+                Err(e) => {
+                    tracing::error!(error = %e, "content response was unreadable");
+                    empty_content()
+                }
+            },
+            Ok(response) => {
+                tracing::warn!(status = %response.status(), "content service returned an error");
+                empty_content()
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "content service unreachable");
+                empty_content()
+            }
         }
     }
 
@@ -150,6 +193,18 @@ fn problem(status: StatusCode, code: &str, detail: &str) -> Response {
         .into_response()
 }
 
+/// An empty content document, used when the content service cannot be
+/// reached. The storefront falls back to its own defaults, so the shop keeps
+/// selling even when the operator's content is unavailable.
+fn empty_content() -> Response {
+    (
+        StatusCode::OK,
+        [("content-type", "application/json")],
+        r#"{"collections":[],"series":[],"trends":[],"topics":[],"pages":[],"faqs":[],"banners":[],"size_guides":[],"revision":0}"#,
+    )
+        .into_response()
+}
+
 /// Build the HTTP client the BFF uses to reach its upstreams.
 pub fn build_client() -> reqwest::Client {
     reqwest::Client::builder()
@@ -179,6 +234,7 @@ mod tests {
     async fn an_unreachable_order_service_is_a_503_not_a_panic() {
         let upstreams = Upstreams {
             order_base_url: "http://127.0.0.1:1".to_string(),
+            content_base_url: "http://127.0.0.1:1".to_string(),
         };
         let client = build_client();
         let response = upstreams

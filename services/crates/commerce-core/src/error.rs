@@ -104,12 +104,6 @@ impl IntoResponse for AppError {
     }
 }
 
-impl From<sqlx::Error> for AppError {
-    fn from(e: sqlx::Error) -> Self {
-        AppError::Internal(format!("db: {e}"))
-    }
-}
-
 pub mod status {
     use super::*;
 
@@ -118,6 +112,23 @@ pub mod status {
             "https://api.gemarc.example/problems/bad-request",
             "Bad Request",
             StatusCode::BAD_REQUEST,
+            code,
+            detail,
+            trace,
+            false,
+        ))
+    }
+
+    /// 415 — the request's content type is not one this endpoint accepts.
+    pub fn unsupported_media_type(
+        code: &str,
+        detail: impl Into<String>,
+        trace: &str,
+    ) -> AppError {
+        AppError::Problem(ProblemDetails::new(
+            "https://api.gemarc.example/problems/unsupported-media-type",
+            "Unsupported Media Type",
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
             code,
             detail,
             trace,
