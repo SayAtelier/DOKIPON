@@ -74,105 +74,92 @@
     </div>
   </section>
 
-  <section class="sec">
-    <h2>真实实现现状 / What the code actually does</h2>
-    <p class="lead">
-      原型照<b>客户端期望</b>渲染。但把 openapi 契约、服务端实现和 Dart 客户端三方对齐后，
-      电商线上仍有 <b>6 类接线缺口</b>（另有 1 处低影响项）。这部分不是原型能补的，需要真实改动，所以在此如实列出。
-    </p>
+    <section class="sec">
+      <h2>真实实现现状 / What the code actually does</h2>
+      <p class="lead">
+        原型照<b>客户端期望</b>渲染。这一节记录真实代码与该期望的差距。
+        最初的版本列出 6 类接线缺口；<b>它们现在都已闭合</b>，下面是闭合方式与证据。
+      </p>
 
-    <h3>① 12 条契约路径分别落在 5 个独立进程里，没有网关</h3>
-    <table class="tbl">
-      <tr><th>路径</th><th>实现位置</th><th>行号</th></tr>
-      <tr><td class="k">GET /v1/storefront</td><td>commerce-bff</td><td class="k">main.rs:227</td></tr>
-      <tr><td class="k">POST /v1/sessions/guest</td><td>commerce-bff（<b>桩</b>）＋ commerce-identity（真）</td><td class="k">bff:228 / identity:294</td></tr>
-      <tr><td class="k">POST /v1/checkouts</td><td>commerce-bff（<b>桩</b>）＋ commerce-order（真）</td><td class="k">bff:229 / order:442</td></tr>
-      <tr><td class="k">POST /v1/sessions/line</td><td>commerce-identity（<b>只有它有</b>）</td><td class="k">identity:293</td></tr>
-      <tr><td class="k">GET /v1/products, /v1/products/{id}</td><td>commerce-catalog</td><td class="k">main.rs:195-196</td></tr>
-      <tr><td class="k">GET /v1/carts/{id}, PATCH …/items/{sku}</td><td>commerce-cart</td><td class="k">main.rs:166-167</td></tr>
-      <tr><td class="k">GET /v1/checkouts/{id}</td><td>commerce-order</td><td class="k">main.rs:443</td></tr>
-      <tr><td class="k">GET /v1/orders, /v1/orders/{id}, POST …/reconcile</td><td>commerce-order</td><td class="k">main.rs:444-446</td></tr>
-    </table>
-    <div class="verdict verdict--bad">
-      <b>BFF 不代理另外四个服务，而且它自己的两个端点是桩。</b>
-      <span class="k">commerce-bff/src/main.rs</span> 的 router 只有 4 条路由，且全文件没有 HTTP 客户端；
-      <span class="k">submit_checkout</span> 只校验 session 与 Idempotency-Key 就返回 202 空体（main.rs:215-219），
-      <span class="k">guest_session</span> 本地造一个 id（main.rs:167-179）。
-      而 Dart 客户端只有<b>一个</b> <span class="k">baseUri</span>（commerce_api_client.dart:12/35）。
-      仓库里也没有电商线的网关/ingress 清单（<span class="k">docker/compose</span> 里是游戏侧 5 域）。
-      → 结论：<b>12 条路径全部有实现，但没有任何一个进程能同时提供它们</b>；
-      客户端若指向 BFF，拿到的是 checkout 的空 202 与本地造的游客会话，
-      <b>而 <span class="k">/v1/sessions/line</span> 只在 identity 里 —— 从 BFF 出发根本换不到 LINE 会话</b>，LINE 登录链路当前不可达。
-    </div>
-    <div class="verdict verdict--warn">
-      <b>两条路径有两套实现，谁生效取决于 baseUri 指向谁。</b>
-      <span class="k">/v1/sessions/guest</span> 与 <span class="k">POST /v1/checkouts</span> 在 BFF 与
-      identity / order 里各有一份：BFF 版是边缘桩，identity/order 版才有真实语义
-      （LIFF id_token 校验 + nonce 防重放、订单状态机 + 幂等记录）。
-      这是接线时最容易踩的一处：<b>同一路径，不同行为</b>。
-    </div>
+      <h3>① 12 条路径由一个进程提供 —— commerce-edge</h3>
+      <div class="verdict">
+        <b>已闭合。</b>
+        新增 <span class="k">services/crates/commerce-edge</span>：把 9 个 commerce 服务挂进
+        同一个 axum <span class="k">Router</span>，按路径前缀 dispatch
+        （<span class="k">route_for()</span>），价格权威走进程内而不会回调自己。
+        未匹配的路径由 edge 兜底 404，而不是落到最后一个服务。
+        <br><br>
+        <span class="k">commerce-bff</span> 不再是「只有 4 条路由且 2 个是桩」的状态：
+        <span class="k">/v1/sessions/guest</span> 与 <span class="k">POST /v1/checkouts</span>
+        由真实实现（LIFF id_token 校验 + nonce 防重放、订单状态机 + 幂等记录）承担。
+        客户端仍然只需要一个 <span class="k">baseUri</span>。
+      </div>
+      <table class="tbl">
+        <tr><th>路径</th><th>实现位置</th></tr>
+        <tr><td class="k">GET /v1/storefront</td><td>commerce-bff</td></tr>
+        <tr><td class="k">GET /v1/products, /v1/products/{id}</td><td>commerce-catalog</td></tr>
+        <tr><td class="k">GET /v1/carts/{id}, PATCH …/items/{sku}</td><td>commerce-cart</td></tr>
+        <tr><td class="k">GET /v1/checkouts/{id}</td><td>commerce-order</td></tr>
+        <tr><td class="k">GET /v1/orders, /v1/orders/{id}, POST …/reconcile</td><td>commerce-order</td></tr>
+        <tr><td class="k">POST /v1/sessions/guest, /v1/sessions/line</td><td>commerce-identity</td></tr>
+        <tr><td class="k">GET /v1/inventory, /v1/payments</td><td>commerce-inventory / commerce-payment-adapter</td></tr>
+        <tr><td class="k">/admin/v1/**</td><td>commerce-admin</td></tr>
+      </table>
 
-    <h3>② 电商线也存在 snake_case ↔ camelCase 漂移（与游戏线同源）</h3>
-    <table class="tbl">
-      <tr><th>字段</th><th>服务端返回</th><th>Dart 客户端读取</th><th>后果</th></tr>
-      <tr>
-        <td class="k">product_id</td>
-        <td class="k">catalog main.rs:80 <span class="k">ProductListItem.product_id</span></td>
-        <td class="k">product.dart <span class="k">json['productId']</span>（仅 camel）</td>
-        <td><b>productId 变成空串</b></td>
-      </tr>
-      <tr>
-        <td class="k">stock_policy</td>
-        <td class="k">catalog main.rs:31 <span class="k">Sku.stock_policy</span></td>
-        <td class="k">product.dart <span class="k">json['stockPolicy']</span>（仅 camel）</td>
-        <td>落到默认 <span class="k">reserved</span>；<b>made_to_order / unbounded 的库存 Saga 判断会错</b></td>
-      </tr>
-      <tr>
-        <td class="k">channel_eligibility</td>
-        <td class="k">catalog main.rs:75</td>
-        <td class="k">product.dart <span class="k">json['channelEligibility']</span>（仅 camel）</td>
-        <td>落到「全部允许」默认 → <b>LIFF-010 的渠道政策排除可能失效</b>，政策禁售内容会出现在 LINE</td>
-      </tr>
-      <tr>
-        <td class="k">title_i18n</td>
-        <td class="k">catalog main.rs:68</td>
-        <td class="k">product.dart <span class="k">json['titleI18n']</span>（仅 camel）</td>
-        <td>落空，而 <span class="k">Product</span> 没有扁平 <span class="k">title</span> 字段 → <b>标题为空</b></td>
-      </tr>
-      <tr>
-        <td class="k">lines[].unit_amount_minor / total.amount_minor</td>
-        <td class="k">order main.rs:534-535（serde 结构体 → snake）</td>
-        <td class="k">checkout.dart <span class="k">json['unitAmount']</span> / <span class="k">json['amountMinor']</span>（<b>无兜底</b>）</td>
-        <td><b>订单行与订单总额显示 ¥0</b></td>
-      </tr>
-      <tr>
-        <td class="k">session_id</td>
-        <td class="k">bff main.rs:160-165 <span class="k">GuestResp</span> ＋ identity main.rs:45 <span class="k">Session</span>（都是 serde → snake）</td>
-        <td class="k">session.dart <span class="k">json['sessionId']</span>（仅 camel）</td>
-        <td><b>游客会话 ID 为空</b>（两处实现都一样）</td>
-      </tr>
-      <tr>
-        <td class="k">channel</td>
-        <td class="k">identity main.rs:27 <span class="k">Channel</span> → <span class="k">"line_mini_app"</span></td>
-        <td class="k">domain_models <span class="k">StoreChannelWire</span> → <span class="k">"line"</span></td>
-        <td>影响低：客户端发请求用的是 <span class="k">Environment</span> 的 channel，不读 session.channel</td>
-      </tr>
-    </table>
-    <div class="verdict verdict--warn">
-      <b>已正确处理、不必改的部分：</b>
-      <span class="k">next_cursor</span>、<span class="k">cart_id</span>、<span class="k">unit_amount_snapshot</span>、
-      <span class="k">expires_at_ms</span> 在 Dart 侧都写了<b>双读兜底</b>（snake 优先，camel 兜底）；
-      checkout 快照与订单外层字段由 <span class="k">json!</span> 直接拼装，本就是 camelCase。
-    </div>
+      <h3>② snake_case ↔ camelCase 漂移 —— 已由服务端对齐</h3>
+      <div class="verdict">
+        <b>已闭合（服务端侧）。</b>
+        契约 <span class="k">contracts/openapi.yaml</span> 是 camelCase，服务端过去发的是
+        snake_case，Dart 客户端只读 camelCase —— 字段会<b>静默变空</b>（产品没标题、
+        订单显示 ¥0、游客会话 id 为空）。
+        现在各服务按契约逐字段对齐：
+      </div>
+      <table class="tbl">
+        <tr><th>字段</th><th>现在</th><th>后果</th></tr>
+        <tr><td class="k">productId</td><td>camelCase</td><td>正常</td></tr>
+        <tr><td class="k">stockPolicy</td><td>camelCase</td><td>库存 Saga 判断正确</td></tr>
+        <tr><td class="k">channelEligibility</td><td>camelCase</td><td>渠道政策排除生效</td></tr>
+        <tr><td class="k">titleI18n</td><td>camelCase</td><td>标题不再为空</td></tr>
+        <tr><td class="k">sessionId</td><td>camelCase</td><td>游客会话 id 不再为空</td></tr>
+        <tr><td class="k">lines[].unitAmount / total.amountMinor</td><td>camelCase</td><td>订单不再显示 ¥0</td></tr>
+      </table>
+      <div class="verdict verdict--warn">
+        <b>客户端仍保留双读兜底</b>（camel 优先、snake 兜底）。这不是 workaround，
+        而是让客户端同时兼容对齐前后的服务端。
+      </div>
 
-    <h3>③ 设计书要求、代码尚未覆盖的语义</h3>
-    <ul class="muted" style="padding-left:18px;line-height:1.9">
-      <li><b>渠道过滤是服务端职责</b>：<span class="k">catalog.list_products</span> 按 <span class="k">channel</span> 过滤，客户端只负责带对 <span class="k">x-channel</span> 头。</li>
-      <li><b>价格以服务端为准</b>：<span class="k">commerce-core::Money</span> 是整数最小单位 + ISO-4217，客户端的小计只用于显示。</li>
-      <li><b>幂等键必填</b>：<span class="k">BFF</span> 校验 <span class="k">requiresIdempotencyKey</span>，写操作的 scope 是 <span class="k">(actor, operation)</span>。</li>
-      <li><b>payment_unknown 是唯一出口是 reconcile</b>：<span class="k">commerce-order</span> 注释写明「the ONLY way out of PaymentUnknown」。</li>
-    </ul>
-  </section>
+      <h3>③ 分类过滤 —— 契约里的 categoryId 现在真的接上了</h3>
+      <div class="verdict">
+        <b>已闭合。</b>
+        <span class="k">GET /v1/products</span> 一直声明了 <span class="k">categoryId</span>，
+        服务端也一直按 <span class="k">category_id</span> 过滤，但客户端从没有这个概念 ——
+        分类条上的按钮是 <span class="k">onTap: () {}</span>，点不动。
+        现在：<span class="k">CatalogController.selectCategory()</span> 换分类是<b>替换</b>列表
+        而不是追加，过滤器随 cursor 一起走，上一个分类还在飞的请求会被丢弃
+        （query id 守卫），不会覆盖用户已经选中的分类。
+        demo 目录也覆盖了导航条提供的全部分类 —— 一个大半入口通向空货架的 demo
+        会让能用的过滤器看起来像坏的。
+      </div>
+
+      <h3>仍然存在的限制（如实记录）</h3>
+      <ul class="muted" style="padding-left:18px;line-height:1.9">
+        <li><b>inventory 没有列表路由。</b>
+          inventory 服务只有三条预留写路由，没有读路由，因此
+          <span class="k">GET /v1/inventory</span> 是 404，
+          <span class="k">GET /admin/v1/inventory</span> 也会回
+          <span class="k">admin.upstream_error</span>。契约里标着
+          <span class="k">x-implemented: false</span> 与
+          <span class="k">x-blocked-by: inventory-service-has-no-list-route</span>。</li>
+        <li><b>状态在内存里。</b>
+          购物车、订单、库存都是进程内状态，Vercel 可能同时跑多个函数实例，
+          跨实例的购物车会「凭空清空」。目录、内容文档与运营后台是静态或幂等读，不受影响。
+          要变成生产部署，需要把可变存储搬进共享数据库 —— 改的是 store，不是 edge。</li>
+        <li><b>运营后台的字段名仍是游戏域词汇。</b>
+          界面已电商化，后端返回的 <span class="k">playerId</span> /
+          <span class="k">vipLevel</span> / <span class="k">guild</span> /
+          <span class="k">mall</span> 没改 —— 逐屏对照表见运营后台索引页。</li>
+      </ul>
+    </section>
 
   <section class="sec">
     <h2>设计系统真实组件 / The real components</h2>
