@@ -1,0 +1,70 @@
+{
+  "$comment": "Contract expectations for the DOKIPON commerce deployment. Derived from contracts/openapi.yaml (the contract of record). The audit checks the live deployment against these, so a server that drifts from the contract fails here rather than in a user's browser.",
+  "paths": [
+    {
+      "method": "GET",
+      "path": "/healthz",
+      "expectStatus": 200,
+      "expectJson": "object",
+      "note": "the edge's own health check"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/storefront",
+      "expectStatus": 200,
+      "expectJson": "object",
+      "requiredFields": ["channel", "catalog", "checkout", "capabilities"],
+      "note": "Storefront schema: all four are required"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/products",
+      "expectStatus": 200,
+      "expectJson": "object",
+      "requiredFields": ["items"],
+      "expectArrayField": { "field": "items", "minLength": 1 },
+      "note": "ProductPage: items is required and must not be empty for a seeded catalogue"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/products?channel=line",
+      "expectStatus": 200,
+      "expectJson": "object",
+      "requiredFields": ["items"],
+      "expectArrayField": { "field": "items", "minLength": 0 },
+      "note": "the channel filter is a server responsibility; the line channel may legitimately have fewer products"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/inventory",
+      "expectStatus": 200,
+      "expectJson": "object",
+      "requiredFields": [],
+      "note": "inventory levels"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/orders",
+      "expectStatus": 200,
+      "expectJson": "object",
+      "requiredFields": [],
+      "note": "the order list is empty until a checkout happens"
+    }
+  ],
+  "productDetail": {
+    "$comment": "ProductDetail is required to carry these camelCase names. A server that emits snake_case here is the exact defect the prototype documented: the Dart client reads camelCase only, so the field silently arrives empty.",
+    "requiredFields": [
+      "productId",
+      "sku",
+      "price",
+      "version",
+      "stockPolicy",
+      "availability",
+      "channelEligibility"
+    ]
+  },
+  "adminPaths": [
+    { "method": "GET", "path": "/admin/v1/products", "expectStatus": 401, "note": "the admin facade is authenticated; without a session it must refuse, not crash" },
+    { "method": "GET", "path": "/admin/v1/orders", "expectStatus": 401, "note": "same" }
+  ]
+}

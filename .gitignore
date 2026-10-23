@@ -208,3 +208,7 @@ shots-local/
 **/shots-local/
 .env.local
 nul
+
+# Playwright 实测报告 (per 2026-10-23 commerce-e2e)
+# 每次跑都生成, 属运行产物, 不入 commit
+tools/commerce-e2e/reports/

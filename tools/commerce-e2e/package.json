@@ -1,0 +1,13 @@
+{
+  "name": "dokipon-commerce-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright audit of the deployed DOKIPON commerce deployment (storefront + admin console + contract API).",
+  "type": "module",
+  "scripts": {
+    "audit": "node scripts/audit.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
+}
