@@ -111,6 +111,15 @@ class _CatalogScreenState extends State<CatalogScreen> {
   /// Whether the cart drawer is open.
   bool _cartOpen = false;
 
+  /// The handle on the `Scaffold` that owns the cart drawer.
+  ///
+  /// The drawer cannot be opened through `Scaffold.of(context)`: this State's
+  /// context sits **above** the `Scaffold` — the `Scaffold` is built inside
+  /// `build()` — so `Scaffold.of` finds no `Scaffold` ancestor and throws
+  /// "Scaffold.of() called with a context that does not contain a Scaffold."
+  /// A key reaches the `ScaffoldState` directly, whatever the tree does.
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
   @override
   void initState() {
     super.initState();
@@ -176,6 +185,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     final session = widget.session;
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: DokColors.canvas,
       body: RefreshIndicator(
         onRefresh: () => catalog.load(refresh: true),
@@ -316,7 +326,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   void _openCart() {
-    Scaffold.of(context).openDrawer();
+    _scaffoldKey.currentState?.openDrawer();
   }
 
   void _closeCart() {
@@ -342,7 +352,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       payload: payload,
     );
     if (mounted) {
-      Scaffold.of(context).closeDrawer();
+      _scaffoldKey.currentState?.closeDrawer();
     }
   }
 
