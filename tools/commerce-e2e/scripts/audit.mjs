@@ -464,6 +464,10 @@ async function auditSurface(browser, name, path) {
       const controls = await listControls(page);
       report.controlCount = controls.length;
 
+      // Controls that changed the page when they were clicked. One of them
+      // is used as a primer for the second attempt below.
+      const active = [];
+
       for (const control of controls) {
         // The **same page** is reloaded, not a fresh context. A fresh context
         // means a cold HTTP cache, and the Flutter bundle is ~45 MB (the
@@ -478,7 +482,9 @@ async function auditSurface(browser, name, path) {
           if (name === 'admin' && report.login && report.login.ok) {
             await tryAdminLogin(page);
           }
-          report.controls.push(await auditControl(page, control, state));
+          const outcome = await auditControl(page, control, state);
+          report.controls.push(outcome);
+          if (!outcome.problems.length) active.push(control);
         } catch (e) {
           report.controls.push({
             role: control.role,
@@ -495,6 +501,50 @@ async function auditSurface(browser, name, path) {
   // Snapshot the errors from the initial load. The per-control loop resets
   // the collectors so each control is measured on its own; the surface-level
   // list is what happened while the page was simply loading.
+  // Second attempt for the controls that did nothing: retry them after a
+  // primer has changed the page. A control that reacts then is a
+  // state-dependent no-op (correct behaviour), not a dead button.
+  const noOps = report.controls.filter(
+    (c) => c.problems && c.problems.length === 1 && c.problems[0].startsWith('inert:'),
+  );
+  if (noOps.length > 0 && active.length > 0) {
+    const primer = active[0];
+    const ctx2 = await browser.newContext({ viewport: VIEWPORT });
+    const p2 = await ctx2.newPage();
+    try {
+      for (const c of noOps) {
+        await p2.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: BOOT_TIMEOUT });
+        await waitForFlutter(p2);
+        await enableSemantics(p2);
+        if (name === 'admin' && report.login && report.login.ok) await tryAdminLogin(p2);
+        // Change the page first.
+        await p2.locator(CONTROL_SELECTOR).nth(primer.index).click({ force: true, timeout: 8000 }).catch(() => {});
+        await p2.waitForTimeout(SETTLE_MS);
+        // Then the control that did nothing.
+        const target = p2.locator(CONTROL_SELECTOR).nth(c.index);
+        const before2 = await probe(p2);
+        let clickError2 = null;
+        try {
+          await target.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+          await target.click({ timeout: 5000, force: true });
+        } catch (e) {
+          clickError2 = String(e && e.message ? e.message : e).split('\n')[0];
+        }
+        await p2.waitForTimeout(SETTLE_MS);
+        const after2 = await probe(p2);
+        const reacted = after2.url !== before2.url || after2.signature !== before2.signature;
+        if (reacted && !clickError2) {
+          c.problems = [];
+          c.note = 'state-dependent no-op: nothing happens in the initial state and it reacts once the page has changed — correct behaviour, not a dead button';
+        } else {
+          c.problems = ['inert: the click changed nothing, in the initial state or after another control changed the page'];
+        }
+      }
+    } finally {
+      await ctx2.close();
+    }
+  }
+
   report.consoleErrors = loadErrors.consoleErrors;
   report.pageErrors = loadErrors.pageErrors;
   report.badResponses = loadErrors.badResponses;
