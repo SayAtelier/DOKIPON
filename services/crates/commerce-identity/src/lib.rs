@@ -44,6 +44,16 @@ pub enum SessionKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
+    /// The contract spells this one field `sessionId` while the rest of this
+    /// struct is snake_case: `contracts/openapi.yaml` -> `Session` requires
+    /// `sessionId`, and the Dart client reads `json['sessionId']` only.
+    ///
+    /// Emitting `session_id` instead left the client with an **empty session
+    /// id**, and a guest session that cannot be identified cannot own a cart
+    /// — so "add to cart" silently did nothing at all. The field is renamed
+    /// per field rather than with `rename_all` for exactly that reason:
+    /// `expires_at_ms` is snake_case in the contract too.
+    #[serde(rename = "sessionId")]
     pub session_id: String,
     pub kind: SessionKind,
     pub channel: Channel,
@@ -451,6 +461,35 @@ mod tests {
             let enc = base64_url(s.as_bytes());
             assert_eq!(base64_url_decode(&enc).unwrap(), s.as_bytes());
         }
+    }
+
+    /// The contract spells the session id `sessionId` (camelCase) while the
+    /// rest of this struct is snake_case. This is a regression guard: the
+    /// response used to carry `session_id`, the Dart client read
+    /// `json['sessionId']` only, and every guest session therefore arrived
+    /// with an **empty id** — which is invisible in the response (still 200,
+    /// still the right number of fields) and made "add to cart" do nothing.
+    #[test]
+    fn session_serializes_the_session_id_the_contract_spells() {
+        let session = Session {
+            session_id: "sess-000001".to_string(),
+            kind: SessionKind::Guest,
+            channel: Channel::Web,
+            subject: None,
+            issued_at_ms: 1_000,
+            expires_at_ms: 2_000,
+            revoked: false,
+        };
+
+        let json = serde_json::to_value(&session).expect("serialize");
+
+        assert_eq!(json["sessionId"], "sess-000001");
+        assert_eq!(json["kind"], "guest");
+        // The rest of the struct keeps the contract's snake_case spelling.
+        assert_eq!(json["expires_at_ms"], 2_000);
+        // The old spelling must be gone: a client that prefers the snake_case
+        // key would read null.
+        assert!(json.get("session_id").is_none());
     }
 
     #[test]

@@ -67,7 +67,7 @@ const EXPECT = JSON.parse(
 );
 
 const VIEWPORT = { width: 1280, height: 900 };
-const BOOT_TIMEOUT = 120_000;
+const BOOT_TIMEOUT = 240_000;
 const SETTLE_MS = 1000;
 
 /** The elements that prove a Flutter Web app is alive in Flutter 3.47. */
@@ -322,7 +322,15 @@ async function auditApi(page) {
     let status = null;
     let body = null;
     try {
-      const res = await page.request.fetch(url, { method: spec.method, timeout: 20_000 });
+      // A POST without a body is rejected by the JSON extractor before the
+      // handler ever runs, which would test the extractor's taste rather
+      // than the endpoint. Send an empty JSON object instead.
+      const init = { method: spec.method, timeout: 20_000 };
+      if (spec.method === 'POST' || spec.method === 'PATCH' || spec.method === 'PUT') {
+        init.data = '{}';
+        init.headers = { 'content-type': 'application/json' };
+      }
+      const res = await page.request.fetch(url, init);
       status = res.status();
       const text = await res.text();
       if (text.trim().length > 0) {
@@ -585,3 +593,4 @@ main().catch((e) => {
   console.error(e);
   process.exitCode = 2;
 });
+

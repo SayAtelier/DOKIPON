@@ -16,6 +16,14 @@
       "note": "Storefront schema: all four are required"
     },
     {
+      "method": "POST",
+      "path": "/v1/sessions/guest",
+      "expectStatus": 200,
+      "expectJson": "object",
+      "requiredFields": ["sessionId", "kind"],
+      "note": "Session schema. `sessionId` is camelCase in the contract while the rest of the session is snake_case (`expires_at_ms`), so it is checked field by field. This entry is here because the response used to carry `session_id`: the Dart client reads `json['sessionId']` only, so every guest session arrived with an empty id and 'add to cart' did nothing — while the response was still 200 with the right number of fields."
+    },
+    {
       "method": "GET",
       "path": "/v1/products",
       "expectStatus": 200,

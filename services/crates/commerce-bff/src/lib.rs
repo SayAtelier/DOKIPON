@@ -164,6 +164,10 @@ pub struct GuestReq {
 
 #[derive(Debug, Serialize)]
 pub struct GuestResp {
+    /// `sessionId`, to match `contracts/openapi.yaml` -> `Session` and the
+    /// Dart client, which reads `json['sessionId']` only. See the note on
+    /// `commerce_identity::Session` for why this is renamed per field.
+    #[serde(rename = "sessionId")]
     pub session_id: String,
     pub kind: &'static str,
     pub can_checkout: bool,
