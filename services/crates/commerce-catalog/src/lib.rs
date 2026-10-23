@@ -226,6 +226,16 @@ pub struct ListQuery {
     pub cursor: Option<String>,
     pub limit: Option<i64>,
     pub locale: Option<String>,
+    /// The category filter.
+    ///
+    /// The contract names the query parameter `categoryId`
+    /// (`contracts/openapi.yaml` -> `GET /v1/products`) and the storefront
+    /// sends exactly that. A query extractor matches field names literally,
+    /// so without the rename `?categoryId=cat-swim` was dropped on the floor
+    /// and the catalogue answered with the whole catalogue — a filter that
+    /// looks wired up and filters nothing. `category_id` stays accepted as
+    /// an alias for callers that spell it the Rust way.
+    #[serde(rename = "categoryId", alias = "category_id")]
     pub category_id: Option<String>,
     /// `web` | `app` | `line` — BFF passes the end-client channel here.
     pub channel: Option<String>,
@@ -337,6 +347,9 @@ async fn get_product(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
 
     #[test]
     fn seeded_products_have_positive_prices_and_versions() {
@@ -452,5 +465,94 @@ mod tests {
                 "category `{category}` has no product in the demo catalogue"
             );
         }
+    }
+
+    /// The category filter must work through the real query string.
+    ///
+    /// The contract names the parameter `categoryId`
+    /// (`contracts/openapi.yaml` -> `GET /v1/products`) and the storefront
+    /// sends exactly that. The filter used to be wired only to the Rust
+    /// field name (`category_id`), and a query extractor matches field names
+    /// literally — so `?categoryId=cat-swim` was dropped and the catalogue
+    /// answered with every product. On screen that reads as a button that
+    /// still does nothing. This test goes through the router, so it fails if
+    /// the parameter name ever drifts from the contract again.
+    #[tokio::test]
+    async fn the_contract_category_parameter_filters_the_catalogue() {
+        let app = router(Arc::new(CatalogStore::seed_demo()));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/products?categoryId=cat-swim")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let items = page["items"].as_array().expect("items is an array");
+
+        assert_eq!(items.len(), 1, "the filter did not narrow the page: {page}");
+        assert_eq!(items[0]["productId"], "p-swim-01");
+    }
+
+    /// A category with nothing in it is an empty page, not an error.
+    ///
+    /// The storefront renders a "no products in this category" state for it,
+    /// and that state is only reachable if the server answers 200 with an
+    /// empty list.
+    #[tokio::test]
+    async fn an_empty_category_is_an_empty_page_not_an_error() {
+        let app = router(Arc::new(CatalogStore::seed_demo()));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/products?categoryId=cat-nothing-here")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(page["items"].as_array().map(Vec::len), Some(0));
+        assert!(page["next_cursor"].is_null());
+    }
+
+    /// Without a category the whole catalogue comes back — the filter is an
+    /// addition, not a replacement for the unfiltered listing.
+    #[tokio::test]
+    async fn an_unfiltered_listing_returns_the_whole_catalogue() {
+        let app = router(Arc::new(CatalogStore::seed_demo()));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/products")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(page["items"].as_array().map(Vec::len), Some(10));
     }
 }
