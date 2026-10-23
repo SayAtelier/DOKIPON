@@ -216,12 +216,33 @@ async function auditControl(page, control, state) {
   const target = page.locator(CONTROL_SELECTOR).nth(control.index);
   const started = Date.now();
   let clickError = null;
+  let stillOffScreen = false;
+
+  // Is the control on screen? Measured on the layout the user's mouse hits.
+  const onScreen = async () => target.evaluate((node) => {
+    const r = node.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    return r.bottom > 0 && r.top < window.innerHeight;
+  }).catch(() => true);
+
+  if (!(await onScreen())) {
+    // The canvas is what scrolls in a Flutter app. Scrolling the *semantics
+    // host* does not move it, so drive the app with the mouse wheel over the
+    // canvas and let Flutter move the semantics nodes along with it.
+    const vp = page.viewportSize() || { width: 1280, height: 900 };
+    for (let i = 0; i < 16; i++) {
+      await page.mouse.move(vp.width / 2, vp.height / 2);
+      await page.mouse.wheel(0, 500);
+      await page.waitForTimeout(250);
+      if (await onScreen()) break;
+    }
+    if (!(await onScreen())) stillOffScreen = true;
+  }
+
   try {
-    // Flutter keeps semantics nodes for widgets that are scrolled out of
-    // view. Bring the node into the viewport first; if it still has no box,
-    // it is not on screen and is reported as skipped rather than broken.
-    await target.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
-    await target.click({ timeout: 5000, force: true });
+    if (!stillOffScreen) {
+      await target.click({ timeout: 5000, force: true });
+    }
   } catch (e) {
     clickError = String(e && e.message ? e.message : e).split('\n')[0];
   }
@@ -239,17 +260,11 @@ async function auditControl(page, control, state) {
     // A control that is deliberately disabled is not a broken control: it says
     // "not right now", which is the truth. Clicking it must change nothing.
     skipped = 'disabled';
+  } else if (stillOffScreen) {
+    // The app would not scroll it into view: genuinely unreachable.
+    skipped = 'the app will not scroll it into view';
   } else if (clickError) {
-    // A control that exists in the semantics tree but is not on screen is a
-    // scroll position, not a defect. Flutter keeps semantics nodes for
-    // widgets that are below the fold, and they cannot be clicked — so
-    // classify them by geometry, not by whether the click succeeded.
-    const offscreen = await target.evaluate((node) => {
-      const r = node.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return true;
-      return r.bottom < 0 || r.top > window.innerHeight;
-    }).catch(() => false);
-    if (offscreen || /not visible|not stable|not enabled|outside of the viewport|intercepts pointer/i.test(clickError)) {
+    if (/not visible|not stable|not enabled|outside of the viewport|intercepts pointer/i.test(clickError)) {
       skipped = 'not reachable on screen';
     } else {
       problems.push(`click failed: ${clickError}`);
