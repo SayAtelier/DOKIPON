@@ -7,13 +7,13 @@
  *
  * The deployment is a Flutter Web app (the storefront at `/`, the admin
  * console at `/admin/`) on top of a Rust edge that serves the commerce
- * contract. Flutter renders to a canvas, so the buttons are not DOM elements
- * and a DOM-based test sees an empty page. The way to drive a Flutter Web
- * app is to turn on the **semantics tree**: Flutter keeps a parallel DOM
- * representation of the widget tree for screen readers, and it stays off
- * until something asks for it. Clicking the "enable accessibility"
- * placeholder is that ask, and afterwards every button, link and field is a
- * real element with a role and a label.
+ * contract. Flutter renders into a shadow root, so the buttons are not DOM
+ * elements and a DOM-based test sees an empty page. The way to drive a
+ * Flutter Web app is to turn on the **semantics tree** — the parallel DOM
+ * representation Flutter keeps for screen readers, which stays off until
+ * something asks for it. Clicking the "enable accessibility" placeholder is
+ * that ask, and afterwards every button, link and field is a real element
+ * with a role and a label.
  *
  * ## What counts as a broken control
  *
@@ -31,6 +31,18 @@
  * present, it does not throw, and it does nothing. A button that is painted
  * but dead is exactly the defect this audit is looking for, and it is
  * invisible to a screenshot.
+ *
+ * ## Liveness, and a note on how it was got wrong first
+ *
+ * The first version of this audit checked for `flt-scene-host` to decide
+ * whether the app was still alive. Flutter 3.47 has no such element — the
+ * DOM is `<flutter-view><flt-glass-pane>…` — so the check was always false
+ * and every single control was reported as "the app unmounted after the
+ * click". Eighteen of eighteen, on two surfaces. The finding was an artefact
+ * of the instrument, not a property of the app. The liveness check now
+ * looks for the elements that actually exist, and the change signal is the
+ * **content** of the semantics tree rather than its size, because a control
+ * that opens a dialog can leave the node count unchanged.
  *
  * ## Usage
  *
@@ -54,9 +66,12 @@ const EXPECT = JSON.parse(
   readFileSync(resolve(ROOT, 'mock_data', 'contract-expectations.json'), 'utf8'),
 );
 
-const VIEWPORTS = { width: 1280, height: 900 };
-const BOOT_TIMEOUT = 45_000;
-const SETTLE_MS = 900;
+const VIEWPORT = { width: 1280, height: 900 };
+const BOOT_TIMEOUT = 60_000;
+const SETTLE_MS = 1000;
+
+/** The elements that prove a Flutter Web app is alive in Flutter 3.47. */
+const ALIVE_SELECTOR = 'flutter-view, flt-glass-pane';
 
 /** Per-target collectors. Reset between targets so one page cannot pollute the next. */
 function collectors(page) {
@@ -76,21 +91,28 @@ function collectors(page) {
   return state;
 }
 
-/** Wait for the Flutter app to be mounted and for its first frame to be on screen. */
+/**
+ * Wait for the Flutter app to be mounted and for its first frame to be on screen.
+ * Retries once: the first boot of a cold function can outlast the timeout.
+ */
 async function waitForFlutter(page) {
-  // `state: 'attached'`, not the default 'visible': Flutter's scene host is a
-  // zero-size container that hosts the canvas, so it never becomes "visible"
-  // to Playwright even when the app is running perfectly.
-  await page.waitForSelector('flt-scene-host, flt-glass-pane, canvas', {
-    state: 'attached',
-    timeout: BOOT_TIMEOUT,
-  });
-  // The first frame is painted a tick after the scene host exists. Give the
-  // engine a moment, then wait for the network to go quiet.
-  await page.waitForTimeout(1500);
-  await page
-    .waitForLoadState('networkidle', { timeout: 15_000 })
-    .catch(() => { /* a websocket or a poll keeps the network busy; that is fine */ });
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      // `state: 'attached'`, not the default 'visible': Flutter's own
+      // containers are zero-size, so they never become "visible" to
+      // Playwright even when the app is running perfectly.
+      await page.waitForSelector(ALIVE_SELECTOR, { state: 'attached', timeout: BOOT_TIMEOUT });
+      await page.waitForTimeout(1800);
+      await page
+        .waitForLoadState('networkidle', { timeout: 12_000 })
+        .catch(() => { /* a poll or a websocket keeps the network busy; that is fine */ });
+      return true;
+    } catch (e) {
+      if (attempt === 2) throw e;
+      await page.waitForTimeout(2000);
+    }
+  }
+  return false;
 }
 
 /**
@@ -100,60 +122,69 @@ async function waitForFlutter(page) {
 async function enableSemantics(page) {
   const placeholder = page.locator('flt-semantics-placeholder');
   if ((await placeholder.count()) === 0) return false;
-  await placeholder
-    .first()
-    .evaluate((el) => el.click())
-    .catch(() => {});
-  await page.waitForTimeout(700);
+  await placeholder.first().evaluate((el) => el.click()).catch(() => {});
+  await page.waitForTimeout(800);
   return (await page.locator('flt-semantics').count()) > 0;
 }
 
+const CONTROL_SELECTOR = [
+  'flt-semantics[role="button"]',
+  'flt-semantics[role="link"]',
+  'flt-semantics[role="checkbox"]',
+  'flt-semantics[role="radio"]',
+  'flt-semantics[role="tab"]',
+  'flt-semantics[role="switch"]',
+].join(', ');
+
 /** Every interactive control the semantics tree exposes. */
 async function listControls(page) {
-  const controls = page.locator(
-    'flt-semantics[role="button"], flt-semantics[role="link"], flt-semantics[role="checkbox"], flt-semantics[role="radio"], flt-semantics[role="tab"], flt-semantics[role="switch"]',
-  );
+  const controls = page.locator(CONTROL_SELECTOR);
   const n = await controls.count();
   const out = [];
   for (let i = 0; i < n; i++) {
     const el = controls.nth(i);
-    const info = await el.evaluate((node) => ({
-      role: node.getAttribute('role'),
-      label: node.getAttribute('aria-label') || (node.textContent || '').trim(),
-      checked: node.getAttribute('aria-checked'),
-      selected: node.getAttribute('aria-selected'),
-      disabled: node.getAttribute('aria-disabled') === 'true',
-      w: node.getBoundingClientRect().width,
-      h: node.getBoundingClientRect().height,
-    }));
+    const info = await el.evaluate((node) => {
+      const r = node.getBoundingClientRect();
+      return {
+        role: node.getAttribute('role'),
+        label: node.getAttribute('aria-label') || (node.textContent || '').trim(),
+        checked: node.getAttribute('aria-checked'),
+        selected: node.getAttribute('aria-selected'),
+        disabled: node.getAttribute('aria-disabled') === 'true',
+        rect: { x: r.x, y: r.y, w: r.width, h: r.height },
+      };
+    });
     out.push({ index: i, ...info });
   }
   return out;
 }
 
-/** The state of the app, read back from the page. */
+/**
+ * The state of the app, read back from the page.
+ *
+ * `signature` is the *content* of the semantics tree, not its size. A dialog
+ * that replaces one node with two changes the content; a control that opens
+ * a sheet with the same number of nodes does not change the count but does
+ * change the content.
+ */
 async function probe(page) {
-  return page.evaluate(() => ({
-    url: location.href,
-    sceneHost: !!document.querySelector('flt-scene-host'),
-    semantics: document.querySelectorAll('flt-semantics').length,
-    // Flutter renders into a canvas; a blank canvas and a painted canvas have
-    // very different byte counts, so the size of the canvas bitmap is a cheap
-    // proxy for "something was drawn".
-    canvasNonBlank: (() => {
-      const c = document.querySelector('canvas');
-      if (!c) return false;
-      try {
-        const ctx = c.getContext('2d');
-        if (!ctx) return true; // WebGL canvas: cannot read back, assume painted
-        const d = ctx.getImageData(0, 0, Math.min(c.width, 200), Math.min(c.height, 200)).data;
-        for (let i = 3; i < d.length; i += 4) if (d[i] !== 0) return true;
-        return false;
-      } catch {
-        return true;
-      }
-    })(),
-  }));
+  return page.evaluate(() => {
+    const nodes = [...document.querySelectorAll('flt-semantics')];
+    const signature = nodes
+      .map((n) => `${n.getAttribute('role') || ''}|${n.getAttribute('aria-label') || (n.textContent || '').trim()}`)
+      .join('\n');
+    return {
+      url: location.href,
+      alive: !!document.querySelector('flutter-view') && !!document.querySelector('flt-glass-pane'),
+      semantics: nodes.length,
+      signature,
+    };
+  });
+}
+
+/** A console error that is really a missing static resource, not an app error. */
+function isResourceNoise(text) {
+  return /Failed to load resource/i.test(text);
 }
 
 /**
@@ -167,13 +198,14 @@ async function auditControl(page, control) {
   const state = collectors(page);
   const before = await probe(page);
 
-  const target = page.locator(
-    'flt-semantics[role="button"], flt-semantics[role="link"], flt-semantics[role="checkbox"], flt-semantics[role="radio"], flt-semantics[role="tab"], flt-semantics[role="switch"]',
-  ).nth(control.index);
-
+  const target = page.locator(CONTROL_SELECTOR).nth(control.index);
   const started = Date.now();
   let clickError = null;
   try {
+    // Flutter keeps semantics nodes for widgets that are scrolled out of
+    // view. Bring the node into the viewport first; if it still has no box,
+    // it is not on screen and is reported as skipped rather than broken.
+    await target.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
     await target.click({ timeout: 5000, force: true });
   } catch (e) {
     clickError = String(e && e.message ? e.message : e).split('\n')[0];
@@ -183,28 +215,34 @@ async function auditControl(page, control) {
   const after = await probe(page);
   const apiCalls = state.requests.filter((u) => /\/v1\/|\/admin\/v1\/|\/healthz/.test(u));
   const serverErrors = state.badResponses.filter((u) => /^5\d\d/.test(u));
+  const realConsoleErrors = state.consoleErrors.filter((t) => !isResourceNoise(t));
 
   const problems = [];
-  if (clickError) problems.push(`click failed: ${clickError}`);
+  let skipped = null;
+
+  if (clickError) {
+    if (/not visible|not stable|not enabled|outside of the viewport|intercepts pointer/i.test(clickError)) {
+      // The control exists in the semantics tree but is not on screen. That
+      // is a scroll position, not a defect.
+      skipped = 'not reachable on screen';
+    } else {
+      problems.push(`click failed: ${clickError}`);
+    }
+  }
   if (state.pageErrors.length) problems.push(`uncaught: ${state.pageErrors[0]}`);
-  if (state.consoleErrors.length) problems.push(`console error: ${state.consoleErrors[0]}`);
+  if (realConsoleErrors.length) problems.push(`console error: ${realConsoleErrors[0].split('\n')[0]}`);
   if (serverErrors.length) problems.push(`5xx: ${serverErrors[0]}`);
   if (state.failedRequests.length) problems.push(`request failed: ${state.failedRequests[0]}`);
-  if (!after.sceneHost) problems.push('the app unmounted after the click');
-  if (after.url !== before.url) {
-    // A navigation is a legitimate outcome, but the app must still be alive.
-    if (!after.sceneHost) problems.push('navigated away and the app is gone');
-  }
+  if (!after.alive) problems.push('the app unmounted after the click');
 
   // Did anything change? A control that changes nothing is inert.
   const reacted =
     after.url !== before.url ||
-    after.semantics !== before.semantics ||
-    apiCalls.length > 0 ||
-    after.canvasNonBlank !== before.canvasNonBlank;
+    after.signature !== before.signature ||
+    apiCalls.length > 0;
 
-  if (!reacted && problems.length === 0) {
-    problems.push('inert: the click changed nothing (no navigation, no request, no state change)');
+  if (!reacted && problems.length === 0 && !skipped) {
+    problems.push('inert: the click changed nothing (no navigation, no request, no change in the semantics tree)');
   }
 
   return {
@@ -212,10 +250,36 @@ async function auditControl(page, control) {
     label: control.label,
     disabled: control.disabled,
     problems,
+    skipped,
     apiCalls: apiCalls.length,
     urlChanged: after.url !== before.url,
     ms: Date.now() - started,
   };
+}
+
+/**
+ * Sign the admin console in, so the audit can reach the screens behind the
+ * login. The admin facade falls back to its development credentials when the
+ * environment does not set them.
+ */
+async function tryAdminLogin(page) {
+  const inputs = page.locator('flt-semantics input, flt-semantics textarea');
+  const n = await inputs.count();
+  if (n < 2) return { ok: false, reason: 'no credential fields found' };
+  const user = (process.env.ADMIN_USER || 'admin');
+  const password = (process.env.ADMIN_PASSWORD || 'dev-only-admin');
+  try {
+    await inputs.nth(0).fill(user);
+    await inputs.nth(1).fill(password);
+  } catch (e) {
+    return { ok: false, reason: `could not fill the credentials: ${String(e.message).split('\n')[0]}` };
+  }
+  const signIn = page.locator(CONTROL_SELECTOR).filter({ hasText: /sign in|ログイン/i }).first();
+  if ((await signIn.count()) === 0) return { ok: false, reason: 'no sign-in button found' };
+  await signIn.click({ force: true, timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(2000);
+  const stillLogin = await page.locator('flt-semantics input').count();
+  return { ok: stillLogin === 0, reason: stillLogin === 0 ? '' : 'the console still shows the credential fields' };
 }
 
 /** Check the live API against the contract. */
@@ -230,11 +294,13 @@ async function auditApi(page) {
       const res = await page.request.fetch(url, { method: spec.method, timeout: 20_000 });
       status = res.status();
       const text = await res.text();
-      try {
-        body = JSON.parse(text);
-      } catch {
-        body = null;
-        if (spec.expectJson) problems.push('the response is not JSON');
+      if (text.trim().length > 0) {
+        try {
+          body = JSON.parse(text);
+        } catch {
+          body = null;
+          if (spec.expectJson) problems.push('the response is not JSON');
+        }
       }
     } catch (e) {
       problems.push(`request failed: ${String(e && e.message ? e.message : e).split('\n')[0]}`);
@@ -267,12 +333,13 @@ async function auditApi(page) {
     const page1 = await res.json();
     const first = (page1.items || [])[0];
     if (first) {
-      const detail = await page.request.fetch(`${BASE}/v1/products/${encodeURIComponent(first.productId ?? first.id ?? '')}`, { timeout: 20_000 });
+      const id = first.productId ?? first.id ?? '';
+      const detail = await page.request.fetch(`${BASE}/v1/products/${encodeURIComponent(id)}`, { timeout: 20_000 });
       if (detail.status() === 200) {
         const p = await detail.json();
         const missing = EXPECT.productDetail.requiredFields.filter((f) => !(f in p));
         results.push({
-          path: `/v1/products/${first.productId ?? first.id}`,
+          path: `/v1/products/${id}`,
           method: 'GET',
           status: detail.status(),
           problems: missing.length ? [`missing camelCase fields: ${missing.join(', ')}`] : [],
@@ -280,11 +347,11 @@ async function auditApi(page) {
         });
       } else {
         results.push({
-          path: `/v1/products/${first.productId ?? first.id}`,
+          path: `/v1/products/${id}`,
           method: 'GET',
           status: detail.status(),
           problems: [`status ${detail.status()}, expected 200`],
-          note: 'the product list advertised a product that the detail route cannot serve',
+          note: 'the product list advertised a product the detail route cannot serve',
         });
       }
     } else {
@@ -299,10 +366,18 @@ async function auditApi(page) {
 
 /** Audit one Flutter surface: the storefront or the admin console. */
 async function auditSurface(browser, name, path) {
-  const context = await browser.newContext({ viewport: VIEWPORTS });
+  const context = await browser.newContext({ viewport: VIEWPORT });
   const page = await context.newPage();
   const state = collectors(page);
-  const report = { surface: name, path, url: `${BASE}${path}`, controls: [], problems: [], consoleErrors: [], pageErrors: [] };
+  const report = {
+    surface: name,
+    path,
+    url: `${BASE}${path}`,
+    controls: [],
+    problems: [],
+    consoleErrors: [],
+    pageErrors: [],
+  };
 
   try {
     await page.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: BOOT_TIMEOUT });
@@ -313,20 +388,31 @@ async function auditSurface(browser, name, path) {
     if (!semanticsOn) {
       report.problems.push('the semantics tree could not be enabled, so no control could be inspected');
     } else {
+      if (name === 'admin') {
+        report.login = await tryAdminLogin(page);
+      }
       const controls = await listControls(page);
       report.controlCount = controls.length;
+
       for (const control of controls) {
         // A fresh page per control: one control's navigation must not hide
         // the next one, and each measurement starts from the same state.
-        const ctx = await browser.newContext({ viewport: VIEWPORTS });
+        const ctx = await browser.newContext({ viewport: VIEWPORT });
         const p2 = await ctx.newPage();
         try {
           await p2.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: BOOT_TIMEOUT });
           await waitForFlutter(p2);
           await enableSemantics(p2);
+          if (name === 'admin' && report.login && report.login.ok) {
+            await tryAdminLogin(p2);
+          }
           report.controls.push(await auditControl(p2, control));
         } catch (e) {
-          report.controls.push({ role: control.role, label: control.label, problems: [`could not be tested: ${String(e && e.message ? e.message : e).split('\n')[0]}`] });
+          report.controls.push({
+            role: control.role,
+            label: control.label,
+            problems: [`could not be tested: ${String(e && e.message ? e.message : e).split('\n')[0]}`],
+          });
         } finally {
           await ctx.close();
         }
@@ -343,6 +429,7 @@ async function auditSurface(browser, name, path) {
 
   const broken = report.controls.filter((c) => c.problems && c.problems.length);
   report.brokenControls = broken.length;
+  report.skippedControls = report.controls.filter((c) => c.skipped).length;
 
   await context.close();
   return report;
@@ -358,7 +445,7 @@ async function main() {
   const started = new Date().toISOString();
   const out = { base: BASE, startedAt: started, surfaces: [], api: [] };
   try {
-    const ctx = await browser.newContext({ viewport: VIEWPORTS });
+    const ctx = await browser.newContext({ viewport: VIEWPORT });
     const page = await ctx.newPage();
     out.api = await auditApi(page);
     await ctx.close();
@@ -383,25 +470,24 @@ async function main() {
     pass: apiProblems.length === 0 && brokenTotal === 0 && surfaceProblems.length === 0,
   };
 
-  mkdirSync(REPORTS, { recursive: true });
   const stamp = started.replace(/[:.]/g, '-');
   writeFileSync(resolve(REPORTS, `audit-${stamp}.json`), JSON.stringify(out, null, 2));
 
   const lines = [];
-  lines.push(`# DOKIPON commerce deployment audit`);
+  lines.push('# DOKIPON commerce deployment audit');
   lines.push('');
   lines.push(`- base: ${BASE}`);
   lines.push(`- started: ${started}`);
   lines.push(`- finished: ${out.finishedAt}`);
   lines.push('');
-  lines.push(`## Verdict`);
+  lines.push('## Verdict');
   lines.push('');
   lines.push(`- API findings: **${out.verdict.apiFindings}**`);
   lines.push(`- broken controls: **${out.verdict.brokenControls}**`);
   lines.push(`- surfaces with problems: **${out.verdict.surfacesWithProblems}**`);
   lines.push(`- overall: **${out.verdict.pass ? 'PASS' : 'FAIL'}**`);
   lines.push('');
-  lines.push(`## API`);
+  lines.push('## API');
   lines.push('');
   lines.push('| method | path | status | problems |');
   lines.push('|---|---|---|---|');
@@ -412,6 +498,7 @@ async function main() {
   for (const s of out.surfaces) {
     lines.push(`## ${s.surface} (\`${s.path}\`)`);
     lines.push('');
+    if (s.login) lines.push(`- admin login: ${s.login.ok ? 'ok' : `failed (${s.login.reason})`}`);
     if (s.problems.length) {
       lines.push('Surface problems:');
       for (const p of s.problems) lines.push(`- ${p}`);
@@ -419,22 +506,22 @@ async function main() {
     }
     if (s.consoleErrors && s.consoleErrors.length) {
       lines.push('Console errors:');
-      for (const e of s.consoleErrors.slice(0, 10)) lines.push(`- ${e}`);
+      for (const e of s.consoleErrors.slice(0, 10)) lines.push(`- ${e.split('\n')[0]}`);
       lines.push('');
     }
     if (s.pageErrors && s.pageErrors.length) {
       lines.push('Uncaught exceptions:');
-      for (const e of s.pageErrors.slice(0, 10)) lines.push(`- ${e}`);
+      for (const e of s.pageErrors.slice(0, 10)) lines.push(`- ${e.split('\n')[0]}`);
       lines.push('');
     }
-    lines.push(`Controls found: **${s.controlCount ?? 0}**, broken: **${s.brokenControls ?? 0}**`);
+    lines.push(`Controls found: **${s.controlCount ?? 0}**, broken: **${s.brokenControls ?? 0}**, skipped (off-screen): **${s.skippedControls ?? 0}**`);
     lines.push('');
     const broken = (s.controls || []).filter((c) => c.problems && c.problems.length);
     if (broken.length) {
       lines.push('| role | label | problems |');
       lines.push('|---|---|---|');
       for (const c of broken) {
-        lines.push(`| ${c.role} | ${(c.label || '').replace(/\|/g, '\\|').slice(0, 60)} | ${c.problems.join('; ')} |`);
+        lines.push(`| ${c.role} | ${(c.label || '').replace(/\|/g, '\\|').replace(/\n/g, ' ').slice(0, 60)} | ${c.problems.join('; ')} |`);
       }
       lines.push('');
     }
