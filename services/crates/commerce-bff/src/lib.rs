@@ -24,8 +24,6 @@ use axum::{
     Json, Router,
 };
 use commerce_core::error::{status, AppError};
-use commerce_core::JsonBody;
-use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::{
@@ -156,38 +154,6 @@ pub fn require_idempotency_key(headers: &HeaderMap) -> Result<String, AppError> 
         })
 }
 
-#[derive(Debug, Deserialize)]
-pub struct GuestReq {
-    #[serde(default)]
-    pub channel: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct GuestResp {
-    /// `sessionId`, to match `contracts/openapi.yaml` -> `Session` and the
-    /// Dart client, which reads `json['sessionId']` only. See the note on
-    /// `commerce_identity::Session` for why this is renamed per field.
-    #[serde(rename = "sessionId")]
-    pub session_id: String,
-    pub kind: &'static str,
-    pub can_checkout: bool,
-    pub expires_in_ms: i64,
-}
-
-async fn guest_session(
-    State((_limiter, _upstreams, _client)): State<(SharedBff, Arc<Upstreams>, reqwest::Client)>,
-    JsonBody(_body): JsonBody<GuestReq>,
-) -> Result<Json<GuestResp>, AppError> {
-    // The session id is minted at the edge and exchanged with the identity
-    // service in the deployed topology. A guest can browse but never check out.
-    Ok(Json(GuestResp {
-        session_id: format!("guest-{}", uuid::Uuid::new_v4().simple()),
-        kind: "guest",
-        can_checkout: false,
-        expires_in_ms: 30 * 60 * 1000,
-    }))
-}
-
 async fn healthz() -> StatusCode {
     StatusCode::OK
 }
@@ -236,8 +202,69 @@ async fn submit_checkout(
 ) -> Result<Response, AppError> {
     let _session = require_session(&headers)?;
     let _key = require_idempotency_key(&headers)?;
-    Ok(upstreams.forward_checkout(&client, &headers, body).await)
+    Ok(upstreams
+        .forward(&client, axum::http::Method::POST, "/v1/checkouts", &headers, body)
+        .await)
 }
+
+/// Forward a request the BFF does not own to the service that does.
+///
+/// This is what makes the BFF a real gateway in the containerized topology.
+/// The k3s deployment runs one container per service and the BFF is the public
+/// origin, so every contract path the BFF does not implement itself has to
+/// travel upstream. Before this, six of the contract's twelve paths answered
+/// `404` at the only origin the client was given — including
+/// `/v1/sessions/line`, which made the LINE login path unreachable.
+///
+/// The forwarded path, query string, method and body are the client's, and
+/// the upstream's status code and body come back unchanged. The only headers
+/// that travel are the ones the contract defines (`x-session-id`,
+/// `idempotency-key`, `x-channel`) plus the correlation id; a client-supplied
+/// header that could change an outcome (`x-simulated-payment`) stays here.
+async fn forward_unowned(
+    State((_limiter, upstreams, client)): State<(SharedBff, Arc<Upstreams>, reqwest::Client)>,
+    request: Request,
+) -> Response {
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let path = uri.path().to_string();
+    let target = match uri.query() {
+        Some(query) => format!("{path}?{query}"),
+        None => path.clone(),
+    };
+    let headers = request.headers().clone();
+
+    let body = match axum::body::to_bytes(request.into_body(), MAX_FORWARDED_BODY_BYTES).await {
+        Ok(body) => body,
+        Err(e) => {
+            tracing::error!(error = %e, path = %path, "could not read the request body");
+            return (
+                StatusCode::BAD_REQUEST,
+                [("content-type", "application/problem+json")],
+                serde_json::json!({
+                    "type": "https://api.gemarc.example/problems/bad-request",
+                    "title": "Bad Request",
+                    "status": 400,
+                    "code": "gateway.unreadable_body",
+                    "detail": "the request body could not be read",
+                    "traceId": "",
+                    "retryable": false,
+                })
+                .to_string(),
+            )
+                .into_response();
+        }
+    };
+
+    upstreams.forward(&client, method, &target, &headers, body).await
+}
+
+/// The largest request body the BFF forwards upstream.
+///
+/// The contract's request bodies are small — a checkout is a list of lines —
+/// so a megabyte is generous. The limit exists so a hostile client cannot
+/// make the edge buffer an unbounded body.
+const MAX_FORWARDED_BODY_BYTES: usize = 1024 * 1024;
 
 /// Rate limiting is built as a closure that captures the shared limiter, which
 /// keeps the router state and the middleware state independent.
@@ -249,8 +276,18 @@ pub fn router(state: SharedBff) -> Router {
         .route("/healthz", get(healthz))
         .route("/v1/storefront", get(storefront))
         .route("/v1/content", get(content))
-        .route("/v1/sessions/guest", post(guest_session))
         .route("/v1/checkouts", post(submit_checkout))
+        // Everything the BFF does not implement itself belongs to another
+        // service, and the client is given one origin. The fallback forwards
+        // it; it does not answer it.
+        //
+        // `/v1/sessions/guest` used to be a route of its own here, minting a
+        // local id. The identity service owns guest sessions, and it owns the
+        // LINE exchange and its nonce replay guard; a second, different
+        // implementation of the same path meant the behaviour depended on
+        // which origin the client was pointed at. Now the path is forwarded,
+        // so the identity service is the only implementation of it.
+        .fallback(forward_unowned)
         .with_state((state, upstreams, client))
         .layer(middleware::from_fn(move |req: Request, next: Next| {
             let limiter = limiter.clone();

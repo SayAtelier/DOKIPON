@@ -129,42 +129,12 @@ impl PriceSource for InProcessPrices {
 }
 
 /// Which service owns a public path.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ServiceId {
-    Bff,
-    Catalog,
-    Cart,
-    Order,
-    Content,
-    Identity,
-    Inventory,
-    Payment,
-    Admin,
-}
-
-/// Pick the service that owns a path.
 ///
-/// A path that matches nothing is a 404 from the edge, not a pass-through to
-/// the last service: a typo in a public path must not be answered by
-/// whichever service happens to be last in the table.
-pub fn route_for(path: &str) -> Option<ServiceId> {
-    const TABLE: &[(&str, ServiceId)] = &[
-        ("/v1/storefront", ServiceId::Bff),
-        ("/v1/products", ServiceId::Catalog),
-        ("/v1/carts", ServiceId::Cart),
-        ("/v1/checkouts", ServiceId::Order),
-        ("/v1/orders", ServiceId::Order),
-        ("/v1/content", ServiceId::Content),
-        ("/v1/sessions", ServiceId::Identity),
-        ("/v1/inventory", ServiceId::Inventory),
-        ("/v1/payments", ServiceId::Payment),
-        ("/admin/v1", ServiceId::Admin),
-    ];
-    TABLE
-        .iter()
-        .find(|(prefix, _)| path == *prefix || path.starts_with(&format!("{prefix}/")))
-        .map(|(_, id)| *id)
-}
+/// The table itself lives in `commerce-core::routes`, because the BFF reads
+/// the same table when the services run as separate containers: two tables
+/// would drift, and a drifted table is a 404 that only the deployed topology
+/// shows.
+pub use commerce_core::routes::{owner_of as route_for, ServiceId};
 
 /// The eight service routers, ready to be dispatched to.
 #[derive(Clone)]
