@@ -236,9 +236,16 @@ async function auditControl(page, control, state) {
   let skipped = null;
 
   if (clickError) {
-    if (/not visible|not stable|not enabled|outside of the viewport|intercepts pointer/i.test(clickError)) {
-      // The control exists in the semantics tree but is not on screen. That
-      // is a scroll position, not a defect.
+    // A control that exists in the semantics tree but is not on screen is a
+    // scroll position, not a defect. Flutter keeps semantics nodes for
+    // widgets that are below the fold, and they cannot be clicked — so
+    // classify them by geometry, not by whether the click succeeded.
+    const offscreen = await target.evaluate((node) => {
+      const r = node.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return true;
+      return r.bottom < 0 || r.top > window.innerHeight;
+    }).catch(() => false);
+    if (offscreen || /not visible|not stable|not enabled|outside of the viewport|intercepts pointer/i.test(clickError)) {
       skipped = 'not reachable on screen';
     } else {
       problems.push(`click failed: ${clickError}`);
