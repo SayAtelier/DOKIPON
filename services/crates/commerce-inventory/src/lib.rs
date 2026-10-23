@@ -29,7 +29,9 @@ pub const RESERVATION_TTL_MS: i64 = 15 * 60 * 1000; // 15 minutes
 /// up by sku, and a sku that exists in one service but not the other makes a
 /// purchasable product fail at the last step of the checkout. A made-to-order
 /// SKU is absent here for the same reason it is absent from the catalogue's
-/// stock map — it has no stock concept.
+/// stock map — it has no stock concept. The same holds for an `Unbounded`
+/// SKU: only a `Reserved` SKU takes part in the inventory step
+/// (`StockPolicy::needs_inventory`), so only those have a level to report.
 ///
 /// The list route publishes these SKUs, so a seed that drifts from the
 /// catalogue's shows up in the admin console as a SKU with no product.
@@ -39,6 +41,8 @@ pub const DEMO_STOCK_SEED: &[(&str, i64)] = &[
     ("sku-set-01", 0),
     ("sku-night-01", 28),
     ("sku-adult-01", 3),
+    ("sku-swim-01", 12),
+    ("sku-sale-01", 5),
 ];
 
 #[derive(Debug, Clone, Default)]

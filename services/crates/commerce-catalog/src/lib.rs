@@ -167,8 +167,8 @@ impl CatalogStore {
             ("p-cami-01", "sku-cami-01", "DOKIPON 霞 キャミソール / Haze Camisole", "cat-lingerie", 6900, Currency::Jpy, StockPolicy::MadeToOrder, -1, ChannelEligibility { web: true, app: true, line_mini_app: true }),
             ("p-adult-01", "sku-adult-01", "DOKIPON 深紅 ストッキング / Crimson Stockings", "cat-lingerie", 5800, Currency::Jpy, StockPolicy::Reserved, 3, ChannelEligibility { web: true, app: false, line_mini_app: false }),
             ("p-swim-01", "sku-swim-01", "DOKIPON 潮騒 スイムビーフ / Shiosai Swim Brief", "cat-swim", 5900, Currency::Jpy, StockPolicy::Reserved, 12, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-beauty-01", "sku-beauty-01", "DOKIPON 雪輪 ボディケアセット / Yukiwa Body Care Set", "cat-beauty", 2400, Currency::Jpy, StockPolicy::Unbounded, 0, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-goods-01", "sku-goods-01", "DOKIPON 星屑 ヘアピン / Hoshikuzu Hair Pin", "cat-goods", 1800, Currency::Jpy, StockPolicy::Unbounded, 0, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-beauty-01", "sku-beauty-01", "DOKIPON 雪輪 ボディケアセット / Yukiwa Body Care Set", "cat-beauty", 2400, Currency::Jpy, StockPolicy::Unbounded, -1, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+            ("p-goods-01", "sku-goods-01", "DOKIPON 星屑 ヘアピン / Hoshikuzu Hair Pin", "cat-goods", 1800, Currency::Jpy, StockPolicy::Unbounded, -1, ChannelEligibility { web: true, app: true, line_mini_app: true }),
             ("p-sale-01", "sku-sale-01", "DOKIPON 薄暮 セール セット / Twilight Sale Set", "cat-sale", 3900, Currency::Jpy, StockPolicy::Reserved, 5, ChannelEligibility { web: true, app: true, line_mini_app: true }),
         ];
 
@@ -190,7 +190,15 @@ impl CatalogStore {
                 skuid.to_string(),
                 Sku { sku_id: skuid.to_string(), product_id: pid.to_string(), amount_minor: amount, currency: cur, version: 1, stock_policy: policy },
             );
-            if qty >= 0 {
+            // Only a `Reserved` SKU has a stock level. `Unbounded` and
+            // `MadeToOrder` take no part in the inventory step
+            // (`StockPolicy::needs_inventory`), so the catalogue must not
+            // report a level for them: a level the inventory service does
+            // not have is a SKU the two services disagree about, and it
+            // shows up in the admin console as a product with "on hand 0"
+            // that the inventory service never knew. The quantity column
+            // is -1 for those SKUs, the same convention `sku-cami-01` uses.
+            if policy == StockPolicy::Reserved {
                 stock.insert(skuid.to_string(), qty);
             }
         }
