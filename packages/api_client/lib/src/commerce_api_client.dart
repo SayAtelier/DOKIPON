@@ -99,15 +99,23 @@ class CommerceApiClient {
 
   // ---------------------------------------------------------------- catalog
 
+  /// Lists the catalogue.
+  ///
+  /// [categoryId] is the category filter the contract declares on this route
+  /// (`contracts/openapi.yaml` -> `GET /v1/products`); the server filters on
+  /// it. It is omitted from the query string when `null`, which asks for the
+  /// whole catalogue.
   Future<ProductPage> listProducts({
     String? cursor,
     int limit = 20,
     String locale = 'ja',
+    String? categoryId,
   }) async {
     final json = await _get('/v1/products', {
       'cursor': ?cursor,
       'limit': '$limit',
       'locale': locale,
+      'categoryId': ?categoryId,
       'channel': channel.header,
     });
     return ProductPage.fromJson(json);

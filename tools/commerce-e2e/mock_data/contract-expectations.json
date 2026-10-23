@@ -44,6 +44,18 @@
       "path": "/v1/inventory",
       "expectStatus": 404,
       "note": "the inventory service exposes only the three reservation write routes; contracts/openapi.yaml records this as x-blocked-by: inventory-service-has-no-list-route on /admin/v1/inventory. This expectation flips to 200 when the listing route lands — that is the point of having it here."
+    },
+    {
+      "method": "GET",
+      "path": "/v1/does-not-exist",
+      "expectStatus": 404,
+      "note": "an unknown path must be a 404 from the edge, not a 500 and not a pass-through to whichever service happens to be last"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/products",
+      "expectStatus": 405,
+      "note": "the catalogue is read-only: a write to it must be refused, not silently accepted"
     }
   ],
   "adminPaths": [
