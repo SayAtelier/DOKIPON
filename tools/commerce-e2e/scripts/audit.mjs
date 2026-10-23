@@ -235,7 +235,11 @@ async function auditControl(page, control, state) {
   const problems = [];
   let skipped = null;
 
-  if (clickError) {
+  if (control.disabled) {
+    // A control that is deliberately disabled is not a broken control: it says
+    // "not right now", which is the truth. Clicking it must change nothing.
+    skipped = 'disabled';
+  } else if (clickError) {
     // A control that exists in the semantics tree but is not on screen is a
     // scroll position, not a defect. Flutter keeps semantics nodes for
     // widgets that are below the fold, and they cannot be clicked — so
@@ -264,7 +268,13 @@ async function auditControl(page, control, state) {
     apiCalls.length > 0;
 
   if (!reacted && problems.length === 0 && !skipped) {
-    problems.push('inert: the click changed nothing (no navigation, no request, no change in the semantics tree)');
+    // A tab that is already the selected one is expected to do nothing when
+    // it is clicked again. That is a no-op, not a defect.
+    if (control.selected === 'true') {
+      skipped = 'already selected — clicking it again is a no-op by design';
+    } else {
+      problems.push('inert: the click changed nothing (no navigation, no request, no change in the semantics tree)');
+    }
   }
 
   return {

@@ -229,7 +229,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       'Browsing as a guest — sign in to check out.',
                 ),
               ),
-            SliverToBoxAdapter(child: _HeroBanner(onShopAll: _showAll)),
+            SliverToBoxAdapter(
+              child: _HeroBanner(
+                onShopAll: _showAll,
+                hasCategoryFilter: selectedCategory != null,
+              ),
+            ),
             SliverToBoxAdapter(
               child: _SectionRule(
                 selectedCategory == null
@@ -823,12 +828,22 @@ class _CategoryNav extends StatelessWidget {
 /// reference site runs a topics strip of editorial links; this is the same
 /// idea in one line.
 class _HeroBanner extends StatelessWidget {
-  const _HeroBanner({required this.onShopAll});
+  const _HeroBanner({
+    required this.onShopAll,
+    required this.hasCategoryFilter,
+  });
 
   /// "Show the whole collection" — clears the category filter the strip
   /// applies, so the button is the way back to everything after a shopper
   /// has narrowed the catalogue down.
   final VoidCallback onShopAll;
+
+  /// Whether a category is narrowing the catalogue down right now.
+  ///
+  /// When nothing is filtered, "show the whole collection" has nothing to
+  /// clear. Offering the button anyway is a control that does nothing, so it
+  /// is disabled instead of pretending to be actionable.
+  final bool hasCategoryFilter;
 
   @override
   Widget build(BuildContext context) {
