@@ -379,7 +379,7 @@ mod tests {
         // CASE-CHAOS-002: the producer must learn it failed, or the Outbox row
         // would be marked published and the event lost forever.
         let b = BrokerMock::new();
-        b.faults().inject(fault("broker.publish", FaultMode::NextN, 2, false));
+        b.faults().inject(fault("broker.publish", FaultMode::NextN, 2));
 
         assert!(b.publish(msg("e4")).await.is_err());
         assert!(b.publish(msg("e5")).await.is_err());

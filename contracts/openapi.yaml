@@ -603,18 +603,32 @@ paths:
         **Required role:** `viewer`. Operators inherit viewer access; admins
         inherit operator and viewer access.
 
-        **Not yet backed by an upstream endpoint.** The admin facade proxies this
-        to the inventory service, which today exposes only the three write routes
-        (`POST /v1/inventory/reservations`, `.../commit`, `.../release`) and has no
-        read route. A request therefore returns `404` with code
-        `admin.upstream_error` until the inventory service gains a listing route.
-        The contract keeps the path so the admin surface stays complete, and the
-        limitation is stated here rather than left for a caller to discover.
+        The facade proxies this to the inventory service's `GET /v1/inventory`
+        and returns the levels that service actually holds, one row per SKU:
+        `sku`, `onHand`, `reserved` and `available`, where `available` is
+        `onHand - reserved` floored at zero.
+
+        **The rows are keyed by SKU, and only by SKU.** SKU is the inventory
+        service's key — it is what the reservation ledger stores and what the
+        checkout path looks up — while product identity belongs to the
+        catalogue. Join on `sku` if you need the product id.
+
+        **The levels are per-instance.** The inventory service keeps its stock
+        in memory, like the other commerce stores, so these are the numbers
+        this instance holds and a second instance has its own ledger. The same
+        holds for the merged edge deployment, where a serverless platform may
+        run several instances of the function. A production deployment needs
+        the stock moved into a shared store.
+
+        `reserved` counts the reservations still open in the ledger. A
+        reservation past its TTL is not swept by this read, and the service
+        runs no TTL sweep of its own, so a reservation that was never
+        committed or released keeps its units reserved here until something
+        settles it.
       security:
         - adminBearerAuth: []
       x-required-role: viewer
-      x-implemented: false
-      x-blocked-by: inventory-service-has-no-list-route
+      x-implemented: true
       parameters:
         - name: cursor
           in: query
@@ -635,9 +649,8 @@ paths:
                     type: array
                     items:
                       type: object
-                      required: [productId, sku, onHand, reserved, available]
+                      required: [sku, onHand, reserved, available]
                       properties:
-                        productId: { type: string }
                         sku: { type: string }
                         onHand: { type: integer, minimum: 0 }
                         reserved: { type: integer, minimum: 0 }
@@ -645,7 +658,8 @@ paths:
                   next_cursor: { type: [string, 'null'] }
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
-        # Upstream has no matching route, so the facade relays its 404.
+        # The facade relays an upstream failure status, so a 404 here means the
+        # inventory service behind it does not serve the listing route.
         '404': { $ref: '#/components/responses/Problem' }
         '503': { $ref: '#/components/responses/Problem' }
 

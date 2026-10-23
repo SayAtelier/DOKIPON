@@ -1,15 +1,11 @@
-//! > **STATUS (2026-10-18)**: this crate is **excluded from the workspace**
-//! > (`services/Cargo.toml` comments it out). Reason: the mocks use
-//! > `std::sync::RwLock`, which is not `Send` across await points, so
-//! > axum 0.8's `Handler` trait fails to bound the future. The unit tests
-//! > below pass in isolation (`cargo test -p commerce-mocks` from a fresh
-//! > checkout that includes the workspace member), but the integration
-//! > HTTP paths (the `bin/` entry points) do not. A proper fix is to
-//! > migrate to `tokio::sync::RwLock` and re-enable the workspace member.
+//! > **STATUS (2026-10-23)**: this crate **builds, tests, and runs**. It is a
+//! > member of the `services/` workspace and every `bin/` entry point serves
+//! > HTTP, so a test can start a mock and hit it over the wire.
 //! >
-//! > Until then, treat the binaries as **scaffolding that does not run**.
-//! > The HTML and shell files in `tests/mocks/` and `tests/integration/`
-//! > still document the planned interface.
+//! > It is a **TEST FIXTURE, not a product dependency**: nothing in
+//! > `services/` may depend on it, and it must not depend on a product
+//! > service either. It exists so the `[Designed]` cases in
+//! > `docs/ecommerce/05-test/テスト設計書.md` §3 can actually be executed.
 //! Deterministic mocks for the test-design cases that could not otherwise be
 //! executed.
 //!

@@ -114,36 +114,51 @@ impl PspMock {
         req: AuthorizeRequest,
     ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
         let outcome = req.outcome.unwrap_or(PspOutcome::Authorize);
-        let mut g = self
-            .state
-            .write()
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({}))))?;
+        // The guard lives in its own scope: its lifetime ends before the
+        // first await below. A `std::sync` guard that is alive across an
+        // await makes the future !Send, and axum's `Handler` bound requires
+        // Send — so "release the lock before you await" is not a style
+        // preference here, it is the difference between compiling and not.
+        let (provider_ref, record) = {
+            let mut g = self
+                .state()
+                .write()
+                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({}))))?;
 
-        g.sequence += 1;
-        let provider_ref = format!("pspref_{:012}", g.sequence);
+            g.sequence += 1;
+            let provider_ref = format!("pspref_{:012}", g.sequence);
 
-        let captured = matches!(
-            outcome,
-            PspOutcome::Authorize | PspOutcome::CaptureThenLoseResponse
-        );
-        let record = ChargeRecord {
-            provider_ref: provider_ref.clone(),
-            order_id: req.order_id.clone(),
-            amount_minor: req.amount_minor,
-            currency: req.currency.clone(),
-            captured,
-            // `CaptureThenLoseResponse` records the charge but never answers.
-            response_delivered: !matches!(outcome, PspOutcome::CaptureThenLoseResponse),
-            reconcile_calls: 0,
-            refunded: false,
-            payment_method_ref_seen: req.payment_method_ref.clone(),
+            let captured = matches!(
+                outcome,
+                PspOutcome::Authorize | PspOutcome::CaptureThenLoseResponse
+            );
+            let record = ChargeRecord {
+                provider_ref: provider_ref.clone(),
+                order_id: req.order_id.clone(),
+                amount_minor: req.amount_minor,
+                currency: req.currency.clone(),
+                captured,
+                // `CaptureThenLoseResponse` records the charge but never answers.
+                response_delivered: !matches!(outcome, PspOutcome::CaptureThenLoseResponse),
+                reconcile_calls: 0,
+                refunded: false,
+                payment_method_ref_seen: req.payment_method_ref.clone(),
+            };
+            g.charges.insert(provider_ref.clone(), record.clone());
+            (provider_ref, record)
         };
-        g.charges.insert(provider_ref.clone(), record.clone());
-        drop(g);
 
         // A live fault overrides the scripted outcome — this is how a test
         // simulates the provider going down mid-scenario.
-        if let Some(f) = self.faults().take("psp.authorize") {
+        //
+        // The fault is bound to a variable **before** the `if let`: a
+        // temporary in the `if let` scrutinee lives until the end of the
+        // block, so the read guard inside `faults()` would still be held
+        // across the `sleep().await` below — and a `std::sync` guard held
+        // across an await makes the whole future `!Send`, which is exactly
+        // what axum's `Handler` bound rejects.
+        let live_fault = self.faults().take("psp.authorize");
+        if let Some(f) = live_fault {
             if f.latency_ms > 0 {
                 tokio::time::sleep(std::time::Duration::from_millis(f.latency_ms)).await;
             }
@@ -186,7 +201,7 @@ impl PspMock {
         provider_ref: &str,
     ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
         let mut g = self
-            .state
+            .state()
             .write()
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({}))))?;
         let rec = g.charges.get_mut(provider_ref).ok_or_else(|| {
@@ -210,7 +225,7 @@ impl PspMock {
         provider_ref: &str,
     ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
         let mut g = self
-            .state
+            .state()
             .write()
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({}))))?;
         let rec = g.charges.get_mut(provider_ref).ok_or_else(|| {
@@ -303,62 +318,13 @@ async fn handle_reset(State(mock): State<PspMock>) -> Json<serde_json::Value> {
 }
 
 pub fn router(mock: PspMock) -> Router {
-    let m = mock.clone();
     Router::new()
-        .route("/v1/psp/authorize", post({
-            let m = m.clone();
-            move |req: Json<AuthorizeRequest>, State(st): State<PspMock>| {
-                let m = m.clone();
-                async move {
-                    match st.authorize(req.0).await {
-                        Ok(body) => Ok(body),
-                        Err((code, body)) => Err(psp_error(code, body)),
-                    }
-                }
-            }
-        }))
-        .route("/v1/psp/reconcile", post({
-            let m = m.clone();
-            move |req: Json<ReconcileRequest>, State(st): State<PspMock>| {
-                let m = m.clone();
-                async move {
-                    match st.reconcile(&req.provider_ref).await {
-                        Ok(body) => Ok(body),
-                        Err((code, body)) => Err(psp_error(code, body)),
-                    }
-                }
-            }
-        }))
-        .route("/v1/psp/refund", post({
-            let m = m.clone();
-            move |req: Json<RefundRequest>, State(st): State<PspMock>| {
-                let m = m.clone();
-                async move {
-                    match m.refund(&req.provider_ref).await {
-                        Ok(body) => Ok(body),
-                        Err((code, body)) => Err(psp_error(code, body)),
-                    }
-                }
-            }
-        }))
-        .route("/__mock/charges", get({
-            let m = m.clone();
-            move |State(st): State<PspMock>| {
-                let m = m.clone();
-                async move { m.charges_dump().await }
-            }
-        }))
-        .route("/__mock/reset", post({
-            let m = m.clone();
-            move |State(st): State<PspMock>| {
-                let m = m.clone();
-                async move {
-                    m.reset().await;
-                    Json(serde_json::json!({ "ok": true }))
-                }
-            }
-        }))
-        .with_state(m)
+        .route("/v1/psp/authorize", post(handle_authorize))
+        .route("/v1/psp/reconcile", post(handle_reconcile))
+        .route("/v1/psp/refund", post(handle_refund))
+        .route("/__mock/charges", get(handle_charges))
+        .route("/__mock/reset", post(handle_reset))
+        .with_state(mock)
 }
 
 /// Convenience for tests: inject a fault without going through HTTP.
@@ -498,6 +464,6 @@ mod tests {
         let m = PspMock::new();
         m.authorize(req(PspOutcome::Authorize)).await.unwrap();
         m.reset().await;
-        assert!(m.charges_dump().0["charges"].as_array().unwrap().is_empty());
+        assert!(m.charges_dump().await.0["charges"].as_array().unwrap().is_empty());
     }
 }
