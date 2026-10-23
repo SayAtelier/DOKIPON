@@ -556,8 +556,12 @@ async function verifyStorefrontIndex() {
   const body = p.text('body');
   check('storefront/index: 声明 12 条契约路径', body.includes('12 条契约路径'), '未找到');
   check('storefront/index: 列出 BFF 不代理的结论', body.includes('BFF 不代理'), '未找到');
-  check('storefront/index: 记录 /v1/sessions/line 无实现',
-    body.includes('无任何实现'), '未找到');
+  check('storefront/index: 记录 /v1/sessions/line 只在 identity',
+    body.includes('commerce-identity') && body.includes('只有它有'), '未找到');
+  check('storefront/index: 记录路径落在 5 个独立进程',
+    body.includes('5 个独立进程'), '未找到');
+  check('storefront/index: 记录桩/真两套实现',
+    body.includes('桩') && body.includes('两套实现'), '未找到');
   check('storefront/index: 记录电商线字段漂移',
     body.includes('channel_eligibility') && body.includes('title_i18n'), '未找到');
   check('storefront/index: 记录订单金额显示 ¥0 的后果',

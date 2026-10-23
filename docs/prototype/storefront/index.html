@@ -78,27 +78,38 @@
     <h2>真实实现现状 / What the code actually does</h2>
     <p class="lead">
       原型照<b>客户端期望</b>渲染。但把 openapi 契约、服务端实现和 Dart 客户端三方对齐后，
-      电商线上仍有 <b>6 类接线缺口</b>。这部分不是原型能补的，需要真实改动，所以在此如实列出。
+      电商线上仍有 <b>6 类接线缺口</b>（另有 1 处低影响项）。这部分不是原型能补的，需要真实改动，所以在此如实列出。
     </p>
 
-    <h3>① 12 条契约路径分别落在 4 个独立进程里，没有网关</h3>
+    <h3>① 12 条契约路径分别落在 5 个独立进程里，没有网关</h3>
     <table class="tbl">
       <tr><th>路径</th><th>实现位置</th><th>行号</th></tr>
       <tr><td class="k">GET /v1/storefront</td><td>commerce-bff</td><td class="k">main.rs:227</td></tr>
-      <tr><td class="k">POST /v1/sessions/guest</td><td>commerce-bff</td><td class="k">main.rs:228</td></tr>
-      <tr><td class="k">POST /v1/checkouts</td><td>commerce-bff</td><td class="k">main.rs:229</td></tr>
+      <tr><td class="k">POST /v1/sessions/guest</td><td>commerce-bff（<b>桩</b>）＋ commerce-identity（真）</td><td class="k">bff:228 / identity:294</td></tr>
+      <tr><td class="k">POST /v1/checkouts</td><td>commerce-bff（<b>桩</b>）＋ commerce-order（真）</td><td class="k">bff:229 / order:442</td></tr>
+      <tr><td class="k">POST /v1/sessions/line</td><td>commerce-identity（<b>只有它有</b>）</td><td class="k">identity:293</td></tr>
       <tr><td class="k">GET /v1/products, /v1/products/{id}</td><td>commerce-catalog</td><td class="k">main.rs:195-196</td></tr>
       <tr><td class="k">GET /v1/carts/{id}, PATCH …/items/{sku}</td><td>commerce-cart</td><td class="k">main.rs:166-167</td></tr>
+      <tr><td class="k">GET /v1/checkouts/{id}</td><td>commerce-order</td><td class="k">main.rs:443</td></tr>
       <tr><td class="k">GET /v1/orders, /v1/orders/{id}, POST …/reconcile</td><td>commerce-order</td><td class="k">main.rs:444-446</td></tr>
-      <tr><td class="k">POST /v1/sessions/line</td><td colspan="2"><b style="color:var(--danger)">无任何实现</b></td></tr>
     </table>
     <div class="verdict verdict--bad">
-      <b>BFF 不代理另外三个服务。</b>
+      <b>BFF 不代理另外四个服务，而且它自己的两个端点是桩。</b>
       <span class="k">commerce-bff/src/main.rs</span> 的 router 只有 4 条路由，且全文件没有 HTTP 客户端；
-      <span class="k">submit_checkout</span> 只校验 session 与 Idempotency-Key 就返回 202 空体（main.rs:215-219）。
+      <span class="k">submit_checkout</span> 只校验 session 与 Idempotency-Key 就返回 202 空体（main.rs:215-219），
+      <span class="k">guest_session</span> 本地造一个 id（main.rs:167-179）。
       而 Dart 客户端只有<b>一个</b> <span class="k">baseUri</span>（commerce_api_client.dart:12/35）。
       仓库里也没有电商线的网关/ingress 清单（<span class="k">docker/compose</span> 里是游戏侧 5 域）。
-      → 结论：<b>目前没有任何一个进程能同时提供这 12 条路径</b>，客户端的单一 origin 够不到 catalog / cart / order。
+      → 结论：<b>12 条路径全部有实现，但没有任何一个进程能同时提供它们</b>；
+      客户端若指向 BFF，拿到的是 checkout 的空 202 与本地造的游客会话，
+      <b>而 <span class="k">/v1/sessions/line</span> 只在 identity 里 —— 从 BFF 出发根本换不到 LINE 会话</b>，LINE 登录链路当前不可达。
+    </div>
+    <div class="verdict verdict--warn">
+      <b>两条路径有两套实现，谁生效取决于 baseUri 指向谁。</b>
+      <span class="k">/v1/sessions/guest</span> 与 <span class="k">POST /v1/checkouts</span> 在 BFF 与
+      identity / order 里各有一份：BFF 版是边缘桩，identity/order 版才有真实语义
+      （LIFF id_token 校验 + nonce 防重放、订单状态机 + 幂等记录）。
+      这是接线时最容易踩的一处：<b>同一路径，不同行为</b>。
     </div>
 
     <h3>② 电商线也存在 snake_case ↔ camelCase 漂移（与游戏线同源）</h3>
@@ -136,9 +147,15 @@
       </tr>
       <tr>
         <td class="k">session_id</td>
-        <td class="k">bff main.rs:160-165 <span class="k">GuestResp</span>（serde → snake）</td>
+        <td class="k">bff main.rs:160-165 <span class="k">GuestResp</span> ＋ identity main.rs:45 <span class="k">Session</span>（都是 serde → snake）</td>
         <td class="k">session.dart <span class="k">json['sessionId']</span>（仅 camel）</td>
-        <td><b>游客会话 ID 为空</b></td>
+        <td><b>游客会话 ID 为空</b>（两处实现都一样）</td>
+      </tr>
+      <tr>
+        <td class="k">channel</td>
+        <td class="k">identity main.rs:27 <span class="k">Channel</span> → <span class="k">"line_mini_app"</span></td>
+        <td class="k">domain_models <span class="k">StoreChannelWire</span> → <span class="k">"line"</span></td>
+        <td>影响低：客户端发请求用的是 <span class="k">Environment</span> 的 channel，不读 session.channel</td>
       </tr>
     </table>
     <div class="verdict verdict--warn">

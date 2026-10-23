@@ -71,7 +71,7 @@
       <h4>忠实に再現した挙動</h4>
       <ul class="muted" style="padding-left:18px;line-height:1.8">
         <li><b>チャネルで商品が変わる</b> — チャネル非対応商品はサーバが返さない（<span class="mono">channel_eligibility</span>）。左の <b>Web / App / LINE</b> を切り替えて確認。</li>
-        <li><b>カーソルページング</b> — <span class="mono">limit=20</span> 固定、<span class="mono">next_cursor</span> があれば「もっと見る」。</li>
+        <li><b>カーソルページング</b> — 実クライアントは <span class="mono">limit=20</span> 固定（本プロトタイプでは説明用に 6 件/页）、<span class="mono">next_cursor</span> があれば「もっと見る」。</li>
         <li><b>ページ取得失敗で既存リストを消さない</b> — <span class="mono">CatalogController.load()</span> は失敗時も <span class="mono">_items</span> を保持。</li>
         <li><b>在庫切れは購入不可</b> — <span class="mono">ProductCard</span> は out-of-stock だと「追加」ボタンを出さず「不可 / N/A」を出す。</li>
         <li><b>チャネルヘッダは常に送信</b> — チャネルを外さない。</li>

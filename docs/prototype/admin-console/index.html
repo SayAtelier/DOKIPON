@@ -295,8 +295,9 @@
           修法是给<b>响应</b>结构体加 <span class="mono">#[serde(rename_all = "camelCase")]</span>——
           <b>请求 DTO 保持 snake_case</b>，因为前端发的就是 snake_case。
           另有 <span class="mono">get_player_stats</span> 与 <span class="mono">get_server_stats</span>
-          两个 handler 已 <span class="mono">pub use</span> 导出却<b>没有任何路由指向</b>；
-          前者已改为 summary 复用的 <span class="mono">mock_player_stats()</span>。
+          两个 handler 曾 <span class="mono">pub use</span> 导出却<b>没有任何路由指向</b>；
+          前者已改为 summary 复用的 <span class="mono">mock_player_stats()</span>，
+          后者仍是<b>无路由指向的遗留导出</b>（公共 API 变更另议，本次未动）。
         </div>
       </div>
     </section>
@@ -345,9 +346,9 @@
             </tr>
             <tr>
               <td>6</td>
-              <td><strong>两个 handler 是死代码</strong>：<span class="mono">get_player_stats</span> 与 <span class="mono">get_server_stats</span> 已导出但无路由指向；<br>前端拿到的 stats 只能来自 summary 的<b>硬编码</b>值</td>
-              <td class="mono">players_handler.rs:93 / servers_handler.rs:33 —— lib.rs 的 register_routes 中无对应 .route()</td>
-              <td>上一节的契约漂移矩阵第 2、11、12 条同源</td>
+              <td><strong>一个 handler 是死代码</strong>：<span class="mono">get_server_stats</span> 已导出但无路由指向；<br>另一个 <span class="mono">get_player_stats</span> 已改为 <span class="mono">mock_player_stats()</span> 供 summary 复用</td>
+              <td class="mono">servers_handler.rs:33 —— lib.rs 的 register_routes 中无对应 .route()</td>
+              <td>公共 API 变更另议，本次只记录未动</td>
             </tr>
           </tbody>
         </table>
