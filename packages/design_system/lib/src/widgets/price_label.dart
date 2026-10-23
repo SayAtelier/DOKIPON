@@ -14,12 +14,16 @@ class PriceLabel extends StatelessWidget {
     this.style,
     this.showCurrency = false,
     this.color,
+    this.showStrikethrough = false,
+    this.strikethroughColor,
   });
 
   final Money money;
   final TextStyle? style;
   final bool showCurrency;
   final Color? color;
+  final bool showStrikethrough;
+  final Color? strikethroughColor;
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +40,9 @@ class PriceLabel extends StatelessWidget {
         style: (base ?? const TextStyle()).copyWith(
           fontWeight: FontWeight.w600,
           color: color ?? DokColors.ink,
+          decoration: showStrikethrough ? TextDecoration.lineThrough : null,
+          decorationColor: strikethroughColor ?? DokColors.inkFaint,
+          decorationThickness: 1.5,
         ),
       ),
     );
@@ -69,12 +76,13 @@ class PriceRow extends StatelessWidget {
         originalMoney!.currency == money.currency;
 
     if (!discounted) {
-      return PriceLabel(money: money, style: theme.textTheme.titleSmall);
+      return PriceLabel(
+        money: money,
+        style: theme.textTheme.titleLarge, // 14px serif
+      );
     }
 
     return Wrap(
-      // WrapCrossAlignment has no `baseline`; the price row is two lines tall
-      // at most, so aligning to the end of the row reads the same.
       crossAxisAlignment: WrapCrossAlignment.end,
       spacing: DokSpace.sm,
       children: [
@@ -82,11 +90,12 @@ class PriceRow extends StatelessWidget {
           money: originalMoney!,
           style: theme.textTheme.bodySmall,
           color: DokColors.inkFaint,
+          showStrikethrough: true,
         ),
         PriceLabel(
           money: money,
           style: theme.textTheme.titleMedium?.copyWith(fontSize: 15),
-          color: DokColors.accent,
+          color: DokColors.crimson, // was accent
         ),
       ],
     );

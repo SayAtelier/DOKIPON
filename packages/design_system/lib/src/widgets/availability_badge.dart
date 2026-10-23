@@ -8,42 +8,53 @@ import 'package:flutter/material.dart';
 /// explicit ja/en word. The reference storefront keeps stock state as plain
 /// muted text rather than a coloured pill — a dozen coloured pills in a grid
 /// would fight the product photography, so the badge is quiet text and only
-/// the genuinely urgent case (almost gone) is tinted.
+/// the genuinely urgent case (almost gone) is tinted with warm **blush**
+/// to signal intimacy/urgency without alarm.
 class AvailabilityBadge extends StatelessWidget {
-  const AvailabilityBadge({super.key, required this.availability, this.dense = false});
+  const AvailabilityBadge({
+    super.key,
+    required this.availability,
+    this.dense = false,
+    this.useWarmthForLowStock = false, // when true, low stock uses blush warmth
+  });
 
   final Availability availability;
   final bool dense;
+  final bool useWarmthForLowStock;
 
   static String labelFor(Availability a) => switch (a) {
-        Availability.inStock => '在庫あり / In stock',
-        Availability.lowStock => '残りわずか / Low stock',
-        Availability.outOfStock => '在庫切れ / Out of stock',
-        Availability.madeToOrder => '受注生産 / Made to order',
-      };
+    Availability.inStock => '在庫あり / In stock',
+    Availability.lowStock => '残りわずか / Low stock',
+    Availability.outOfStock => '在庫切れ / Out of stock',
+    Availability.madeToOrder => '受注生産 / Made to order',
+  };
 
-  static Color colorFor(Availability a) => switch (a) {
-        Availability.inStock => DokColors.inkFaint,
-        Availability.lowStock => DokColors.warning,
-        Availability.outOfStock => DokColors.inkFaint,
-        Availability.madeToOrder => DokColors.inkFaint,
-      };
+  static Color colorFor(Availability a, {bool useWarmth = false}) => switch (a) {
+    Availability.inStock => DokColors.inkFaint,
+    Availability.lowStock => useWarmth ? DokColors.blush : DokColors.warning,
+    Availability.outOfStock => DokColors.inkFaint,
+    Availability.madeToOrder => DokColors.inkFaint,
+  };
 
   /// Out of stock is not purchasable.
   bool get isPurchasable => availability != Availability.outOfStock;
 
   @override
   Widget build(BuildContext context) {
-    final color = colorFor(availability);
+    final color = colorFor(availability, useWarmth: useWarmthForLowStock);
+    final style = dense
+        ? Theme.of(context).textTheme.labelSmall
+        : Theme.of(context).textTheme.labelMedium;
     return Semantics(
       label: labelFor(availability),
       excludeSemantics: true,
       child: Text(
         labelFor(availability),
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w500,
-            ),
+        style: style?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }

@@ -17,33 +17,33 @@ class ProductCard extends StatelessWidget {
     required this.onOpen,
     this.onAdd,
     this.imageUrl,
-    this.aspectRatio = 0.78,
+    this.showQuickAdd = true,
   });
 
   final ProductSummary product;
   final VoidCallback onOpen;
   final VoidCallback? onAdd;
-
-  /// Product photography. Absent in the current catalogue, in which case a
-  /// typographic placeholder stands in rather than a grey box.
   final String? imageUrl;
-
-  /// Taller than wide, the way a garment is photographed.
-  final double aspectRatio;
+  final bool showQuickAdd;
 
   @override
   Widget build(BuildContext context) {
     final purchasable = product.availability != Availability.outOfStock;
+    final isLowStock = product.availability == Availability.lowStock;
     final theme = Theme.of(context);
 
     return InkWell(
       onTap: onOpen,
+      borderRadius: BorderRadius.circular(0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          // 1:1, the way the reference store photographs a garment. The
+          // height is set by the grid, not by the card, so the photo and the
+          // text below it always line up across a row.
           AspectRatio(
-            aspectRatio: aspectRatio,
+            aspectRatio: 1,
             child: _ProductImage(
               product: product,
               imageUrl: imageUrl,
@@ -54,21 +54,28 @@ class ProductCard extends StatelessWidget {
             product.title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleSmall,
+            style: theme.textTheme.titleLarge, // 14px serif, was titleSmall
           ),
           const SizedBox(height: DokSpace.xs),
-          PriceLabel(money: product.price),
+          PriceLabel(money: product.price, showStrikethrough: true),
           const SizedBox(height: DokSpace.xs),
-          AvailabilityBadge(availability: product.availability, dense: true),
-          if (onAdd != null) ...[
+          AvailabilityBadge(
+            availability: product.availability,
+            dense: true,
+            useWarmthForLowStock: isLowStock, // blush warmth for low stock
+          ),
+          if (onAdd != null && showQuickAdd) ...[
             const SizedBox(height: DokSpace.md),
             SizedBox(
               width: double.infinity,
+              height: 48, // 44dp touch target
               child: FilledButton(
-                // Out-of-stock is not purchasable, so the control is removed
-                // rather than left as a button that always fails.
                 onPressed: purchasable ? onAdd : null,
-                child: Text(purchasable ? 'カートに追加' : '在庫切れ'),
+                child: Text(
+                  purchasable
+                      ? 'カートに追加'
+                      : '在庫切れ / Out of stock',
+                ),
               ),
             ),
           ],
@@ -117,8 +124,9 @@ class _Placeholder extends StatelessWidget {
     // look like one repeated swatch.
     final seed = product.productId.codeUnits.fold<int>(0, (a, b) => a + b);
     final hue = (seed % 360).toDouble();
-    final base = HSLColor.fromAHSL(1, hue, 0.16, 0.93).toColor();
-    final ink = HSLColor.fromAHSL(1, hue, 0.28, 0.45).toColor();
+    // Use the warm accent palette instead of random hues
+    final base = HSLColor.fromAHSL(1, hue, 0.12, 0.95).toColor();
+    final ink = HSLColor.fromAHSL(1, hue, 0.25, 0.4).toColor();
 
     final initials = product.title
         .split(RegExp(r'[\s　/・]+'))
@@ -141,6 +149,8 @@ class _Placeholder extends StatelessWidget {
               fontFamily: DokTheme.displayFamily,
               fontSize: 40,
               height: 1,
+              fontWeight: FontWeight.w300,
+              letterSpacing: 1.2,
               color: ink.withValues(alpha: 0.55),
             ),
           ),

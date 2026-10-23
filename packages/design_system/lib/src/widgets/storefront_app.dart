@@ -70,7 +70,7 @@ class _StorefrontAppState extends State<StorefrontApp> {
   Widget build(BuildContext context) {
     final seed = widget.environment.channel == StoreChannel.line
         ? DokColors.line
-        : DokColors.accent;
+        : DokColors.crimson; // was accent
     return MaterialApp(
       title: 'DOKIPON',
       debugShowCheckedModeBanner: false,
@@ -138,7 +138,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
   /// The catalogue only carries a summary, so the server's cart is the one
   /// that knows the line's snapshot price. A first add has no cart to mutate
   /// yet, so the client creates the cart id and loads it.
-  Future<void> _addToCart(ProductSummary product) async {
+  Future<void> _addToCart(ProductSummary product, {bool fromSheet = false}) async {
     final cart = widget.cart;
     if (cart.cartId == null) {
       // The cart is identified per session. A guest session id is the
@@ -149,14 +149,24 @@ class _CatalogScreenState extends State<CatalogScreen> {
       await cart.load(session.sessionId);
     }
     if (cart.cartId == null) return;
-    await cart.add(product.sku);
-    if (mounted && !_cartOpen) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('カートに追加しました / Added to cart: ${product.title}'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+    final added = await cart.add(product.sku);
+    if (!mounted) return;
+    if (added) {
+      if (fromSheet) {
+        // The sheet's button said "add to cart" and did not add. Close it
+        // only once the item is really in the cart.
+        Navigator.of(context).maybePop();
+      }
+      if (!_cartOpen) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('カートに追加しました / Added to cart: ${product.title}'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } else if (fromSheet) {
+      // The sheet stays open so the shopper can see the error and retry.
     }
   }
 
@@ -232,12 +242,23 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   builder: (context, constraints) {
                     final width = constraints.crossAxisExtent;
                     final columns = DokGutter.columnsFor(width);
+                    // The card's height comes from its content — a square
+                    // photo, then the title, price and stock line. A fixed
+                    // aspect ratio on the whole tile made every card twice
+                    // as tall as it was wide, which at 1024px produced
+                    // 472x908px tiles with a third of the viewport given over
+                    // to one product's image.
+                    final cardWidth =
+                        (width - DokSpace.lg * (columns - 1)) / columns;
+                    final imageHeight = cardWidth; // 1:1, as the reference store
+                    final textHeight = 96.0;
+                    final extent = imageHeight + textHeight;
                     return SliverGrid(
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: columns,
                         mainAxisSpacing: DokSpace.xxl,
                         crossAxisSpacing: DokSpace.lg,
-                        childAspectRatio: 0.52,
+                        mainAxisExtent: extent,
                       ),
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
@@ -333,7 +354,39 @@ class _CatalogScreenState extends State<CatalogScreen> {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (_) => _ProductDetailSheet(product: product),
+      builder: (_) => _ProductDetailSheet(
+        product: product,
+        isMutating: widget.cart.isMutating,
+        error: widget.cart.error,
+        onAdd: () => _addToCart(product, fromSheet: true),
+      ),
+    );
+  }
+}
+
+
+/// Centres the page content and caps its width.
+///
+/// The reference store measures 1170–1200px for its content column. Without
+/// a cap, a 1920px screen spreads the catalogue edge to edge and the
+/// product images become enormous while the type stays the same size.
+class _ContentWidth extends StatelessWidget {
+  const _ContentWidth({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final gutter = DokGutter.of(width);
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: DokGutter.maxContentWidth),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: gutter),
+          child: child,
+        ),
+      ),
     );
   }
 }
@@ -350,13 +403,13 @@ class _BrandHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    final gutter = DokGutter.of(width);
     final compact = width < 600;
 
     return Container(
       color: DokColors.surface,
-      padding: EdgeInsets.fromLTRB(gutter, DokSpace.md, gutter, DokSpace.md),
-      child: Column(
+      padding: const EdgeInsets.symmetric(vertical: DokSpace.md),
+      child: _ContentWidth(
+        child: Column(
         children: [
           Row(
             children: [
@@ -392,6 +445,7 @@ class _BrandHeader extends StatelessWidget {
             ),
           ],
         ],
+        ),
       ),
     );
   }
@@ -432,7 +486,7 @@ class _CartButton extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                     constraints: const BoxConstraints(minWidth: 16),
-                    color: DokColors.accent,
+                    color: DokColors.crimson, // was accent
                     child: Text(
                       '$count',
                       textAlign: TextAlign.center,
@@ -548,13 +602,13 @@ class _HeroBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    final gutter = DokGutter.of(width);
 
     return Container(
       width: double.infinity,
       color: DokColors.surface,
-      padding: EdgeInsets.fromLTRB(gutter, DokSpace.xxxl, gutter, DokSpace.xxxl),
-      child: Column(
+      padding: const EdgeInsets.symmetric(vertical: DokSpace.xxxl),
+      child: _ContentWidth(
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
@@ -583,6 +637,7 @@ class _HeroBanner extends StatelessWidget {
             child: const Text('SHOP COLLECTION'),
           ),
         ],
+        ),
       ),
     );
   }
@@ -642,9 +697,21 @@ class _Notice extends StatelessWidget {
 
 /// The product detail sheet.
 class _ProductDetailSheet extends StatelessWidget {
-  const _ProductDetailSheet({required this.product});
+  const _ProductDetailSheet({
+    required this.product,
+    required this.onAdd,
+    this.isMutating = false,
+    this.error,
+  });
 
   final ProductSummary product;
+
+  /// Adds the product to the cart. The sheet's button used to only close the
+  /// sheet, so a shopper could believe they had added an item when they had
+  /// not.
+  final VoidCallback onAdd;
+  final bool isMutating;
+  final ApiProblem? error;
 
   @override
   Widget build(BuildContext context) {
@@ -671,16 +738,27 @@ class _ProductDetailSheet extends StatelessWidget {
             style: theme.textTheme.bodySmall,
           ),
           const SizedBox(height: DokSpace.xl),
+          if (error != null) ...[
+            StatusBanner(
+              message: error!.detail.isEmpty
+                  ? 'カートに追加できませんでした / Could not add to the cart.'
+                  : error!.detail,
+              tone: BannerTone.danger,
+            ),
+            const SizedBox(height: DokSpace.md),
+          ],
           SizedBox(
             width: double.infinity,
             child: FilledButton(
-              onPressed: product.availability == Availability.outOfStock
+              onPressed: product.availability == Availability.outOfStock || isMutating
                   ? null
-                  : () => Navigator.of(context).pop(),
+                  : onAdd,
               child: Text(
                 product.availability == Availability.outOfStock
                     ? '在庫切れ / Out of stock'
-                    : 'カートに追加 / Add to cart',
+                    : isMutating
+                        ? '追加中… / Adding…'
+                        : 'カートに追加 / Add to cart',
               ),
             ),
           ),
