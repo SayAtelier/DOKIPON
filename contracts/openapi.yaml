@@ -7,13 +7,15 @@ info:
     Contract for the GemArc Commerce storefront backend.
 
     Converted from `docs/gemarc-5d-design-atlas/reference-models/commerce_openapi.yaml`,
-    which itself was a design-only artifact of the v5.4 era. This file describes what the
-    Rust services in `services/` actually serve.
+    which itself was a design-only artifact of the v5.4 era. This file records
+    the current storefront contract and the proposed admin surface. Admin
+    payload shapes not verified against code are proposals pending implementation.
 
     Semantics that are load-bearing and must not drift:
-      * `Idempotency-Key` is required on every write, scoped to (actor, operation).
-        Same key + same payload replays the stored response; same key + different
-        payload is 409.
+      * `Idempotency-Key` is required on storefront business writes and admin
+        inventory writes, scoped to (actor, operation). Same key + same payload
+        replays the stored response; same key + different payload is 409.
+        Admin session login and operator order reconciliation are explicit exceptions.
       * Money is `{amountMinor: int64, currency: ISO-4217}`. No floating point.
       * `payment_unknown` is NOT failure and NOT success. It is resolved only by
         reconciliation; a client must re-read status, never re-submit.
@@ -32,6 +34,14 @@ tags:
   - name: checkout
   - name: orders
   - name: identity
+  - name: admin
+    description: |
+      Back-office operations use the reusable `adminBearerAuth` security scheme
+      and `x-required-role` operation marker. Roles are ordered
+      `viewer` < `operator` < `admin`: operators inherit viewer access and admins
+      inherit operator and viewer access. This contract defines no admin-only
+      operation. Request/response shapes not verified against the implementation
+      are proposals for the separately owned service and console work.
 
 security:
   - sessionHeader: []
@@ -352,8 +362,440 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
 
+  /admin/v1/sessions:
+    post:
+      tags: [admin]
+      operationId: admin.sessions.create
+      summary: Sign in to the back office.
+      description: |
+        Public login endpoint. Successful login returns a bearer token and its
+        role (`viewer`, `operator`, or `admin`). No Idempotency-Key is required
+        for session login.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminLoginRequest' }
+      responses:
+        '200':
+          description: Bearer token and assigned role.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessToken, tokenType, role]
+                properties:
+                  accessToken: { type: string }
+                  tokenType: { type: string, enum: [Bearer] }
+                  role: { $ref: '#/components/schemas/AdminRole' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /admin/v1/session:
+    get:
+      tags: [admin]
+      operationId: admin.session.get
+      summary: Introspect the current admin token.
+      description: |
+        **Required role:** `viewer`. Operators inherit viewer access; admins
+        inherit operator and viewer access. The response reports the current
+        token's role.
+      security:
+        - adminBearerAuth: []
+      x-required-role: viewer
+      responses:
+        '200':
+          description: Current authenticated admin session.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSession' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /admin/v1/orders:
+    get:
+      tags: [admin]
+      operationId: admin.orders.list
+      summary: List orders across customer sessions.
+      description: |
+        **Required role:** `viewer`. Operators inherit viewer access; admins
+        inherit operator and viewer access.
+      security:
+        - adminBearerAuth: []
+      x-required-role: viewer
+      parameters:
+        - name: state
+          in: query
+          schema: { $ref: '#/components/schemas/CheckoutStatus' }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of order summaries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/OrderSummary' }
+                  next_cursor: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /admin/v1/orders/{orderId}:
+    get:
+      tags: [admin]
+      operationId: admin.orders.detail
+      summary: Read an order across customer sessions.
+      description: |
+        **Required role:** `viewer`. Operators inherit viewer access; admins
+        inherit operator and viewer access.
+      security:
+        - adminBearerAuth: []
+      x-required-role: viewer
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Order detail and state-transition timeline.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminOrderDetail' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /admin/v1/orders/{orderId}/reconcile:
+    post:
+      tags: [admin]
+      operationId: admin.orders.reconcile
+      summary: Recover an order in `payment_unknown`.
+      description: |
+        **Required role:** `operator`. Operators inherit viewer access; admins
+        inherit operator and viewer access. This action is accepted only while
+        the order is in `payment_unknown`; it records the operator's provider
+        verdict using the proposed `authorized` request field.
+
+        This operator recovery action is intentionally **not** protected by an
+        `Idempotency-Key`. It is not a customer write; do not add the customer
+        write idempotency convention to this operation.
+
+        A token without the `operator` role receives 403. An order not in
+        `payment_unknown` receives 409.
+      security:
+        - adminBearerAuth: []
+      x-required-role: operator
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [authorized]
+              properties:
+                authorized:
+                  type: boolean
+                  description: Proposed operator-recorded provider verdict.
+      responses:
+        '200':
+          description: Order state after operator recovery.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminOrderDetail' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403':
+          description: The token lacks the required `operator` role.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: The order is not in `payment_unknown`.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /admin/v1/products:
+    get:
+      tags: [admin]
+      operationId: admin.products.list
+      summary: List catalog products for the back office.
+      description: |
+        **Required role:** `viewer`. Operators inherit viewer access; admins
+        inherit operator and viewer access.
+      security:
+        - adminBearerAuth: []
+      x-required-role: viewer
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: A page of catalog products.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductPage' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /admin/v1/products/{productId}:
+    get:
+      tags: [admin]
+      operationId: admin.products.detail
+      summary: Read catalog detail for the back office.
+      description: |
+        **Required role:** `viewer`. Operators inherit viewer access; admins
+        inherit operator and viewer access.
+      security:
+        - adminBearerAuth: []
+      x-required-role: viewer
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Catalog product detail.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductDetail' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /admin/v1/inventory:
+    get:
+      tags: [admin]
+      operationId: admin.inventory.list
+      summary: List inventory stock levels.
+      description: |
+        **Required role:** `viewer`. Operators inherit viewer access; admins
+        inherit operator and viewer access.
+
+        **Not yet backed by an upstream endpoint.** The admin facade proxies this
+        to the inventory service, which today exposes only the three write routes
+        (`POST /v1/inventory/reservations`, `.../commit`, `.../release`) and has no
+        read route. A request therefore returns `404` with code
+        `admin.upstream_error` until the inventory service gains a listing route.
+        The contract keeps the path so the admin surface stays complete, and the
+        limitation is stated here rather than left for a caller to discover.
+      security:
+        - adminBearerAuth: []
+      x-required-role: viewer
+      x-implemented: false
+      x-blocked-by: inventory-service-has-no-list-route
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: A page of stock levels.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [productId, sku, onHand, reserved, available]
+                      properties:
+                        productId: { type: string }
+                        sku: { type: string }
+                        onHand: { type: integer, minimum: 0 }
+                        reserved: { type: integer, minimum: 0 }
+                        available: { type: integer, minimum: 0 }
+                  next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        # Upstream has no matching route, so the facade relays its 404.
+        '404': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /admin/v1/inventory/reservations:
+    post:
+      tags: [admin]
+      operationId: admin.inventory.reservations.create
+      summary: Force an inventory reservation.
+      description: |
+        **Required role:** `operator`. Operators inherit viewer access; admins
+        inherit operator and viewer access. This is an operator-forced reserve.
+        The request shape is proposed pending implementation verification.
+      security:
+        - adminBearerAuth: []
+      x-required-role: operator
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId, quantity]
+              properties:
+                productId: { type: string }
+                quantity: { type: integer, minimum: 1 }
+      responses:
+        '201':
+          description: The created reservation.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reservationId, productId, quantity]
+                properties:
+                  reservationId: { type: string }
+                  productId: { type: string }
+                  quantity: { type: integer, minimum: 1 }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /admin/v1/inventory/reservations/{reservationId}/release:
+    post:
+      tags: [admin]
+      operationId: admin.inventory.reservations.release
+      summary: Release an inventory reservation.
+      description: |
+        **Required role:** `operator`. Operators inherit viewer access; admins
+        inherit operator and viewer access. The proposed request has no body.
+      security:
+        - adminBearerAuth: []
+      x-required-role: operator
+      parameters:
+        - name: reservationId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: Reservation released.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reservationId, status]
+                properties:
+                  reservationId: { type: string }
+                  status: { type: string, enum: [released] }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /admin/v1/payments:
+    get:
+      tags: [admin]
+      operationId: admin.payments.list
+      summary: List payment attempts.
+      description: |
+        **Required role:** `viewer`. Operators inherit viewer access; admins
+        inherit operator and viewer access.
+
+        **Not yet backed by an upstream endpoint.** The payment adapter exposes
+        only `POST /v1/payments/authorize`, `POST /v1/payments/reconcile` and
+        `POST /v1/payments/webhook`; it has no read route. A request therefore
+        returns `404` with code `admin.upstream_error` until the adapter gains a
+        listing route. Payment history for a specific order is still reachable
+        indirectly, because the order service embeds the attempt outcome in the
+        order detail response.
+      security:
+        - adminBearerAuth: []
+      x-required-role: viewer
+      x-implemented: false
+      x-blocked-by: payment-adapter-has-no-list-route
+      parameters:
+        - name: orderId
+          in: query
+          schema: { type: string }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: A page of payment attempts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [paymentAttemptId, orderId, status, amount]
+                      properties:
+                        paymentAttemptId: { type: string }
+                        orderId: { type: string }
+                        status: { type: string }
+                        amount: { $ref: '#/components/schemas/Money' }
+                  next_cursor: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        # Upstream has no matching route, so the facade relays its 404.
+        '404': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
 components:
   securitySchemes:
+    adminBearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Reusable bearer authentication for protected `/admin/v1` operations.
+        Each operation pairs this scheme with `x-required-role` and a
+        description naming its minimum role. Role hierarchy:
+        `viewer` < `operator` < `admin`.
     sessionHeader:
       type: apiKey
       in: header
@@ -617,6 +1059,50 @@ components:
           enum: [guest, line_user]
         channel: { $ref: '#/components/schemas/Channel' }
         expires_at_ms: { type: integer }
+
+    AdminRole:
+      type: string
+      description: |
+        `operator` includes all `viewer` permissions; `admin` includes all
+        `operator` and `viewer` permissions. No admin-only operation is defined
+        in this contract.
+      enum: [viewer, operator, admin]
+
+    AdminLoginRequest:
+      type: object
+      required: [username, password]
+      additionalProperties: false
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+
+    AdminSession:
+      type: object
+      required: [role]
+      properties:
+        role: { $ref: '#/components/schemas/AdminRole' }
+
+    AdminOrderDetail:
+      type: object
+      required: [orderId, state, lines, total]
+      properties:
+        orderId: { type: string }
+        state: { $ref: '#/components/schemas/CheckoutStatus' }
+        lines:
+          type: array
+          items:
+            type: object
+            required: [sku, quantity, unitPrice]
+            properties:
+              sku: { type: string }
+              quantity: { type: integer, minimum: 1 }
+              unitPrice: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+        reservationId: { type: [string, 'null'] }
+        awaitingReconciliation: { type: boolean }
+        timeline:
+          type: array
+          items: { $ref: '#/components/schemas/TrailEntry' }
 
     Storefront:
       type: object

@@ -1,0 +1,35 @@
+# 保留 network-gateway 稳定 Service 名称与端口
+apiVersion: v1
+kind: Service
+metadata:
+  name: network-gateway
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/name: network-gateway
+    app.kubernetes.io/part-of: rust-game-server
+spec:
+  ports:
+  - name: tcp-binary
+    port: 7001
+    protocol: TCP
+    targetPort: 7001
+  - name: admin-grpc
+    port: 50090
+    protocol: TCP
+    targetPort: 50090
+  - name: web-conn
+    port: 8000
+    protocol: TCP
+    targetPort: 8000
+  - name: epmd
+    port: 4369
+    protocol: TCP
+    targetPort: 4369
+  - name: metrics
+    port: 9464
+    protocol: TCP
+    targetPort: 9464
+  selector:
+    app.kubernetes.io/name: network-gateway
+  type: ClusterIP

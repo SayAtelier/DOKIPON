@@ -1,0 +1,23 @@
+# 补入现有目录中未被基础 Kustomization 引用的 Scene Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: scene-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/component: domain-service
+    app.kubernetes.io/name: scene
+    app.kubernetes.io/part-of: rust-game-server
+spec:
+  ports:
+  - name: grpc
+    port: 50057
+    protocol: TCP
+    targetPort: 50057
+  - name: metrics
+    port: 9464
+    protocol: TCP
+    targetPort: 9464
+  selector:
+    app.kubernetes.io/name: scene
+  type: ClusterIP

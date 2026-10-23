@@ -1,0 +1,180 @@
+# 六域服务证书；SAN、有效期及双向 TLS 用途沿用现有生成流程。
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: rgs-player-tls
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: domain-certificate
+spec:
+  secretName: rgs-secret-player-tls
+  commonName: player.service
+  subject:
+    organizations:
+      - RustGameServer
+  dnsNames:
+    - player.service
+  duration: 17520h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - server auth
+    - client auth
+  issuerRef:
+    name: rgs-player-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: rgs-economy-tls
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: domain-certificate
+spec:
+  secretName: rgs-secret-economy-tls
+  commonName: economy.service
+  subject:
+    organizations:
+      - RustGameServer
+  dnsNames:
+    - economy.service
+  duration: 17520h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - server auth
+    - client auth
+  issuerRef:
+    name: rgs-economy-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: rgs-match-tls
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: domain-certificate
+spec:
+  secretName: rgs-secret-match-tls
+  commonName: match.service
+  subject:
+    organizations:
+      - RustGameServer
+  dnsNames:
+    - match.service
+  duration: 17520h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - server auth
+    - client auth
+  issuerRef:
+    name: rgs-match-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: rgs-social-tls
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: domain-certificate
+spec:
+  secretName: rgs-secret-social-tls
+  commonName: social.service
+  subject:
+    organizations:
+      - RustGameServer
+  dnsNames:
+    - social.service
+  duration: 17520h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - server auth
+    - client auth
+  issuerRef:
+    name: rgs-social-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: rgs-admin-tls
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: domain-certificate
+spec:
+  secretName: rgs-secret-admin-tls
+  commonName: admin.service
+  subject:
+    organizations:
+      - RustGameServer
+  dnsNames:
+    - admin.service
+  duration: 17520h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - server auth
+    - client auth
+  issuerRef:
+    name: rgs-admin-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: rgs-cluster-ops-tls
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: domain-certificate
+spec:
+  secretName: rgs-secret-cluster-ops-tls
+  commonName: cluster-ops.service
+  subject:
+    organizations:
+      - RustGameServer
+  dnsNames:
+    - cluster-ops.service
+  duration: 17520h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - server auth
+    - client auth
+  issuerRef:
+    name: rgs-cluster-ops-ca-issuer
+    kind: Issuer
+    group: cert-manager.io

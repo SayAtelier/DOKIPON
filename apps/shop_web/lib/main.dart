@@ -1,4 +1,4 @@
-// Web build of the GemArc Commerce storefront.
+// Web build of the DOKIPON storefront.
 //
 // Build:
 //   flutter build web --dart-define=GEMARC_CHANNEL=web \

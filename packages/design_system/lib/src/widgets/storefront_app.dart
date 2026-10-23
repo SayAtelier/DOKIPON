@@ -27,6 +27,7 @@ class StorefrontApp extends StatefulWidget {
 class _StorefrontAppState extends State<StorefrontApp> {
   late final SessionController session;
   late final CatalogController catalog;
+  late final CartController cart;
   late final CheckoutController checkout;
   late StorefrontConfig config;
   bool _booting = true;
@@ -36,6 +37,7 @@ class _StorefrontAppState extends State<StorefrontApp> {
     super.initState();
     session = SessionController(api: widget.api);
     catalog = CatalogController(widget.api);
+    cart = CartController(widget.api);
     checkout = CheckoutController(widget.api);
     config = StorefrontConfig.fallback(widget.environment.channel);
     _boot();
@@ -59,6 +61,7 @@ class _StorefrontAppState extends State<StorefrontApp> {
   void dispose() {
     session.dispose();
     catalog.dispose();
+    cart.dispose();
     checkout.dispose();
     super.dispose();
   }
@@ -66,15 +69,16 @@ class _StorefrontAppState extends State<StorefrontApp> {
   @override
   Widget build(BuildContext context) {
     final seed = widget.environment.channel == StoreChannel.line
-        ? GemColors.line
-        : GemColors.brand;
+        ? DokColors.line
+        : DokColors.crimson; // was accent
     return MaterialApp(
-      title: 'GemArc Commerce',
+      title: 'DOKIPON',
       debugShowCheckedModeBanner: false,
-      theme: GemTheme.light(seed: seed),
+      theme: DokTheme.light(seed: seed),
       home: CatalogScreen(
         session: session,
         catalog: catalog,
+        cart: cart,
         checkout: checkout,
         booting: _booting,
       ),
@@ -82,18 +86,20 @@ class _StorefrontAppState extends State<StorefrontApp> {
   }
 }
 
-/// The catalogue screen, shared by every channel.
+/// The storefront screen, shared by every channel.
 class CatalogScreen extends StatefulWidget {
   const CatalogScreen({
     super.key,
     required this.session,
     required this.catalog,
+    required this.cart,
     required this.checkout,
     this.booting = false,
   });
 
   final SessionController session;
   final CatalogController catalog;
+  final CartController cart;
   final CheckoutController checkout;
   final bool booting;
 
@@ -102,11 +108,15 @@ class CatalogScreen extends StatefulWidget {
 }
 
 class _CatalogScreenState extends State<CatalogScreen> {
+  /// Whether the cart drawer is open.
+  bool _cartOpen = false;
+
   @override
   void initState() {
     super.initState();
     widget.session.addListener(_onChange);
     widget.catalog.addListener(_onChange);
+    widget.cart.addListener(_onChange);
     widget.checkout.addListener(_onChange);
   }
 
@@ -114,6 +124,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
   void dispose() {
     widget.session.removeListener(_onChange);
     widget.catalog.removeListener(_onChange);
+    widget.cart.removeListener(_onChange);
     widget.checkout.removeListener(_onChange);
     super.dispose();
   }
@@ -122,120 +133,698 @@ class _CatalogScreenState extends State<CatalogScreen> {
     if (mounted) setState(() {});
   }
 
+  /// Add a product to the cart.
+  ///
+  /// The catalogue only carries a summary, so the server's cart is the one
+  /// that knows the line's snapshot price. A first add has no cart to mutate
+  /// yet, so the client creates the cart id and loads it.
+  Future<void> _addToCart(ProductSummary product, {bool fromSheet = false}) async {
+    final cart = widget.cart;
+    if (cart.cartId == null) {
+      // The cart is identified per session. A guest session id is the
+      // natural key: the server scopes the cart by owner, and the guest
+      // session is what the shopper has at this point.
+      final session = widget.session.session;
+      if (session == null) return;
+      await cart.load(session.sessionId);
+    }
+    if (cart.cartId == null) return;
+    final added = await cart.add(product.sku);
+    if (!mounted) return;
+    if (added) {
+      if (fromSheet) {
+        // The sheet's button said "add to cart" and did not add. Close it
+        // only once the item is really in the cart.
+        Navigator.of(context).maybePop();
+      }
+      if (!_cartOpen) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('カートに追加しました / Added to cart: ${product.title}'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } else if (fromSheet) {
+      // The sheet stays open so the shopper can see the error and retry.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final catalog = widget.catalog;
     final session = widget.session;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('GemArc Commerce'),
-        backgroundColor: GemColors.surface,
-      ),
+      backgroundColor: DokColors.canvas,
       body: RefreshIndicator(
         onRefresh: () => catalog.load(refresh: true),
-        child: ListView(
+        color: DokColors.ink,
+        child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(vertical: GemSpace.sm),
-          children: [
+          slivers: [
+            SliverToBoxAdapter(child: _BrandHeader(cart: widget.cart, onCartTap: _openCart)),
+            const SliverToBoxAdapter(child: _CategoryNav()),
             if (session.notice != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                    GemSpace.md, GemSpace.sm, GemSpace.md, 0),
-                child: StatusBanner(
+              SliverToBoxAdapter(
+                child: _Notice(
                   message: session.notice!,
-                  tone: BannerTone.warning,
                   actionLabel: 'OK',
                   onAction: session.clearNotice,
                 ),
               ),
             if (session.isGuest && !session.isBooting)
-              const Padding(
-                padding: EdgeInsets.fromLTRB(
-                    GemSpace.md, GemSpace.sm, GemSpace.md, 0),
-                child: StatusBanner(
+              const SliverToBoxAdapter(
+                child: _Notice(
                   message: 'ゲスト表示です。購入にはログインが必要です / '
                       'Browsing as a guest — sign in to check out.',
-                  tone: BannerTone.info,
                 ),
               ),
-            const SizedBox(height: GemSpace.sm),
+            const SliverToBoxAdapter(child: _HeroBanner()),
+            const SliverToBoxAdapter(child: _SectionRule('NEW ARRIVALS')),
             if (widget.booting || (catalog.isLoading && catalog.items.isEmpty))
-              const Padding(
-                padding: EdgeInsets.all(GemSpace.xl),
-                child: Center(child: CircularProgressIndicator()),
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.all(DokSpace.huge),
+                  child: Center(child: CircularProgressIndicator(color: DokColors.ink)),
+                ),
               )
             else if (catalog.error != null && catalog.items.isEmpty)
-              Padding(
-                padding: const EdgeInsets.all(GemSpace.md),
-                child: StatusBanner(
-                  message: catalog.error!.detail.isEmpty
-                      ? '商品を読み込めませんでした / Could not load products.'
-                      : catalog.error!.detail,
-                  tone: BannerTone.danger,
-                  actionLabel: '再試行 / Retry',
-                  onAction: () => catalog.load(refresh: true),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(DokSpace.lg),
+                  child: StatusBanner(
+                    message: catalog.error!.detail.isEmpty
+                        ? '商品を読み込めませんでした / Could not load products.'
+                        : catalog.error!.detail,
+                    tone: BannerTone.danger,
+                    actionLabel: '再試行 / Retry',
+                    onAction: () => catalog.load(refresh: true),
+                  ),
                 ),
               )
             else if (catalog.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(GemSpace.xl),
-                child: Center(
-                    child: Text('商品がありません / No products available')),
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.all(DokSpace.huge),
+                  child: Center(
+                    child: Text('商品がありません / No products available'),
+                  ),
+                ),
               )
             else
-              for (final p in catalog.items)
-                ProductCard(product: p, onOpen: () => _showDetail(p)),
-            if (catalog.hasMore)
-              Padding(
-                padding: const EdgeInsets.all(GemSpace.md),
-                child: OutlinedButton(
-                  onPressed: catalog.isLoadingMore ? null : catalog.loadMore,
-                  child: catalog.isLoadingMore
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('もっと見る / Load more'),
+              SliverPadding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: _gutterOf(context),
+                  vertical: DokSpace.lg,
+                ),
+                sliver: SliverLayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = constraints.crossAxisExtent;
+                    final columns = DokGutter.columnsFor(width);
+                    // The card's height comes from its content — a square
+                    // photo, then the title, price and stock line. A fixed
+                    // aspect ratio on the whole tile made every card twice
+                    // as tall as it was wide, which at 1024px produced
+                    // 472x908px tiles with a third of the viewport given over
+                    // to one product's image.
+                    final cardWidth =
+                        (width - DokSpace.lg * (columns - 1)) / columns;
+                    final imageHeight = cardWidth; // 1:1, as the reference store
+                    final textHeight = 96.0;
+                    final extent = imageHeight + textHeight;
+                    return SliverGrid(
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columns,
+                        mainAxisSpacing: DokSpace.xxl,
+                        crossAxisSpacing: DokSpace.lg,
+                        mainAxisExtent: extent,
+                      ),
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final product = catalog.items[index];
+                          return ProductCard(
+                            product: product,
+                            onOpen: () => _showDetail(product),
+                            onAdd: () => _addToCart(product),
+                          );
+                        },
+                        childCount: catalog.items.length,
+                      ),
+                    );
+                  },
                 ),
               ),
-            const SizedBox(height: GemSpace.xl),
+            if (catalog.hasMore)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(DokSpace.lg),
+                  child: Center(
+                    child: OutlinedButton(
+                      onPressed: catalog.isLoadingMore ? null : catalog.loadMore,
+                      child: catalog.isLoadingMore
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('もっと見る / Load more'),
+                    ),
+                  ),
+                ),
+              ),
+            const SliverToBoxAdapter(child: _Footer()),
+            const SliverToBoxAdapter(child: SizedBox(height: DokSpace.xxl)),
           ],
         ),
       ),
       bottomNavigationBar: CheckoutStatusBar(checkout: widget.checkout),
+      drawer: CartDrawer(
+        cart: widget.cart,
+        isMutating: widget.cart.isMutating,
+        error: widget.cart.error,
+        onClose: _closeCart,
+        onQuantityChanged: (sku, quantity) =>
+            widget.cart.setQuantity(sku: sku, quantity: quantity),
+        onRemove: (sku) => widget.cart.remove(sku),
+        onCheckout: _checkout,
+      ),
+      onDrawerChanged: (open) {
+        if (open != _cartOpen) setState(() => _cartOpen = open);
+      },
     );
   }
+
+  void _openCart() {
+    Scaffold.of(context).openDrawer();
+  }
+
+  void _closeCart() {
+    Navigator.of(context).maybePop();
+  }
+
+  /// Submit the checkout.
+  ///
+  /// The payload's line prices are the cart's snapshot prices; the server
+  /// discards them and re-prices from the catalogue. The idempotency key is
+  /// derived from the cart's identity, so a transport-level retry replays the
+  /// same checkout instead of charging twice.
+  Future<void> _checkout() async {
+    final cart = widget.cart;
+    if (cart.isEmpty) return;
+    final lines = cart.lines;
+    final payload = CommerceApiClient.buildCheckoutPayload(
+      lines: lines,
+      paymentMethodRef: 'tok_test',
+    );
+    await widget.checkout.submit(
+      operation: 'checkout.cart-${cart.cartId}',
+      payload: payload,
+    );
+    if (mounted) {
+      Scaffold.of(context).closeDrawer();
+    }
+  }
+
+  static double _gutterOf(BuildContext context) =>
+      DokGutter.of(MediaQuery.sizeOf(context).width);
 
   void _showDetail(ProductSummary product) {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(GemSpace.md),
+      isScrollControlled: true,
+      builder: (_) => _ProductDetailSheet(
+        product: product,
+        isMutating: widget.cart.isMutating,
+        error: widget.cart.error,
+        onAdd: () => _addToCart(product, fromSheet: true),
+      ),
+    );
+  }
+}
+
+
+/// Centres the page content and caps its width.
+///
+/// The reference store measures 1170–1200px for its content column. Without
+/// a cap, a 1920px screen spreads the catalogue edge to edge and the
+/// product images become enormous while the type stays the same size.
+class _ContentWidth extends StatelessWidget {
+  const _ContentWidth({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final gutter = DokGutter.of(width);
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: DokGutter.maxContentWidth),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: gutter),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// The brand bar: wordmark centred, utilities at the edges, rules top and
+/// bottom. The reference storefront does exactly this — the brand is the
+/// loudest thing on the page and the utility icons stay quiet.
+class _BrandHeader extends StatelessWidget {
+  const _BrandHeader({required this.cart, required this.onCartTap});
+
+  final CartController cart;
+  final VoidCallback onCartTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final compact = width < 600;
+
+    return Container(
+      color: DokColors.surface,
+      padding: const EdgeInsets.symmetric(vertical: DokSpace.md),
+      child: _ContentWidth(
         child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(product.title, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: GemSpace.sm),
-            PriceLabel(
-              money: product.price,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: GemSpace.md),
-            AvailabilityBadge(availability: product.availability),
-            const SizedBox(height: GemSpace.md),
-            Text('SKU: ${product.sku}',
-                style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: GemSpace.sm),
-            const Text(
-              '価格はサーバー側で決定されます / The charged price is set server-side.',
-              style: TextStyle(color: GemColors.inkMuted, fontSize: 12),
+        children: [
+          Row(
+            children: [
+              if (!compact)
+                const _UtilityIcon(icon: Icons.search_outlined, label: '検索 / Search'),
+              const Spacer(),
+              const Text(
+                'DOKIPON',
+                style: TextStyle(
+                  fontFamily: DokTheme.displayFamily,
+                  fontSize: 26,
+                  letterSpacing: 6,
+                  height: 1,
+                  color: DokColors.ink,
+                ),
+              ),
+              const Spacer(),
+              if (!compact) ...[
+                _CartButton(count: cart.itemCount, onTap: onCartTap),
+                const _UtilityIcon(icon: Icons.person_outline, label: 'アカウント / Account'),
+              ],
+            ],
+          ),
+          if (compact) ...[
+            const SizedBox(height: DokSpace.sm),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const _UtilityIcon(icon: Icons.search_outlined, label: '検索'),
+                _CartButton(count: cart.itemCount, onTap: onCartTap),
+                const _UtilityIcon(icon: Icons.person_outline, label: 'アカウント'),
+              ],
             ),
           ],
+        ],
         ),
+      ),
+    );
+  }
+}
+
+/// The cart icon, with a count badge when the cart is not empty.
+///
+/// A shopper needs to know at a glance whether anything is in the cart; a
+/// bare bag icon that looks identical whether it holds three items or none
+/// costs a click every time.
+class _CartButton extends StatelessWidget {
+  const _CartButton({required this.count, required this.onTap});
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: count == 0
+          ? 'カート / Cart, empty'
+          : 'カート / Cart, $count items',
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          width: kMinTouchTarget,
+          height: kMinTouchTarget,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              const Icon(Icons.shopping_bag_outlined, size: 20, color: DokColors.ink),
+              if (count > 0)
+                Positioned(
+                  right: 4,
+                  top: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    constraints: const BoxConstraints(minWidth: 16),
+                    color: DokColors.crimson, // was accent
+                    child: Text(
+                      '$count',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: DokColors.onButton,
+                        fontSize: 9,
+                        height: 1.2,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _UtilityIcon extends StatelessWidget {
+  const _UtilityIcon({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: () {},
+        child: SizedBox(
+          width: kMinTouchTarget,
+          height: kMinTouchTarget,
+          child: Icon(icon, size: 20, color: DokColors.ink),
+        ),
+      ),
+    );
+  }
+}
+
+/// The category strip. Horizontally scrollable, which is how a real shop
+/// handles more categories than fit.
+class _CategoryNav extends StatelessWidget {
+  const _CategoryNav();
+
+  static const categories = <(String, String)>[
+    ('LINGERIE', 'ランジェリー'),
+    ('BRA & SETS', 'ブラ＆セット'),
+    ('NIGHTWEAR', 'ナイトウェア'),
+    ('SWIM', 'スイム'),
+    ('BEAUTY', 'ボディケア'),
+    ('GOODS', 'グッズ'),
+    ('SALE', 'セール'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: DokColors.surface,
+      padding: const EdgeInsets.only(bottom: DokSpace.md),
+      child: Column(
+        children: [
+          const Divider(height: 1),
+          SizedBox(
+            height: 44,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.symmetric(horizontal: DokGutter.of(MediaQuery.sizeOf(context).width)),
+              itemCount: categories.length,
+              separatorBuilder: (_, _) => const SizedBox(width: DokSpace.xl),
+              itemBuilder: (context, index) {
+                final (en, ja) = categories[index];
+                return Center(
+                  child: Semantics(
+                    button: true,
+                    label: '$ja / $en',
+                    excludeSemantics: true,
+                    child: InkWell(
+                      onTap: () {},
+                      child: Text(
+                        en,
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                              color: DokColors.ink,
+                              letterSpacing: 1.4,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const Divider(height: 1),
+        ],
+      ),
+    );
+  }
+}
+
+/// The editorial band under the nav: a statement, not a slideshow.
+///
+/// A first-tier fashion storefront opens with a message, not a carousel. The
+/// reference site runs a topics strip of editorial links; this is the same
+/// idea in one line.
+class _HeroBanner extends StatelessWidget {
+  const _HeroBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+
+    return Container(
+      width: double.infinity,
+      color: DokColors.surface,
+      padding: const EdgeInsets.symmetric(vertical: DokSpace.xxxl),
+      child: _ContentWidth(
+        child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'THE ART OF\nLINGERIE',
+            style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                  fontSize: width < 600 ? 34 : 52,
+                  height: 1.08,
+                  letterSpacing: 1.5,
+                ),
+          ),
+          const SizedBox(height: DokSpace.lg),
+          SizedBox(
+            width: 420,
+            child: Text(
+              '自分らしく着るための、下着の設計。'
+              'Lingerie engineered to be worn, not to be looked at.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: DokColors.inkSoft,
+                    height: 1.8,
+                  ),
+            ),
+          ),
+          const SizedBox(height: DokSpace.xl),
+          OutlinedButton(
+            onPressed: () {},
+            child: const Text('SHOP COLLECTION'),
+          ),
+        ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A section title with a hairline rule — the reference store's section
+/// headers are small caps with a rule, not large display type.
+class _SectionRule extends StatelessWidget {
+  const _SectionRule(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final gutter = DokGutter.of(MediaQuery.sizeOf(context).width);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(gutter, DokSpace.xxl, gutter, 0),
+      child: Row(
+        children: [
+          Text(
+            title,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  letterSpacing: 2.4,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(width: DokSpace.lg),
+          const Expanded(child: Divider(height: 1)),
+        ],
+      ),
+    );
+  }
+}
+
+/// An inline notice, used for the guest-mode and degraded-channel messages.
+class _Notice extends StatelessWidget {
+  const _Notice({required this.message, this.actionLabel, this.onAction});
+
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final gutter = DokGutter.of(MediaQuery.sizeOf(context).width);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(gutter, DokSpace.md, gutter, 0),
+      child: StatusBanner(
+        message: message,
+        tone: BannerTone.info,
+        actionLabel: actionLabel,
+        onAction: onAction,
+      ),
+    );
+  }
+}
+
+/// The product detail sheet.
+class _ProductDetailSheet extends StatelessWidget {
+  const _ProductDetailSheet({
+    required this.product,
+    required this.onAdd,
+    this.isMutating = false,
+    this.error,
+  });
+
+  final ProductSummary product;
+
+  /// Adds the product to the cart. The sheet's button used to only close the
+  /// sheet, so a shopper could believe they had added an item when they had
+  /// not.
+  final VoidCallback onAdd;
+  final bool isMutating;
+  final ApiProblem? error;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(DokSpace.lg, 0, DokSpace.lg, DokSpace.xl),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(product.title, style: theme.textTheme.headlineSmall),
+          const SizedBox(height: DokSpace.sm),
+          PriceRow(money: product.price),
+          const SizedBox(height: DokSpace.lg),
+          AvailabilityBadge(availability: product.availability),
+          const SizedBox(height: DokSpace.lg),
+          const Divider(height: 1),
+          const SizedBox(height: DokSpace.md),
+          Text('SKU: ${product.sku}',
+              style: theme.textTheme.bodySmall),
+          const SizedBox(height: DokSpace.sm),
+          Text(
+            '価格はサーバー側で決定されます / The charged price is set server-side.',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: DokSpace.xl),
+          if (error != null) ...[
+            StatusBanner(
+              message: error!.detail.isEmpty
+                  ? 'カートに追加できませんでした / Could not add to the cart.'
+                  : error!.detail,
+              tone: BannerTone.danger,
+            ),
+            const SizedBox(height: DokSpace.md),
+          ],
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: product.availability == Availability.outOfStock || isMutating
+                  ? null
+                  : onAdd,
+              child: Text(
+                product.availability == Availability.outOfStock
+                    ? '在庫切れ / Out of stock'
+                    : isMutating
+                        ? '追加中… / Adding…'
+                        : 'カートに追加 / Add to cart',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The footer: the reassurance row a fashion store needs.
+class _Footer extends StatelessWidget {
+  const _Footer();
+
+  static const promises = <(IconData, String)>[
+    (Icons.local_shipping_outlined, '送料無料 / Free shipping over ¥10,000'),
+    (Icons.autorenew, '返品・交換OK / Easy returns'),
+    (Icons.lock_outline, '安全な決済 / Secure payment'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final gutter = DokGutter.of(width);
+
+    return Container(
+      width: double.infinity,
+      color: DokColors.surface,
+      margin: EdgeInsets.only(top: DokSpace.huge),
+      padding: EdgeInsets.symmetric(vertical: DokSpace.xxl, horizontal: gutter),
+      child: Column(
+        children: [
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: DokSpace.xxl,
+            runSpacing: DokSpace.md,
+            children: [
+              for (final (icon, label) in promises)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 18, color: DokColors.inkSoft),
+                    const SizedBox(width: DokSpace.sm),
+                    Text(
+                      label,
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          const SizedBox(height: DokSpace.xxl),
+          const Divider(height: 1),
+          const SizedBox(height: DokSpace.lg),
+          Text(
+            'DOKIPON',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontFamily: DokTheme.displayFamily,
+                  letterSpacing: 5,
+                ),
+          ),
+          const SizedBox(height: DokSpace.sm),
+          Text(
+            '© 2026 DOKIPON',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
       ),
     );
   }
@@ -287,7 +876,7 @@ class CheckoutStatusBar extends StatelessWidget {
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.all(GemSpace.md),
+        padding: const EdgeInsets.all(DokSpace.md),
         child: StatusBanner(
           message: detail.isNotEmpty ? '$detail\n$message' : message,
           tone: tone,

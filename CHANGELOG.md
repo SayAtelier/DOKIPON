@@ -8,6 +8,13 @@ the commerce module only (the RGS game server follows its own cadence).
 ## [unreleased]
 
 ### Added
+- Proposed GemArc Commerce back-office surface:
+  - `services/crates/commerce-admin/` — Rust admin API service.
+  - `apps/admin_console/` — Flutter admin console.
+  - `contracts/openapi.yaml` — 11 `/admin/v1` operations with bearer auth,
+    viewer/operator/admin role requirements, shared problem+json errors, and
+    integer-minor-unit money fields. The unspecified implementation payload
+    shapes are marked as proposals in the contract.
 - `commerce-ci.yml` — GitHub Actions workflow that runs the three
   local-suite commands on every push to `main` for changes under
   `apps/`, `packages/`, `services/`, `contracts/`, `tools/e2e_checkout.sh`,
@@ -22,7 +29,8 @@ the commerce module only (the RGS game server follows its own cadence).
   - `tests/integration/e2e_checkout.sh` — extended copy with a
     `--mocks-up` switch
 - `services/deploy/deploy.sh` — install / uninstall / restart / status
-  / logs for the 7 commerce services on the Multipass VM
+  / logs for the 7 storefront commerce services managed by this script on
+  the Multipass VM
 - `services/crates/commerce-mocks/src/lib.rs` STATUS banner that
   documents the workspace exclusion
 

@@ -1,0 +1,169 @@
+# economy-service 的 Rollout；PodSpec 从现有 Deployment 复制
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: economy-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: economy
+    app.kubernetes.io/component: domain-service
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/version: 0.1.0
+    rust-game-server.io/domain: economy
+    rust-game-server.io/saga-critical: 'true'
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: economy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: economy
+        app.kubernetes.io/component: domain-service
+        app.kubernetes.io/part-of: rust-game-server
+        app.kubernetes.io/version: 0.1.0
+        rust-game-server.io/domain: economy
+        rust-game-server.io/saga-critical: 'true'
+    spec:
+      serviceAccountName: economy-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+      - name: ghcr-pull
+      containers:
+      - name: economy
+        image: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.0-cc13
+        imagePullPolicy: IfNotPresent
+        command:
+        - /app/bin/economy-service
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - name: grpc
+          containerPort: 50052
+          protocol: TCP
+        - name: metrics
+          containerPort: 9464
+          protocol: TCP
+        env:
+        - name: RUST_LOG
+          value: info,economy-service=debug,sqlx=warn,tonic=warn
+        - name: GRPC_ADDR
+          value: 0.0.0.0:50052
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: economy-db-credentials
+              key: url
+        - name: NATS_URI
+          value: nats://nats:4222
+        - name: RGS_TLS_DIR
+          value: /etc/rgs/certs
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://otel-collector:4317
+        - name: OTEL_SERVICE_NAME
+          value: economy-service
+        - name: RGS_DOMAIN
+          value: economy
+        - name: ECONOMY_SAGA_TIMEOUT_SEC
+          value: '30'
+        - name: ECONOMY_TX_RETRY_MAX
+          value: '3'
+        - name: ECONOMY_CURRENCY_DECIMALS
+          value: '2'
+        - name: RGS_ALLOW_INSECURE_GRPC
+          value: '0'
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 1Gi
+          limits:
+            cpu: 4000m
+            memory: 4Gi
+        livenessProbe:
+          exec:
+            command:
+            - /bin/grpc_health_probe
+            - -addr=127.0.0.1:50052
+            - -tls
+            - -tls-client-cert=/etc/rgs/certs/server.pem
+            - -tls-client-key=/etc/rgs/certs/server.key
+            - -tls-ca-cert=/etc/rgs/certs/ca.pem
+            - -tls-server-name=economy.service
+            - -connect-timeout=2s
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/grpc_health_probe
+            - -addr=127.0.0.1:50052
+            - -tls
+            - -tls-client-cert=/etc/rgs/certs/server.pem
+            - -tls-client-key=/etc/rgs/certs/server.key
+            - -tls-ca-cert=/etc/rgs/certs/ca.pem
+            - -tls-server-name=economy.service
+            - -connect-timeout=2s
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: rgs-tls
+          mountPath: /etc/rgs/certs
+          readOnly: true
+      volumes:
+      - name: rgs-tls
+        projected:
+          sources:
+          - secret:
+              name: rgs-secret-economy-tls
+              items:
+              - key: tls.crt
+                path: server.pem
+              - key: tls.key
+                path: server.key
+          - secret:
+              name: rgs-secret-ca
+              items:
+              - key: ca.pem
+                path: ca.pem
+  strategy:
+    canary:
+      steps:
+      - setWeight: 10
+      - pause:
+          duration: 5m
+      - analysis:
+          templates:
+          - templateName: rgs-canary-analysis
+          args:
+          - name: service-name
+            value: economy
+      - setWeight: 50
+      - pause:
+          duration: 5m
+      - analysis:
+          templates:
+          - templateName: rgs-canary-analysis
+          args:
+          - name: service-name
+            value: economy
+      - setWeight: 100
+      - pause:
+          duration: 5m
+      - analysis:
+          templates:
+          - templateName: rgs-canary-analysis
+          args:
+          - name: service-name
+            value: economy

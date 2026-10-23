@@ -1,0 +1,271 @@
+# 开发、预发、生产三个晋级阶段；每阶段都运行 10 分钟分析
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: dev
+  namespace: rust-game-server
+spec:
+  requestedFreight:
+  - origin:
+      kind: Warehouse
+      name: warehouse-player
+    sources:
+      direct: true
+  - origin:
+      kind: Warehouse
+      name: warehouse-economy
+    sources:
+      direct: true
+  - origin:
+      kind: Warehouse
+      name: warehouse-match
+    sources:
+      direct: true
+  - origin:
+      kind: Warehouse
+      name: warehouse-social
+    sources:
+      direct: true
+  - origin:
+      kind: Warehouse
+      name: warehouse-admin
+    sources:
+      direct: true
+  - origin:
+      kind: Warehouse
+      name: warehouse-clusterOps
+    sources:
+      direct: true
+  - origin:
+      kind: Warehouse
+      name: warehouse-gmBackend
+    sources:
+      direct: true
+  - origin:
+      kind: Warehouse
+      name: warehouse-scene
+    sources:
+      direct: true
+  - origin:
+      kind: Warehouse
+      name: warehouse-battle
+    sources:
+      direct: true
+  - origin:
+      kind: Warehouse
+      name: warehouse-networkGateway
+    sources:
+      direct: true
+  promotionTemplate:
+    spec:
+      steps:
+      - task:
+          name: rgs-promote-images
+        as: promote-images
+  verification:
+    analysisTemplates:
+    - name: rgs-stage-analysis
+    args:
+    - name: service-name
+      value: .*
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: staging
+  namespace: rust-game-server
+spec:
+  requestedFreight:
+  - origin:
+      kind: Warehouse
+      name: warehouse-player
+    sources:
+      stages:
+      - dev
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-economy
+    sources:
+      stages:
+      - dev
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-match
+    sources:
+      stages:
+      - dev
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-social
+    sources:
+      stages:
+      - dev
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-admin
+    sources:
+      stages:
+      - dev
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-clusterOps
+    sources:
+      stages:
+      - dev
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-gmBackend
+    sources:
+      stages:
+      - dev
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-scene
+    sources:
+      stages:
+      - dev
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-battle
+    sources:
+      stages:
+      - dev
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-networkGateway
+    sources:
+      stages:
+      - dev
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  promotionTemplate:
+    spec:
+      steps:
+      - task:
+          name: rgs-promote-images
+        as: promote-images
+  verification:
+    analysisTemplates:
+    - name: rgs-stage-analysis
+    args:
+    - name: service-name
+      value: .*
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: prod
+  namespace: rust-game-server
+spec:
+  requestedFreight:
+  - origin:
+      kind: Warehouse
+      name: warehouse-player
+    sources:
+      stages:
+      - staging
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-economy
+    sources:
+      stages:
+      - staging
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-match
+    sources:
+      stages:
+      - staging
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-social
+    sources:
+      stages:
+      - staging
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-admin
+    sources:
+      stages:
+      - staging
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-clusterOps
+    sources:
+      stages:
+      - staging
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-gmBackend
+    sources:
+      stages:
+      - staging
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-scene
+    sources:
+      stages:
+      - staging
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-battle
+    sources:
+      stages:
+      - staging
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  - origin:
+      kind: Warehouse
+      name: warehouse-networkGateway
+    sources:
+      stages:
+      - staging
+      autoPromotionOptions:
+        selectionPolicy: MatchUpstream
+  promotionTemplate:
+    spec:
+      steps:
+      - task:
+          name: rgs-promote-images
+        as: promote-images
+  verification:
+    analysisTemplates:
+    - name: rgs-stage-analysis
+    args:
+    - name: service-name
+      value: .*

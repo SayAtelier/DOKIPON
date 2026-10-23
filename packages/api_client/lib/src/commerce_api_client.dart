@@ -146,6 +146,35 @@ class CommerceApiClient {
 
   // --------------------------------------------------------------- checkout
 
+  /// Builds the checkout request body.
+  ///
+  /// The field names live here and nowhere else, because they are the one
+  /// place where a client can silently disagree with the server. The
+  /// contract (`contracts/openapi.yaml` -> `CheckoutRequest`) says
+  /// `paymentMethodRef` and `unit_amount_minor`; the order service accepts
+  /// exactly that, and the server re-prices every line from the catalogue
+  /// regardless of what is sent here.
+  ///
+  /// [lines] are the cart's lines. The `unit_amount_minor` is the cart's
+  /// snapshot price — a display hint the server discards.
+  static Map<String, dynamic> buildCheckoutPayload({
+    required List<CartLine> lines,
+    required String paymentMethodRef,
+  }) {
+    return {
+      'lines': [
+        for (final line in lines)
+          {
+            'sku': line.sku,
+            'quantity': line.quantity,
+            'unit_amount_minor': line.unitAmountSnapshot,
+            'currency': line.snapshotMoney.currency.code,
+          },
+      ],
+      'paymentMethodRef': paymentMethodRef,
+    };
+  }
+
   /// Submits a checkout. [operation] should identify the *logical* checkout
   /// (e.g. `checkout.cart-1`) so a transport retry replays rather than re-charges.
   Future<CheckoutSnapshot> submitCheckout({

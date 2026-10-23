@@ -1,4 +1,4 @@
-// Android / iOS build of the GemArc Commerce storefront.
+// Android / iOS build of the DOKIPON storefront.
 //
 // Channel is compiled in as `app`; the server filters catalogue content
 // accordingly and no LINE-specific behaviour is reachable from this build.

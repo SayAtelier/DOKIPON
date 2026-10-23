@@ -1,0 +1,66 @@
+# 六个域各自使用 namespaced CA Issuer，签发边界与 Certificate 命名保持一一对应。
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: rgs-player-ca-issuer
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: domain-ca-issuer
+spec:
+  ca:
+    secretName: rgs-secret-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: rgs-economy-ca-issuer
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: domain-ca-issuer
+spec:
+  ca:
+    secretName: rgs-secret-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: rgs-match-ca-issuer
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: domain-ca-issuer
+spec:
+  ca:
+    secretName: rgs-secret-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: rgs-social-ca-issuer
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: domain-ca-issuer
+spec:
+  ca:
+    secretName: rgs-secret-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: rgs-admin-ca-issuer
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: domain-ca-issuer
+spec:
+  ca:
+    secretName: rgs-secret-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: rgs-cluster-ops-ca-issuer
+  labels:
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/component: domain-ca-issuer
+spec:
+  ca:
+    secretName: rgs-secret-ca

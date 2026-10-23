@@ -1,0 +1,5 @@
+# 活动环境入口；Kargo 晋级时切换到对应环境 overlay
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../dev

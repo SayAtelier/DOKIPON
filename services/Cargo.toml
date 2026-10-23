@@ -9,6 +9,9 @@ members = [
     "crates/commerce-inventory",
     "crates/commerce-order",
     "crates/commerce-payment-adapter",
+    "crates/commerce-admin",
+    "crates/commerce-content",
+    "crates/commerce-edge",
     # TEST FIXTURES ONLY — built on demand, not in the default `cargo build` /
     # `cargo test` pass. The crate depends on `std::sync::RwLock`, which is not
     # `Send` across await points — it conflicts with axum 0.8's `Handler` bound
@@ -54,6 +57,7 @@ async-trait = "0.1"
 http = "1"
 http-body-util = "0.1"
 urlencoding = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [profile.release]
 lto = "thin"

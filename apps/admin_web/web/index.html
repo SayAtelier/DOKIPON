@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!--
+@cypher schema=1
+MERGE (self:File {path:"apps/admin_web/web/index.html"})
+MERGE (entry:Config {name:"Flutter web bootstrap", type:"config"})
+MERGE (self)-[:CONFIGURES]->(entry)
+@endcypher
+-->
+<html lang="en">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="DOKIPON admin console">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1A1A1A">
+  <title>DOKIPON Admin</title>
+</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

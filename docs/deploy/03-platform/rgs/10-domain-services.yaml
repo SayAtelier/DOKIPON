@@ -1,0 +1,725 @@
+# RGS 5 域 + cluster-ops k3s 部署
+#
+# 数据库指向已运行的 CloudNativePG cluster（service rgs-postgres-rw），
+# 每域一个独立库（per ARC-008 5 独立 DB 原则），凭据来自 6 个
+# *-db-credentials Secret（CNPG managed.roles 用同一套 password key）。
+#
+# TLS 来自 cert-manager 生成的 rgs-secret-<域>-tls 与 rgs-secret-ca。
+# cert-manager 写 tls.crt / tls.key / ca.crt，而旧的 01-k8s-manifests/
+# projection 用的是 ca.pem，所以这里显式把 ca.crt 映射成 ca.pem，
+# 容器内路径保持不变。
+#
+# 标签不是装饰：rgs-postgres-ingress 这条 NetworkPolicy 只放行
+# app.kubernetes.io/component in (domain-service, coc-control-plane,
+# cluster-control-plane)。少了这个标签，Postgres 的 ClusterIP 对本 Pod 完全
+# 不通，而 sqlx 只会报 "pool timed out while waiting for an open connection"，
+# 不提示是网络策略拦的。admin-service 是 COC 控制面、cluster-ops 是集群控制面，
+# 两者用各自对应的 component 值。
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rgs-config
+  namespace: rust-game-server
+data:
+  RUST_LOG: "info,sqlx=warn,tonic=warn,quinn=warn"
+  NATS_URI: "nats://nats:4222"
+  RGS_TLS_DIR: "/etc/rgs/certs"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+  RGS_ALLOW_INSECURE_GRPC: "1"
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: player-service-account
+  namespace: rust-game-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: player-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: player
+    app.kubernetes.io/component: domain-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: player
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: player
+        app.kubernetes.io/component: domain-service
+    spec:
+      serviceAccountName: player-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: player
+          image: docker.io/dokipon/rgs-player-service:0.1.0
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: rgs-config
+          env:
+            - name: GRPC_ADDR
+              value: "0.0.0.0:50051"
+            - name: METRICS_PORT
+              value: "9464"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: player-db-credentials
+                  key: url
+          ports:
+            - name: grpc
+              containerPort: 50051
+            - name: metrics
+              containerPort: 9464
+          readinessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: rgs-tls
+              mountPath: /etc/rgs/certs
+              readOnly: true
+      volumes:
+        - name: rgs-tls
+          projected:
+            sources:
+              - secret:
+                  name: rgs-secret-player-tls
+                  items:
+                    - key: tls.crt
+                      path: server.pem
+                    - key: tls.key
+                      path: server.key
+              - secret:
+                  name: rgs-secret-ca
+                  items:
+                    - key: ca.crt
+                      path: ca.pem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: player-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: player
+    app.kubernetes.io/component: domain-service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: player
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+    - name: metrics
+      port: 9464
+      targetPort: 9464
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: economy-service-account
+  namespace: rust-game-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: economy-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: economy
+    app.kubernetes.io/component: domain-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: economy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: economy
+        app.kubernetes.io/component: domain-service
+    spec:
+      serviceAccountName: economy-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: economy
+          image: docker.io/dokipon/rgs-economy-service:0.1.1
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: rgs-config
+          env:
+            - name: GRPC_ADDR
+              value: "0.0.0.0:50052"
+            - name: METRICS_PORT
+              value: "9464"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: economy-db-credentials
+                  key: url
+          ports:
+            - name: grpc
+              containerPort: 50052
+            - name: metrics
+              containerPort: 9464
+          readinessProbe:
+            tcpSocket:
+              port: 50052
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50052
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: rgs-tls
+              mountPath: /etc/rgs/certs
+              readOnly: true
+      volumes:
+        - name: rgs-tls
+          projected:
+            sources:
+              - secret:
+                  name: rgs-secret-economy-tls
+                  items:
+                    - key: tls.crt
+                      path: server.pem
+                    - key: tls.key
+                      path: server.key
+              - secret:
+                  name: rgs-secret-ca
+                  items:
+                    - key: ca.crt
+                      path: ca.pem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: economy-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: economy
+    app.kubernetes.io/component: domain-service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: economy
+  ports:
+    - name: grpc
+      port: 50052
+      targetPort: 50052
+    - name: metrics
+      port: 9464
+      targetPort: 9464
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: match-service-account
+  namespace: rust-game-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: match-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: match
+    app.kubernetes.io/component: domain-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: match
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: match
+        app.kubernetes.io/component: domain-service
+    spec:
+      serviceAccountName: match-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: match
+          image: docker.io/dokipon/rgs-match-service:0.1.0
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: rgs-config
+          env:
+            - name: GRPC_ADDR
+              value: "0.0.0.0:50053"
+            - name: METRICS_PORT
+              value: "9464"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: match-db-credentials
+                  key: url
+          ports:
+            - name: grpc
+              containerPort: 50053
+            - name: metrics
+              containerPort: 9464
+          readinessProbe:
+            tcpSocket:
+              port: 50053
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50053
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: rgs-tls
+              mountPath: /etc/rgs/certs
+              readOnly: true
+      volumes:
+        - name: rgs-tls
+          projected:
+            sources:
+              - secret:
+                  name: rgs-secret-match-tls
+                  items:
+                    - key: tls.crt
+                      path: server.pem
+                    - key: tls.key
+                      path: server.key
+              - secret:
+                  name: rgs-secret-ca
+                  items:
+                    - key: ca.crt
+                      path: ca.pem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: match-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: match
+    app.kubernetes.io/component: domain-service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: match
+  ports:
+    - name: grpc
+      port: 50053
+      targetPort: 50053
+    - name: metrics
+      port: 9464
+      targetPort: 9464
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: social-service-account
+  namespace: rust-game-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: social-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: social
+    app.kubernetes.io/component: domain-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: social
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: social
+        app.kubernetes.io/component: domain-service
+    spec:
+      serviceAccountName: social-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: social
+          image: docker.io/dokipon/rgs-social-service:0.1.0
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: rgs-config
+          env:
+            - name: GRPC_ADDR
+              value: "0.0.0.0:50054"
+            - name: METRICS_PORT
+              value: "9464"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: social-db-credentials
+                  key: url
+          ports:
+            - name: grpc
+              containerPort: 50054
+            - name: metrics
+              containerPort: 9464
+          readinessProbe:
+            tcpSocket:
+              port: 50054
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50054
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: rgs-tls
+              mountPath: /etc/rgs/certs
+              readOnly: true
+      volumes:
+        - name: rgs-tls
+          projected:
+            sources:
+              - secret:
+                  name: rgs-secret-social-tls
+                  items:
+                    - key: tls.crt
+                      path: server.pem
+                    - key: tls.key
+                      path: server.key
+              - secret:
+                  name: rgs-secret-ca
+                  items:
+                    - key: ca.crt
+                      path: ca.pem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: social-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: social
+    app.kubernetes.io/component: domain-service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: social
+  ports:
+    - name: grpc
+      port: 50054
+      targetPort: 50054
+    - name: metrics
+      port: 9464
+      targetPort: 9464
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-service-account
+  namespace: rust-game-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: admin
+    app.kubernetes.io/component: coc-control-plane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: admin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: admin
+        app.kubernetes.io/component: coc-control-plane
+    spec:
+      serviceAccountName: admin-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: admin
+          image: docker.io/dokipon/rgs-admin-service:0.1.0
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: rgs-config
+          env:
+            - name: GRPC_ADDR
+              value: "0.0.0.0:50055"
+            - name: METRICS_PORT
+              value: "9464"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: admin-db-credentials
+                  key: url
+          ports:
+            - name: grpc
+              containerPort: 50055
+            - name: metrics
+              containerPort: 9464
+          readinessProbe:
+            tcpSocket:
+              port: 50055
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50055
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: rgs-tls
+              mountPath: /etc/rgs/certs
+              readOnly: true
+      volumes:
+        - name: rgs-tls
+          projected:
+            sources:
+              - secret:
+                  name: rgs-secret-admin-tls
+                  items:
+                    - key: tls.crt
+                      path: server.pem
+                    - key: tls.key
+                      path: server.key
+              - secret:
+                  name: rgs-secret-ca
+                  items:
+                    - key: ca.crt
+                      path: ca.pem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-service
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: admin
+    app.kubernetes.io/component: coc-control-plane
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: admin
+  ports:
+    - name: grpc
+      port: 50055
+      targetPort: 50055
+    - name: metrics
+      port: 9464
+      targetPort: 9464
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-ops-account
+  namespace: rust-game-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster-ops
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: cluster-ops
+    app.kubernetes.io/component: cluster-control-plane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cluster-ops
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cluster-ops
+        app.kubernetes.io/component: cluster-control-plane
+    spec:
+      serviceAccountName: cluster-ops-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cluster-ops
+          image: docker.io/dokipon/rgs-cluster-ops:0.1.4
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: rgs-config
+          env:
+            - name: GRPC_ADDR
+              value: "0.0.0.0:50056"
+            - name: METRICS_PORT
+              value: "9464"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: cluster-ops-db-credentials
+                  key: url
+          ports:
+            - name: grpc
+              containerPort: 50056
+            - name: metrics
+              containerPort: 9464
+          readinessProbe:
+            tcpSocket:
+              port: 50056
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50056
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: rgs-tls
+              mountPath: /etc/rgs/certs
+              readOnly: true
+      volumes:
+        - name: rgs-tls
+          projected:
+            sources:
+              - secret:
+                  name: rgs-secret-cluster-ops-tls
+                  items:
+                    - key: tls.crt
+                      path: server.pem
+                    - key: tls.key
+                      path: server.key
+              - secret:
+                  name: rgs-secret-ca
+                  items:
+                    - key: ca.crt
+                      path: ca.pem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cluster-ops
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: cluster-ops
+    app.kubernetes.io/component: cluster-control-plane
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: cluster-ops
+  ports:
+    - name: grpc
+      port: 50056
+      targetPort: 50056
+    - name: metrics
+      port: 9464
+      targetPort: 9464

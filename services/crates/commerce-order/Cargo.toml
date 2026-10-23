@@ -12,8 +12,10 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+# The order service must price every line from the catalogue, never from the
+# client's claim. It fetches the authoritative price over HTTP.
+reqwest = { workspace = true }
 commerce-core = { path = "../commerce-core" }

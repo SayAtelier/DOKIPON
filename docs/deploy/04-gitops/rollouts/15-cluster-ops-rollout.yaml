@@ -1,0 +1,161 @@
+# cluster-ops 的 Rollout；PodSpec 从现有 Deployment 复制
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: cluster-ops
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: cluster-ops
+    app.kubernetes.io/component: cluster-control-plane
+    app.kubernetes.io/part-of: rust-game-server
+    app.kubernetes.io/version: 0.1.0
+    rust-game-server.io/active-active: 'true'
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cluster-ops
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cluster-ops
+        app.kubernetes.io/component: cluster-control-plane
+        app.kubernetes.io/part-of: rust-game-server
+        app.kubernetes.io/version: 0.1.0
+        rust-game-server.io/active-active: 'true'
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: cluster-ops
+      serviceAccountName: cluster-ops-service-account
+      imagePullSecrets:
+      - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: cluster-ops
+        image: ghcr.io/UlyssesLeoLee/rustgameserver:0.1.2-cluster-ops
+        imagePullPolicy: IfNotPresent
+        command:
+        - /app/bin/cluster-ops
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - name: grpc
+          containerPort: 50056
+          protocol: TCP
+        - name: pfau
+          containerPort: 9090
+          protocol: TCP
+        - name: metrics
+          containerPort: 9464
+          protocol: TCP
+        env:
+        - name: RUST_LOG
+          value: info,cluster-ops=debug,sqlx=warn,tonic=warn
+        - name: GRPC_ADDR
+          value: 0.0.0.0:50056
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: cluster-ops-db-credentials
+              key: url
+        - name: NATS_URI
+          value: nats://nats:4222
+        - name: RGS_TLS_DIR
+          value: /etc/rgs/certs
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://otel-collector:4317
+        - name: OTEL_SERVICE_NAME
+          value: cluster-ops
+        - name: RGS_DOMAIN
+          value: cluster-ops
+        - name: PFAU_REACHABILITY_MODE
+          value: all-reachable
+        - name: PFAU_ATOMIC_TIMEOUT_SEC
+          value: '60'
+        - name: PFAU_ROLLBACK_TIMEOUT_SEC
+          value: '30'
+        - name: RGS_ALLOW_INSECURE_GRPC
+          value: '0'
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+        livenessProbe:
+          tcpSocket:
+            port: 50056
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 50056
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: rgs-tls
+          mountPath: /etc/rgs/certs
+          readOnly: true
+      volumes:
+      - name: rgs-tls
+        projected:
+          sources:
+          - secret:
+              name: rgs-secret-cluster-ops-tls
+              items:
+              - key: tls.crt
+                path: server.pem
+              - key: tls.key
+                path: server.key
+          - secret:
+              name: rgs-secret-ca
+              items:
+              - key: ca.pem
+                path: ca.pem
+  strategy:
+    canary:
+      steps:
+      - setWeight: 10
+      - pause:
+          duration: 5m
+      - analysis:
+          templates:
+          - templateName: rgs-canary-analysis
+          args:
+          - name: service-name
+            value: cluster-ops
+      - setWeight: 50
+      - pause:
+          duration: 5m
+      - analysis:
+          templates:
+          - templateName: rgs-canary-analysis
+          args:
+          - name: service-name
+            value: cluster-ops
+      - setWeight: 100
+      - pause:
+          duration: 5m
+      - analysis:
+          templates:
+          - templateName: rgs-canary-analysis
+          args:
+          - name: service-name
+            value: cluster-ops

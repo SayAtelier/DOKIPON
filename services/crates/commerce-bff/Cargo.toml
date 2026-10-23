@@ -14,13 +14,16 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 anyhow = { workspace = true }
+# The BFF forwards checkouts to the order service. It used to answer 202
+# without contacting anything, so a shopper pressing "buy" got a success
+# response and no order.
+reqwest = { workspace = true }
 commerce-core = { path = "../commerce-core" }
 
 [dev-dependencies]

@@ -1,0 +1,66 @@
+{
+  "$comment": "Contract expectations for the DOKIPON commerce deployment. Derived from contracts/openapi.yaml (the contract of record). The audit checks the live deployment against these, so a server that drifts from the contract fails here rather than in a user's browser. Where the contract documents a limitation, the expectation encodes that limitation rather than an idealised behaviour — an expectation that is wrong makes the audit lie.",
+  "paths": [
+    {
+      "method": "GET",
+      "path": "/healthz",
+      "expectStatus": 200,
+      "note": "the edge's own health check. It answers 200 with an empty body: it is not a JSON endpoint, and contracts/openapi.yaml does not describe it."
+    },
+    {
+      "method": "GET",
+      "path": "/v1/storefront",
+      "expectStatus": 200,
+      "expectJson": "object",
+      "requiredFields": ["channel", "catalog", "checkout", "capabilities"],
+      "note": "Storefront schema: all four are required"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/products",
+      "expectStatus": 200,
+      "expectJson": "object",
+      "requiredFields": ["items"],
+      "expectArrayField": { "field": "items", "minLength": 1 },
+      "note": "ProductPage: items is required and must not be empty for a seeded catalogue"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/products?channel=line",
+      "expectStatus": 200,
+      "expectJson": "object",
+      "requiredFields": ["items"],
+      "expectArrayField": { "field": "items", "minLength": 0 },
+      "note": "the channel filter is a server responsibility; the line channel may legitimately have fewer products"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/orders",
+      "expectStatus": 401,
+      "note": "orders are scoped to the buyer, so a request without a session must be refused, not served. 401 is the correct answer here — an audit that expected 200 would have called correct behaviour a defect."
+    },
+    {
+      "method": "GET",
+      "path": "/v1/inventory",
+      "expectStatus": 404,
+      "note": "the inventory service exposes only the three reservation write routes; contracts/openapi.yaml records this as x-blocked-by: inventory-service-has-no-list-route on /admin/v1/inventory. This expectation flips to 200 when the listing route lands — that is the point of having it here."
+    }
+  ],
+  "adminPaths": [
+    { "method": "GET", "path": "/admin/v1/products", "expectStatus": 401, "note": "the admin facade is authenticated; without a session it must refuse, not crash" },
+    { "method": "GET", "path": "/admin/v1/orders", "expectStatus": 401, "note": "same" },
+    { "method": "GET", "path": "/admin/v1/inventory", "expectStatus": 401, "note": "same — the facade refuses before it even reaches the upstream" }
+  ],
+  "productDetail": {
+    "$comment": "ProductDetail is required to carry these camelCase names. A server that emits snake_case here is the exact defect the prototype documented: the Dart client reads camelCase only, so the field silently arrives empty.",
+    "requiredFields": [
+      "productId",
+      "sku",
+      "price",
+      "version",
+      "stockPolicy",
+      "availability",
+      "channelEligibility"
+    ]
+  }
+}

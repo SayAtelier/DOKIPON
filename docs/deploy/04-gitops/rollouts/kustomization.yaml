@@ -1,0 +1,19 @@
+# 灰度发布资源；稳定 Service 名称保持既有值
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rust-game-server
+resources:
+- 00-analysis-template.yaml
+- 10-player-rollout.yaml
+- 11-economy-rollout.yaml
+- 12-match-rollout.yaml
+- 13-social-rollout.yaml
+- 14-admin-rollout.yaml
+- 15-cluster-ops-rollout.yaml
+- 16-gm-backend-rollout.yaml
+- 17-scene-service-rollout.yaml
+- 18-battle-service-rollout.yaml
+- 19-network-gateway-rollout.yaml
+- 30-scene-service.yaml
+- 31-battle-service.yaml
+- 32-network-gateway-service.yaml

@@ -1,0 +1,141 @@
+# 文档 ID: RGS-PLAT-CNPG-001 (proposed) | 版本: v0.1
+# 决策依据: ARC-008、ADR-0052、DEC-009；本文件尚待评审
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: rgs-postgres
+  namespace: rust-game-server
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: rust-game-server
+    rust-game-server.io/tier: data
+spec:
+  instances: 1
+  imageName: docker.m.daocloud.io/library/postgres:18.6
+  enableSuperuserAccess: true
+
+  # postgres 用户在镜像内的 UID/GID。CNPG 默认假定为 26（其官方镜像
+  # ghcr.io/cloudnative-pg/postgresql 的构建约定），但 Debian 官方
+  # postgres 镜像用的是 999。两者不匹配时 initdb 直接失败：
+  #   initdb: could not look up effective user ID 26: user does not exist
+  # 表现为 Cluster 永远停在 "Setting up primary"，initdb Pod 反复 Error。
+  # 实测于 2026-10-18（k3s v1.36.5 + CNPG 1.30.0 + postgres:18.6）。
+  # 若将来改用 ghcr.io/cloudnative-pg/postgresql:* 官方镜像，可删掉这两行。
+  postgresUID: 999
+  postgresGID: 999
+
+  bootstrap:
+    initdb:
+      database: player_db
+      owner: player_user
+      secret:
+        name: player-db-credentials
+      encoding: UTF8
+      localeCollate: C
+      localeCType: C
+      postInitSQL:
+        - CREATE ROLE economy_user WITH LOGIN
+        - CREATE ROLE match_user WITH LOGIN
+        - CREATE ROLE social_user WITH LOGIN
+        - CREATE ROLE admin_user WITH LOGIN
+        - CREATE ROLE cluster_ops_user WITH LOGIN
+        - CREATE DATABASE economy_db OWNER economy_user
+        - CREATE DATABASE match_db OWNER match_user
+        - CREATE DATABASE social_db OWNER social_user
+        - CREATE DATABASE admin_db OWNER admin_user
+        - CREATE DATABASE cluster_ops_db OWNER cluster_ops_user
+
+  managed:
+    roles:
+      - name: player_user
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        passwordSecret:
+          name: player-db-credentials
+      - name: economy_user
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        passwordSecret:
+          name: economy-db-credentials
+      - name: match_user
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        passwordSecret:
+          name: match-db-credentials
+      - name: social_user
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        passwordSecret:
+          name: social-db-credentials
+      - name: admin_user
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        passwordSecret:
+          name: admin-db-credentials
+      - name: cluster_ops_user
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        passwordSecret:
+          name: cluster-ops-db-credentials
+
+  storage:
+    storageClass: local-path
+    size: 5Gi
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      superuser_reserved_connections: "5"
+      shared_buffers: 256MB
+      effective_cache_size: 768MB
+      work_mem: 4MB
+      maintenance_work_mem: 128MB
+      wal_level: replica
+      max_wal_size: 1GB
+      min_wal_size: 80MB
+      wal_compression: "on"
+      synchronous_commit: "on"
+      log_min_duration_statement: "1000"
+      log_checkpoints: "on"
+      log_connections: "on"
+      log_disconnections: "on"
+      log_lock_waits: "on"
+      log_temp_files: "0"
+      log_autovacuum_min_duration: "0"
+      timezone: UTC
+      lc_messages: en_US.UTF-8
+      lc_monetary: en_US.UTF-8
+      lc_numeric: en_US.UTF-8
+      lc_time: en_US.UTF-8
+
+  backup:
+    # CNPG 1.30 的 destinationPath 仅用于对象存储；retentionPolicy 已弃用且不会创建备份目标。
+    # 单实例共用存储时不配置 volumeSnapshot，避免快照路径与主 PVC 耦合。
+    retentionPolicy: "30d"

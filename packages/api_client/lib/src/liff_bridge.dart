@@ -1,4 +1,10 @@
-import 'dart:js_interop';
+// Platform split for the JS half. `dart:js_interop` does not exist in a VM or
+// test build, so importing it unconditionally made every non-web test fail at
+// load time with "Type 'JSObject' not found" the moment anything pulled in
+// `package:api_client`. The stub returns null off-web, which [read] already
+// turns into the documented BRIDGE_ABSENT context.
+import 'liff_js_stub.dart'
+    if (dart.library.js_interop) 'liff_js_web.dart' as js_bridge;
 
 /// What the LIFF SDK reported. Only booleans and the token string ever leave
 /// this boundary — no profile object, no display name, no picture URL.
@@ -49,19 +55,6 @@ class LiffContext {
   bool get isGuestOnly => !canRequestIdToken;
 }
 
-/// The state object published by `web/liff_bridge.js` as
-/// `window.__gemarcLiff`.
-@JS('__gemarcLiff')
-external _LiffJs? get _liff;
-
-extension type _LiffJs(JSObject _) implements JSObject {
-  external bool? get ready;
-  external bool? get isInClient;
-  external bool? get isLoggedIn;
-  external String? get idToken;
-  external String? get errorCode;
-}
-
 /// Dart-side view of the JS bridge.
 ///
 /// The bridge is the *only* place the LIFF SDK is touched, which keeps the SDK
@@ -75,7 +68,7 @@ class LiffBridge {
   const LiffBridge();
 
   LiffContext read() {
-    final state = _liff;
+    final state = js_bridge.readLiffJsState();
     if (state == null) {
       return const LiffContext(
         ready: false,
@@ -85,9 +78,9 @@ class LiffBridge {
       );
     }
     return LiffContext(
-      ready: state.ready ?? false,
-      isInClient: state.isInClient ?? false,
-      isLoggedIn: state.isLoggedIn ?? false,
+      ready: state.ready,
+      isInClient: state.isInClient,
+      isLoggedIn: state.isLoggedIn,
       idToken: state.idToken,
       errorCode: state.errorCode,
     );

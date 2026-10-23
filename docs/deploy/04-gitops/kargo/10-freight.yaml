@@ -1,0 +1,221 @@
+# 每个服务由独立 Warehouse 发现镜像；Freight 由 Kargo 自动生成
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: warehouse-player
+  namespace: rust-game-server
+spec:
+  freightCreationPolicy: Automatic
+  subscriptions:
+  - image:
+      repoURL: ghcr.io/UlyssesLeoLee/rustgameserver
+      allowTagsRegexes:
+      - ^0\.1\.0-cc13$
+  - git:
+      repoURL: https://github.com/SayAtelier/DOKIPON.git
+      branch: main
+  freightCreationCriteria:
+    expression: 'imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.source"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.revision"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.sbom"] != nil'
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: warehouse-economy
+  namespace: rust-game-server
+spec:
+  freightCreationPolicy: Automatic
+  subscriptions:
+  - image:
+      repoURL: ghcr.io/UlyssesLeoLee/rustgameserver
+      allowTagsRegexes:
+      - ^0\.1\.0-cc13$
+  - git:
+      repoURL: https://github.com/SayAtelier/DOKIPON.git
+      branch: main
+  freightCreationCriteria:
+    expression: 'imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.source"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.revision"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.sbom"] != nil'
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: warehouse-match
+  namespace: rust-game-server
+spec:
+  freightCreationPolicy: Automatic
+  subscriptions:
+  - image:
+      repoURL: ghcr.io/UlyssesLeoLee/rustgameserver
+      allowTagsRegexes:
+      - ^0\.1\.0-cc13$
+  - git:
+      repoURL: https://github.com/SayAtelier/DOKIPON.git
+      branch: main
+  freightCreationCriteria:
+    expression: 'imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.source"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.revision"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.sbom"] != nil'
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: warehouse-social
+  namespace: rust-game-server
+spec:
+  freightCreationPolicy: Automatic
+  subscriptions:
+  - image:
+      repoURL: ghcr.io/UlyssesLeoLee/rustgameserver
+      allowTagsRegexes:
+      - ^0\.1\.0-cc13$
+  - git:
+      repoURL: https://github.com/SayAtelier/DOKIPON.git
+      branch: main
+  freightCreationCriteria:
+    expression: 'imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.source"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.revision"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.sbom"] != nil'
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: warehouse-admin
+  namespace: rust-game-server
+spec:
+  freightCreationPolicy: Automatic
+  subscriptions:
+  - image:
+      repoURL: ghcr.io/UlyssesLeoLee/rustgameserver
+      allowTagsRegexes:
+      - ^0\.1\.0-cc13$
+  - git:
+      repoURL: https://github.com/SayAtelier/DOKIPON.git
+      branch: main
+  freightCreationCriteria:
+    expression: 'imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.source"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.revision"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.sbom"] != nil'
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: warehouse-clusterOps
+  namespace: rust-game-server
+spec:
+  freightCreationPolicy: Automatic
+  subscriptions:
+  - image:
+      repoURL: ghcr.io/UlyssesLeoLee/rustgameserver
+      allowTagsRegexes:
+      - ^0\.1\.2-cluster-ops$
+  - git:
+      repoURL: https://github.com/SayAtelier/DOKIPON.git
+      branch: main
+  freightCreationCriteria:
+    expression: 'imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.source"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.revision"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.sbom"] != nil'
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: warehouse-gmBackend
+  namespace: rust-game-server
+spec:
+  freightCreationPolicy: Automatic
+  subscriptions:
+  - image:
+      repoURL: ghcr.io/UlyssesLeoLee/rustgameserver
+      allowTagsRegexes:
+      - ^0\.1\.0-gm-backend$
+  - git:
+      repoURL: https://github.com/SayAtelier/DOKIPON.git
+      branch: main
+  freightCreationCriteria:
+    expression: 'imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.source"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.revision"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.sbom"] != nil'
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: warehouse-scene
+  namespace: rust-game-server
+spec:
+  freightCreationPolicy: Automatic
+  subscriptions:
+  - image:
+      repoURL: ghcr.io/UlyssesLeoLee/rustgameserver
+      allowTagsRegexes:
+      - ^0\.1\.0-scene-service$
+  - git:
+      repoURL: https://github.com/SayAtelier/DOKIPON.git
+      branch: main
+  freightCreationCriteria:
+    expression: 'imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.source"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.revision"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.sbom"] != nil'
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: warehouse-battle
+  namespace: rust-game-server
+spec:
+  freightCreationPolicy: Automatic
+  subscriptions:
+  - image:
+      repoURL: ghcr.io/UlyssesLeoLee/rustgameserver
+      allowTagsRegexes:
+      - ^0\.1\.0-battle-service$
+  - git:
+      repoURL: https://github.com/SayAtelier/DOKIPON.git
+      branch: main
+  freightCreationCriteria:
+    expression: 'imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.source"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.revision"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.sbom"] != nil'
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: warehouse-networkGateway
+  namespace: rust-game-server
+spec:
+  freightCreationPolicy: Automatic
+  subscriptions:
+  - image:
+      repoURL: ghcr.io/UlyssesLeoLee/rustgameserver
+      allowTagsRegexes:
+      - ^0\.1\.0-network-gateway$
+  - git:
+      repoURL: https://github.com/SayAtelier/DOKIPON.git
+      branch: main
+  freightCreationCriteria:
+    expression: 'imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.source"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.revision"] != nil &&
+
+      imageFrom("ghcr.io/UlyssesLeoLee/rustgameserver").Annotations["org.opencontainers.image.sbom"] != nil'

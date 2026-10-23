@@ -12,7 +12,13 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
-sqlx = { workspace = true }
 tracing = { workspace = true }
 sha2 = "0.10"
+# The shared price authority fetches catalogue prices over HTTP.
+reqwest = { workspace = true }
 
+[dev-dependencies]
+# The tests use #[tokio::test] and spin up a local server.
+tokio = { workspace = true, features = ["full"] }
+axum = { workspace = true }
+tower = { workspace = true, features = ["util"] }

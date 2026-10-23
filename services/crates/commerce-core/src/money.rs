@@ -87,15 +87,23 @@ impl Money {
             .ok_or(MoneyError::Overflow)
     }
 
-    /// Rounding half-up on the minor unit; used for line-item totals.
+    /// Quantity multiplication for a line-item total.
+    ///
+    /// `amount_minor` is **already in the currency's smallest unit**, so
+    /// multiplying it by a quantity is exact and must not be rounded again.
+    ///
+    /// The previous implementation rounded the product to a power of ten
+    /// (`product + exp/2) / exp * exp`), which was a second rounding of a
+    /// value that was never in major units. For a zero-exponent currency
+    /// (JPY) it was a no-op by luck, but for USD it turned 1250 cents × 3
+    /// into 3800 cents instead of 3750 — a 50-cent overcharge on every
+    /// three-item order. Rounding belongs at the boundary where a *major*
+    /// unit is converted to minor units, not here.
+    ///
+    /// The result is still overflow-checked: a huge quantity against a large
+    /// price is an error, not a wrapped number.
     pub fn checked_mul_rounded(self, qty: u32) -> Result<Money, MoneyError> {
-        let product = (self.amount_minor as i128) * (qty as i128);
-        let exp = 10i128.pow(self.currency.exponent());
-        let rounded = (product + exp / 2) / exp * exp;
-        if rounded > i64::MAX as i128 {
-            return Err(MoneyError::Overflow);
-        }
-        Money::new(rounded as i64, self.currency)
+        self.checked_mul(qty)
     }
 
     pub fn is_zero(self) -> bool {
@@ -150,6 +158,36 @@ mod tests {
     fn quantity_multiply() {
         let unit = Money::new(1250, Currency::Usd).unwrap();
         assert_eq!(unit.checked_mul(3).unwrap().amount_minor, 3750);
+    }
+
+    /// The line-item multiplication must not round a minor-unit amount a
+    /// second time.
+    ///
+    /// `checked_mul_rounded` used to round the product to a power of ten,
+    /// which was correct for a value in major units and wrong for one in
+    /// minor units: 1250 cents × 3 became 3800 cents, a 50-cent overcharge
+    /// on every three-item order. Only `checked_mul` was covered by a test,
+    /// and it is not the function the checkout path calls.
+    #[test]
+    fn line_item_multiplication_does_not_round_minor_units_again() {
+        let unit = Money::new(1250, Currency::Usd).unwrap();
+        assert_eq!(
+            unit.checked_mul_rounded(3).unwrap().amount_minor,
+            3750,
+            "1250 cents x 3 is 3750 cents, not 3800"
+        );
+
+        // A JPY amount has no sub-unit, so the old rounding was a no-op
+        // there by luck. It must stay exact.
+        let jpy = Money::new(4800, Currency::Jpy).unwrap();
+        assert_eq!(jpy.checked_mul_rounded(3).unwrap().amount_minor, 14400);
+    }
+
+    /// Overflow is still an error, not a wrapped number.
+    #[test]
+    fn line_item_multiplication_still_checks_for_overflow() {
+        let huge = Money::new(i64::MAX, Currency::Jpy).unwrap();
+        assert!(huge.checked_mul_rounded(2).is_err());
     }
 
     #[test]

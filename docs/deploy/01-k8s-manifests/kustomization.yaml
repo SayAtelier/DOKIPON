@@ -66,13 +66,18 @@ resources:
   - 42-grafana-service.yaml
   - 50-gm-backend-service.yaml
   - 50-scene-service.yaml
-  - 50-secret-admin-tls.yaml
-  - 50-secret-ca.yaml
-  - 50-secret-cluster-ops-tls.yaml
-  - 50-secret-economy-tls.yaml
-  - 50-secret-match-tls.yaml
-  - 50-secret-player-tls.yaml
-  - 50-secret-social-tls.yaml
+  # 50-secret-*-tls.yaml 和 50-secret-ca.yaml 已移除：它们是 checked-in 的
+  # kubernetes.io/tls Secret，data.tls.key 里是真实私钥。证书现在一律由
+  # cert-manager 签发（docs/deploy/03-platform/certmanager/），Secret 由控制器
+  # 在集群内生成，不进仓库。
+  #
+  # 删除前已核实这些凭据失效，无需轮换：
+  #   * 它们由 Dev CA (CN=RustGameServer Dev CA) 签发，集群现在用的是另一张
+  #     Internal CA (CN=RustGameServer Internal CA)，对集群 CA 做 openssl verify
+  #     全部 verification failed。
+  #   * 6 个私钥的指纹与集群现行私钥 6/6 全部不同，早已被 cert-manager 轮换掉。
+  #   * Dev CA 的私钥从来不在仓库里（50-secret-ca.yaml 只存 ca.pem），所以即使
+  #     拿到叶私钥也签不出新证书。
   - 51-battle-service.yaml
   - 52-network-gateway.yaml
   - 55-gm-console-envoy-configmap.yaml

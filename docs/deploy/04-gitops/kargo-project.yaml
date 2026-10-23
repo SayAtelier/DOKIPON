@@ -1,0 +1,7 @@
+# Kargo 项目；保留现有业务命名空间
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Project
+metadata:
+  name: rust-game-server
+  annotations:
+    kargo.akuity.io/keep-namespace: 'true'

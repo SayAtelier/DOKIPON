@@ -1,0 +1,9 @@
+# 文档 ID: RGS-PLAT-CNPG-001 (proposed) | 版本: v0.1
+# 决策依据: ARC-008、ADR-0052、DEC-009；本文件尚待评审
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rust-game-server
+resources:
+  - 00-namespace.yaml
+  - 10-cluster.yaml
+  - 20-networkpolicy.yaml
