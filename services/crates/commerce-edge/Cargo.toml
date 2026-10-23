@@ -31,6 +31,12 @@ uuid = { workspace = true }
 # The Vercel Rust runtime. Optional: only the deployment binary needs it.
 vercel_runtime = { version = "2.4", features = ["axum"], optional = true }
 
+[dev-dependencies]
+# The contract-coverage tests read `contracts/openapi.yaml` and drive the
+# router in-process, so they need a YAML reader and a body collector.
+serde_yaml.workspace = true
+http-body-util.workspace = true
+
 [lib]
 name = "commerce_edge"
 path = "src/lib.rs"
