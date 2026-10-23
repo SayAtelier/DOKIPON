@@ -55,3 +55,6 @@ commerce-core = { path = "../commerce-core" }
 
 [dev-dependencies]
 http-body-util = { workspace = true }
+# The HTTP-level tests drive a router with `tower::ServiceExt::oneshot`, so no
+# port is bound and no server is started.
+tower = { workspace = true, features = ["util"] }

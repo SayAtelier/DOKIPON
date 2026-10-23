@@ -94,6 +94,12 @@ pub struct PspState {
 #[derive(Clone)]
 pub struct PspMock(pub Arc<RwLock<PspState>>);
 
+impl Default for PspMock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PspMock {
     pub fn new() -> Self {
         Self(Arc::new(RwLock::new(PspState::default())))
@@ -119,7 +125,7 @@ impl PspMock {
         // await makes the future !Send, and axum's `Handler` bound requires
         // Send — so "release the lock before you await" is not a style
         // preference here, it is the difference between compiling and not.
-        let (provider_ref, record) = {
+        let provider_ref = {
             let mut g = self
                 .state()
                 .write()
@@ -145,7 +151,7 @@ impl PspMock {
                 payment_method_ref_seen: req.payment_method_ref.clone(),
             };
             g.charges.insert(provider_ref.clone(), record.clone());
-            (provider_ref, record)
+            provider_ref
         };
 
         // A live fault overrides the scripted outcome — this is how a test
@@ -164,6 +170,20 @@ impl PspMock {
             }
             if f.drop_response {
                 // Side effect already recorded; the caller learns nothing.
+                // The record has to say so as well: `captured` with
+                // `response_delivered` false is exactly the `payment_unknown`
+                // gap this mock exists to produce.
+                {
+                    let mut g = self.state().write().map_err(|_| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({})),
+                        )
+                    })?;
+                    if let Some(rec) = g.charges.get_mut(&provider_ref) {
+                        rec.response_delivered = false;
+                    }
+                }
                 return Err((
                     StatusCode::from_u16(f.http_status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE),
                     Json(serde_json::json!({ "code": "psp.unreachable", "captured": true })),
@@ -185,7 +205,14 @@ impl PspMock {
                 StatusCode::GATEWAY_TIMEOUT,
                 Json(serde_json::json!({ "code": "psp.timeout" })),
             )),
-            _ => Ok(Json(serde_json::json!({
+            // The money is taken and the answer never arrives. The caller
+            // must get an error, never a success: that gap is
+            // `payment_unknown`, and it is the whole reason this mock exists.
+            PspOutcome::CaptureThenLoseResponse => Err((
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(serde_json::json!({ "code": "psp.unreachable", "captured": true })),
+            )),
+            PspOutcome::Authorize => Ok(Json(serde_json::json!({
                 "providerRef": provider_ref,
                 "status": "authorized",
                 "amountMinor": req.amount_minor,
@@ -244,16 +271,45 @@ impl PspMock {
 
     /// Test-only inspection endpoint. Lets a test assert on what the mock
     /// really recorded instead of trusting the SUT's own report.
+    ///
+    /// Every charge carries **both** shapes: the raw snake_case fields the
+    /// record has, and the camelCase projection an HTTP caller of this
+    /// service sees (`providerRef`, `reconcileCalls`, …). A test may read
+    /// either, and the two cannot drift apart because both are derived from
+    /// the same record.
     pub async fn charges_dump(&self) -> Json<serde_json::Value> {
         let g = self.0.read().expect("psp lock");
         let mut v: Vec<_> = g.charges.values().cloned().collect();
         v.sort_by(|a, b| a.provider_ref.cmp(&b.provider_ref));
-        Json(serde_json::json!({ "charges": v }))
+        let charges: Vec<serde_json::Value> = v.iter().map(charge_json).collect();
+        Json(serde_json::json!({ "charges": charges }))
     }
 
     pub async fn reset(&self) {
         self.0.write().expect("psp lock").charges.clear();
     }
+}
+
+/// One charge, in both the raw (snake_case) and the HTTP-facing (camelCase)
+/// shape. See [`PspMock::charges_dump`].
+fn charge_json(charge: &ChargeRecord) -> serde_json::Value {
+    let mut obj = match serde_json::to_value(charge) {
+        Ok(serde_json::Value::Object(o)) => o,
+        _ => serde_json::Map::new(),
+    };
+    for (snake, camel) in [
+        ("provider_ref", "providerRef"),
+        ("order_id", "orderId"),
+        ("amount_minor", "amountMinor"),
+        ("response_delivered", "responseDelivered"),
+        ("reconcile_calls", "reconcileCalls"),
+        ("payment_method_ref_seen", "paymentMethodRefSeen"),
+    ] {
+        if let Some(value) = obj.get(snake).cloned() {
+            obj.insert(camel.to_string(), value);
+        }
+    }
+    serde_json::Value::Object(obj)
 }
 
 /// The mock's internal `(StatusCode, Json<Value>)` error becomes an `AppError`
@@ -449,7 +505,7 @@ mod tests {
         let out = m.authorize(req(PspOutcome::Authorize)).await.unwrap();
         let psp_ref = out.0["providerRef"].as_str().unwrap().to_string();
         for _ in 0..3 {
-            m.reconcile(&psp_ref).await.unwrap();
+            let _ = m.reconcile(&psp_ref).await.unwrap();
         }
         let dump = m.charges_dump().await;
         assert_eq!(dump.0["charges"][0]["reconcile_calls"], 3);
@@ -462,7 +518,7 @@ mod tests {
     #[tokio::test]
     async fn reset_clears_recorded_charges() {
         let m = PspMock::new();
-        m.authorize(req(PspOutcome::Authorize)).await.unwrap();
+        let _ = m.authorize(req(PspOutcome::Authorize)).await.unwrap();
         m.reset().await;
         assert!(m.charges_dump().await.0["charges"].as_array().unwrap().is_empty());
     }

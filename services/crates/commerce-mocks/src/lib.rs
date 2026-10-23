@@ -6,6 +6,7 @@
 //! > `services/` may depend on it, and it must not depend on a product
 //! > service either. It exists so the `[Designed]` cases in
 //! > `docs/ecommerce/05-test/テスト設計書.md` §3 can actually be executed.
+//!
 //! Deterministic mocks for the test-design cases that could not otherwise be
 //! executed.
 //!
@@ -101,4 +102,82 @@ pub fn control_router(controller: FaultController) -> axum::Router {
                 }
             }),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    /// The mock has to answer over its real router, not only when a test
+    /// calls it as a Rust method. A mock nobody can reach over HTTP is not a
+    /// mock, so this drives the same router the `bin/` entry points serve —
+    /// no port, no bind, no flakiness.
+    #[tokio::test]
+    async fn the_psp_router_answers_an_authorize_request_over_http() {
+        let mock = psp::PspMock::new();
+        let app = control_router(mock.faults()).merge(psp::router(mock));
+
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/psp/authorize")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"order_id":"ord-1","payment_method_ref":"tok_mock","amount_minor":4800,"currency":"JPY"}"#,
+            ))
+            .expect("request builds");
+
+        let response = app.oneshot(request).await.expect("the router answers");
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body reads")
+            .to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("body is json");
+
+        assert_eq!(body["status"], "authorized");
+        assert!(
+            body["providerRef"]
+                .as_str()
+                .expect("providerRef is a string")
+                .starts_with("pspref_"),
+            "the mock mints its own provider reference"
+        );
+    }
+
+    /// CASE-CHAOS-001's whole capability: a test must be able to make the
+    /// dependency fail *mid-scenario*, over HTTP, with no restart.
+    #[tokio::test]
+    async fn the_control_router_injects_a_fault_over_http() {
+        let mock = psp::PspMock::new();
+        let app = control_router(mock.faults()).merge(psp::router(mock));
+
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/__control/faults")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"target":"psp.authorize","mode":"next_n","count":1,"http_status":503}"#,
+            ))
+            .expect("request builds");
+
+        let response = app.oneshot(request).await.expect("the router answers");
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body reads")
+            .to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("body is json");
+
+        assert_eq!(body[0]["target"], "psp.authorize");
+        assert_eq!(body[0]["remaining"], 1);
+    }
 }

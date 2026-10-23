@@ -384,7 +384,7 @@ impl DbMock {
         unit_amount_snapshot: i64,
         version: i64,
     ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-        if quantity <= 0 && quantity != 0 {
+        if quantity < 0 {
             return Err(ConstraintError::new(
                 sqlstate::CHECK_VIOLATION,
                 "cart_item_quantity_positive",
@@ -426,14 +426,29 @@ impl DbMock {
     /// trusting what the service said it wrote.
     pub async fn snapshot(&self) -> Json<serde_json::Value> {
         let g = self.store.read().expect("db lock");
-        let stock: Vec<_> = g.stock.values().cloned().collect();
+        let rows: Vec<&StockRow> = g.stock.values().collect();
+        // `available` is a computed column — `StockRow` has no such field —
+        // so the projection has to add it. It is the quantity the DDL's
+        // `reserved <= on_hand` invariant leaves behind, which is exactly
+        // what a caller wants to assert on.
+        let stock: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "sku_id": s.sku_id,
+                    "on_hand": s.on_hand,
+                    "reserved": s.reserved,
+                    "available": s.available(),
+                })
+            })
+            .collect();
         let reservations: Vec<_> = g.reservations.values().cloned().collect();
         Json(serde_json::json!({
             "stock": stock,
             "reservations": reservations,
             "idempotency": g.idempotency.values().collect::<Vec<_>>(),
             "distinctReservationKeys": g.reservations.len(),
-            "invariantsHold": stock.iter().all(|s| s.check().is_ok()),
+            "invariantsHold": rows.iter().all(|s| s.check().is_ok()),
         }))
     }
 
@@ -580,7 +595,6 @@ pub fn router(db: DbMock) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fault::Fault;
 
     fn row(sku: &str, on_hand: i64, reserved: i64) -> StockRow {
         StockRow {
@@ -620,7 +634,7 @@ mod tests {
     #[tokio::test]
     async fn reservation_beyond_available_is_a_check_violation() {
         let d = DbMock::new();
-        d.upsert_stock(row("sku-a", 1, 0)).await.unwrap();
+        let _ = d.upsert_stock(row("sku-a", 1, 0)).await.unwrap();
         let (status, body) = d.reserve("ord-1", "sku-a", 2).await.unwrap_err();
         assert_eq!(status, StatusCode::CONFLICT);
         assert_eq!(body["sqlstate"], sqlstate::CHECK_VIOLATION);
@@ -632,8 +646,8 @@ mod tests {
     #[tokio::test]
     async fn double_reservation_for_the_same_order_and_sku_is_a_unique_violation() {
         let d = DbMock::new();
-        d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
-        d.reserve("ord-1", "sku-a", 2).await.unwrap();
+        let _ = d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
+        let _ = d.reserve("ord-1", "sku-a", 2).await.unwrap();
 
         let (status, body) = d.reserve("ord-1", "sku-a", 2).await.unwrap_err();
         assert_eq!(status, StatusCode::CONFLICT);
@@ -648,12 +662,12 @@ mod tests {
     #[tokio::test]
     async fn commit_reduces_both_on_hand_and_reserved() {
         let d = DbMock::new();
-        d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
-        d.reserve("ord-1", "sku-a", 3).await.unwrap();
+        let _ = d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
+        let _ = d.reserve("ord-1", "sku-a", 3).await.unwrap();
         let snap = d.snapshot().await;
         assert_eq!(snap.0["stock"][0]["available"], 7);
 
-        d.settle_reservation("ord-1", "sku-a", "committed").await.unwrap();
+        let _ = d.settle_reservation("ord-1", "sku-a", "committed").await.unwrap();
         let snap = d.snapshot().await;
         assert_eq!(snap.0["stock"][0]["on_hand"], 7);
         assert_eq!(snap.0["stock"][0]["reserved"], 0);
@@ -663,9 +677,9 @@ mod tests {
     #[tokio::test]
     async fn release_restores_availability_without_touching_on_hand() {
         let d = DbMock::new();
-        d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
-        d.reserve("ord-1", "sku-a", 4).await.unwrap();
-        d.settle_reservation("ord-1", "sku-a", "released").await.unwrap();
+        let _ = d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
+        let _ = d.reserve("ord-1", "sku-a", 4).await.unwrap();
+        let _ = d.settle_reservation("ord-1", "sku-a", "released").await.unwrap();
         let snap = d.snapshot().await;
         assert_eq!(snap.0["stock"][0]["on_hand"], 10);
         assert_eq!(snap.0["stock"][0]["reserved"], 0);
@@ -675,9 +689,9 @@ mod tests {
     #[tokio::test]
     async fn a_settled_reservation_cannot_be_settled_again() {
         let d = DbMock::new();
-        d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
-        d.reserve("ord-1", "sku-a", 1).await.unwrap();
-        d.settle_reservation("ord-1", "sku-a", "released").await.unwrap();
+        let _ = d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
+        let _ = d.reserve("ord-1", "sku-a", 1).await.unwrap();
+        let _ = d.settle_reservation("ord-1", "sku-a", "released").await.unwrap();
         let (_, body) = d.settle_reservation("ord-1", "sku-a", "committed").await.unwrap_err();
         assert_eq!(body["constraint"], "reservation_terminal");
     }
@@ -685,7 +699,7 @@ mod tests {
     #[tokio::test]
     async fn non_positive_reservation_quantity_is_rejected() {
         let d = DbMock::new();
-        d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
+        let _ = d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
         assert!(d.reserve("o", "sku-a", 0).await.is_err());
         assert!(d.reserve("o", "sku-a", -3).await.is_err());
     }
@@ -700,8 +714,8 @@ mod tests {
     #[tokio::test]
     async fn invalid_reservation_state_is_an_enum_violation() {
         let d = DbMock::new();
-        d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
-        d.reserve("ord-1", "sku-a", 1).await.unwrap();
+        let _ = d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
+        let _ = d.reserve("ord-1", "sku-a", 1).await.unwrap();
         let (_, body) = d.settle_reservation("ord-1", "sku-a", "bogus").await.unwrap_err();
         assert_eq!(body["constraint"], "reservation_state_enum");
     }
@@ -718,7 +732,7 @@ mod tests {
     #[tokio::test]
     async fn idempotency_same_key_different_fingerprint_is_a_unique_violation() {
         let d = DbMock::new();
-        d.put_idempotency("k", "fp-a", "completed").await.unwrap();
+        let _ = d.put_idempotency("k", "fp-a", "completed").await.unwrap();
         let (status, body) = d.put_idempotency("k", "fp-b", "completed").await.unwrap_err();
         assert_eq!(status, StatusCode::CONFLICT);
         assert_eq!(body["constraint"], "idempotency_scoped_key_fingerprint");
@@ -755,15 +769,15 @@ mod tests {
     #[tokio::test]
     async fn snapshot_reports_whether_invariants_hold() {
         let d = DbMock::new();
-        d.upsert_stock(row("sku-a", 5, 0)).await.unwrap();
-        d.upsert_stock(row("sku-b", 0, 0)).await.unwrap();
+        let _ = d.upsert_stock(row("sku-a", 5, 0)).await.unwrap();
+        let _ = d.upsert_stock(row("sku-b", 0, 0)).await.unwrap();
         assert_eq!(d.snapshot().await.0["invariantsHold"], true);
     }
 
     #[tokio::test]
     async fn reset_clears_everything() {
         let d = DbMock::new();
-        d.upsert_stock(row("sku-a", 5, 0)).await.unwrap();
+        let _ = d.upsert_stock(row("sku-a", 5, 0)).await.unwrap();
         d.reset().await;
         assert_eq!(d.snapshot().await.0["stock"].as_array().unwrap().len(), 0);
     }
