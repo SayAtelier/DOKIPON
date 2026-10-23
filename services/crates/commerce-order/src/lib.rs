@@ -17,6 +17,7 @@
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -53,7 +54,24 @@ pub struct OrderLine {
     pub quantity: u32,
     /// Authoritative price captured at checkout time, never from the client.
     pub unit_amount_minor: i64,
+    /// The currency the client claims.
+    ///
+    /// The contract's `OrderLineInput` (`contracts/openapi.yaml`) does not
+    /// carry a currency: the server resolves the price — and with it the
+    /// currency — from the catalogue, so a client that sends the contract's
+    /// line as written must not be rejected for a missing field. The
+    /// re-pricing step overwrites this value with the catalogue's before any
+    /// money is computed, so the default never reaches a total.
+    #[serde(default = "default_currency")]
     pub currency: Currency,
+}
+
+/// The currency a line carries when the client did not claim one.
+///
+/// Only ever a placeholder: the re-pricing step replaces it with the
+/// catalogue's currency.
+fn default_currency() -> Currency {
+    Currency::Jpy
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,17 +93,37 @@ pub struct Order {
     pub awaiting_reconciliation: bool,
 }
 
+/// The order's total, in the contract's `Money` shape.
+///
+/// The contract spells the amount `amountMinor`
+/// (`contracts/openapi.yaml` -> `Money`: `{amountMinor, currency}`), and the
+/// Dart client reads `json['amountMinor']`
+/// (`packages/domain_models/lib/src/money.dart`). A flat `amount_minor` is
+/// read by nobody, so every order total rendered as 0.
+///
+/// The field is renamed per field rather than with `rename_all` because the
+/// contract's sibling fields are not all camelCase — `OrderLine` keeps
+/// `unit_amount_minor` — so a blanket rename would break the one that is right.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct OrderTotal {
+    #[serde(rename = "amountMinor", alias = "amount_minor")]
     pub amount_minor: i64,
     pub currency: Currency,
 }
 
+/// One state transition on the order's timeline.
+///
+/// The contract spells the two states `from` and `to`
+/// (`contracts/openapi.yaml` -> `TrailEntry`: `{sequence, event, from, to}`).
+/// The old `from_state` / `to_state` spelling is kept as a deserialisation
+/// alias so a stored trail written by an older build still reads.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrailEntry {
     pub sequence: u32,
     pub event: String,
+    #[serde(rename = "from", alias = "from_state")]
     pub from_state: CheckoutState,
+    #[serde(rename = "to", alias = "to_state")]
     pub to_state: CheckoutState,
 }
 
@@ -558,7 +596,7 @@ async fn submit_checkout(
     State((store, prices)): State<(SharedOrder, Arc<dyn PriceSource>)>,
     headers: HeaderMap,
     JsonBody(body): JsonBody<SubmitBody>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Response, AppError> {
     let buyer = actor(&headers)?;
     let key = headers
         .get("idempotency-key")
@@ -581,12 +619,28 @@ async fn submit_checkout(
     // observed outcome. `Unknown` is the safe default for an unresolved call.
     let outcome = header_outcome(&headers);
     let (checkout_id, state, _) = guard.submit(&buyer, lines, &key, outcome)?;
-    Ok(Json(serde_json::json!({
-        "checkoutId": checkout_id,
-        "status": state.as_str(),
-        "pollable": state.is_pollable() || !state.is_terminal(),
-        "traceId": guard.now_ms.to_string(),
-    })))
+
+    // The contract (`contracts/openapi.yaml` -> `POST /v1/checkouts`) says
+    // `201` when the order reached `confirmed` and `202` while it is still
+    // processing. This is the same rule the idempotency record on this code
+    // path already writes, so a replayed response carries the status the
+    // first one had.
+    let code = if state.is_terminal() && state == CheckoutState::Confirmed {
+        StatusCode::CREATED
+    } else {
+        StatusCode::ACCEPTED
+    };
+
+    Ok((
+        code,
+        Json(serde_json::json!({
+            "checkoutId": checkout_id,
+            "status": state.as_str(),
+            "pollable": state.is_pollable() || !state.is_terminal(),
+            "traceId": guard.now_ms.to_string(),
+        })),
+    )
+        .into_response())
 }
 
 fn header_outcome(headers: &HeaderMap) -> PaymentOutcome {
