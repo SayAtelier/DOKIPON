@@ -5,8 +5,6 @@
 //! [证据等级: Observed] for this mock's own behaviour.
 //! [Hypothetical] for anything about the real order store.
 
-use commerce_mocks::control_router;
-
 #[tokio::main]
 async fn main() {
     let ledger = commerce_mocks::ledger::LedgerMock::new();

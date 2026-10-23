@@ -5,8 +5,6 @@
 //! [证据等级: Observed] for this mock's own behaviour.
 //! [Hypothetical] for anything about the real LINE platform.
 
-use commerce_mocks::control_router;
-
 #[tokio::main]
 async fn main() {
     let key = std::env::var("LINE_ID_TOKEN_KEY").unwrap_or_else(|_| "dev-only-key".into());

@@ -66,12 +66,12 @@ pub struct ActiveFault {
     pub fired: u64,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct FaultController {
     inner: Arc<RwLock<Inner>>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Inner {
     faults: HashMap<String, ActiveFault>,
 }
