@@ -24,11 +24,25 @@ pub type SharedIdentity = Arc<RwLock<IdentityStore>>;
 /// Sessions are deliberately short-lived (atlas: "short-lived session").
 pub const SESSION_TTL_MS: i64 = 30 * 60 * 1000; // 30 minutes
 
+/// The channel a session is bound to.
+///
+/// The contract spells the LINE channel `line`
+/// (`contracts/openapi.yaml` -> `Channel`: `[web, app, line]`), and the Dart
+/// client sends exactly that: `CommerceApiClient.guestSession()` posts
+/// `{'channel': channel.header}`, and `StoreChannel.line.header` is `"line"`.
+///
+/// This enum used to serialise `LineMiniApp` as `line_mini_app`, which broke
+/// the request in both directions: the server *rejected* a contract-conformant
+/// `{"channel": "line"}` body with a 422, and it *answered* with a
+/// `channel` the contract does not allow. The old spelling is kept as a
+/// deserialisation alias so a client that still sends `line_mini_app` is still
+/// understood — the wire value is the contract's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Channel {
     Web,
     App,
+    #[serde(rename = "line", alias = "line_mini_app")]
     LineMiniApp,
 }
 
@@ -556,6 +570,34 @@ mod tests {
     fn malformed_token_is_rejected() {
         assert!(verifier().verify("not-a-jwt", None, 1).is_err());
         assert!(verifier().verify("a.b", None, 1).is_err());
+    }
+
+    #[test]
+    fn the_line_channel_is_wired_as_the_contract_spells_it() {
+        // The contract's `Channel` is `[web, app, line]`
+        // (`contracts/openapi.yaml`), and the Dart client sends exactly that:
+        // `StoreChannel.line.header` is `'line'`
+        // (`packages/domain_models/lib/src/session.dart`).
+
+        // It must be accepted on the way in...
+        let parsed: Channel = serde_json::from_str("\"line\"").expect("the contract's channel is accepted");
+        assert_eq!(parsed, Channel::LineMiniApp);
+
+        // ...and it must be the value that goes out.
+        assert_eq!(
+            serde_json::to_string(&Channel::LineMiniApp).unwrap(),
+            "\"line\""
+        );
+
+        // The old spelling still reads, so a client that sends it is not
+        // broken by the rename.
+        let legacy: Channel =
+            serde_json::from_str("\"line_mini_app\"").expect("the old spelling still reads");
+        assert_eq!(legacy, Channel::LineMiniApp);
+
+        // The other two are unaffected.
+        assert_eq!(serde_json::to_string(&Channel::Web).unwrap(), "\"web\"");
+        assert_eq!(serde_json::to_string(&Channel::App).unwrap(), "\"app\"");
     }
 
     #[test]

@@ -12,12 +12,14 @@ pub mod order_state;
 pub mod idempotency;
 pub mod price_authority;
 pub mod json_body;
+pub mod routes;
 
 pub use error::{AppError, ProblemDetails};
 pub use money::{Money, Currency};
 pub use order_state::{OrderEvent, transition, CheckoutState, ReservationState, TransitionRefusal};
 pub use idempotency::{IdempotencyRecord, IdempotencyDecision, fingerprint, hash_key};
 pub use price_authority::{PriceAuthority, PriceSource};
+pub use routes::{owner_of, ServiceId};
 pub use json_body::{JsonBody, JsonBodyStrict};
 
 /// Correlation / trace identifiers threaded through every request and event.
