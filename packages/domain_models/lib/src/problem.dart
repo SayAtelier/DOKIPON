@@ -48,6 +48,13 @@ class ApiProblem implements Exception {
   /// The signed-in user does not own this resource.
   bool get isForbidden => status == 403;
 
+  /// The thing the request named does not exist.
+  ///
+  /// Distinct from a failure: a shopper who has not added anything yet has no
+  /// cart, and the server creates it on the first mutation. Treating that 404
+  /// as an error is what made "add to cart" do nothing.
+  bool get isNotFound => status == 404;
+
   static const ApiProblem offline = ApiProblem(
     type: 'client.offline',
     title: 'Network unavailable',

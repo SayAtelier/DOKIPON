@@ -56,6 +56,12 @@ class CartController with ChangeNotifierLike {
   ///
   /// [cartId] identifies the cart. A null id means there is nothing to fetch
   /// yet, which is not an error.
+  ///
+  /// A **404 is not an error either**: a shopper who has not added anything
+  /// has no cart yet. The server creates the cart on the first mutation (at
+  /// version 1), so the id is remembered and the first add creates it.
+  /// Treating that 404 as a failure is what made "add to cart" do nothing at
+  /// all — the client gave up before it ever reached the mutation.
   Future<void> load(String? cartId) async {
     if (cartId == null || cartId.isEmpty) return;
     if (_loading) return;
@@ -65,14 +71,28 @@ class CartController with ChangeNotifierLike {
     try {
       _cart = await _api.getCart(cartId);
       _cartId = cartId;
+      _version = _cart!.version;
     } on ApiProblem catch (p) {
-      // Keep whatever is already on screen.
-      _problem = p;
+      if (p.isNotFound) {
+        _cartId = cartId;
+        _cart = null;
+        _version = 1;
+        _problem = null;
+      } else {
+        // Keep whatever is already on screen.
+        _problem = p;
+      }
     } finally {
       _loading = false;
       notify();
     }
   }
+
+  /// The version the next mutation is based on.
+  ///
+  /// A cart that does not exist yet is created by the server at version 1, so
+  /// before the first load has succeeded, the version we are up against is 1.
+  int _version = 1;
 
   /// Set a line's quantity. A quantity of 0 removes the line.
   ///
@@ -81,19 +101,20 @@ class CartController with ChangeNotifierLike {
     required String sku,
     required int quantity,
   }) async {
-    final cart = _cart;
-    if (cart == null || _mutating) return false;
+    final cartId = _cartId;
+    if (cartId == null || cartId.isEmpty || _mutating) return false;
 
     _mutating = true;
     _problem = null;
     notify();
     try {
       _cart = await _api.updateCartItem(
-        cartId: cart.cartId,
+        cartId: cartId,
         sku: sku,
         quantity: quantity,
-        expectedVersion: cart.version,
+        expectedVersion: _cart?.version ?? _version,
       );
+      _version = _cart!.version;
       return true;
     } on ApiProblem catch (p) {
       if (p.isVersionConflict) {
@@ -101,7 +122,8 @@ class CartController with ChangeNotifierLike {
         // silently replaying a mutation on a fresh version could apply a
         // change the shopper has since undone.
         try {
-          _cart = await _api.getCart(cart.cartId);
+          _cart = await _api.getCart(cartId);
+          if (_cart != null) _version = _cart!.version;
         } on ApiProblem {
           // Keep the stale cart; the error below explains the failure.
         }
@@ -117,10 +139,13 @@ class CartController with ChangeNotifierLike {
   /// Add one unit of a SKU.
   Future<bool> add(String sku, {int quantity = 1}) async {
     final cart = _cart;
-    if (cart == null) return false;
-    final current = cart.lines
-        .where((line) => line.sku == sku)
-        .fold<int>(0, (sum, line) => sum + line.quantity);
+    // A cart that does not exist yet has no lines, so the quantity for this
+    // sku is 0 and the mutation creates the cart.
+    final current = cart == null
+        ? 0
+        : cart.lines
+            .where((line) => line.sku == sku)
+            .fold<int>(0, (sum, line) => sum + line.quantity);
     return setQuantity(sku: sku, quantity: current + quantity);
   }
 
