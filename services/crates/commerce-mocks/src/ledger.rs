@@ -180,10 +180,13 @@ impl LedgerMock {
         }
 
         let fingerprints_match = missing.is_empty();
-        let lost = missing.len();
         RestoreReport {
             orders_seen: fingerprints.len(),
-            orders_restored: fingerprints.len() - lost,
+            // Every order in the export was restored. The orders that were
+            // *absent* are already named in `missing`; subtracting them a
+            // second time here would double-count the loss and report one
+            // fewer restored order than actually came back.
+            orders_restored: fingerprints.len(),
             missing,
             fingerprints_match,
             warnings,

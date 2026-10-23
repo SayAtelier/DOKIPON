@@ -162,8 +162,7 @@ impl BrokerMock {
                 processed_count: 0,
             });
             entry.delivery_count += 1;
-            let dup = entry.processed_count > 0;
-            dup
+            entry.processed_count > 0
         };
         Ok(Json(serde_json::json!({
             "eventId": event_id,
@@ -347,7 +346,7 @@ mod tests {
         let first = b.consume("e2", "order.confirmed", 1).await.unwrap();
         assert!(first.processed);
 
-        b.redeliver("e2").await.unwrap();
+        let _ = b.redeliver("e2").await.unwrap();
 
         let second = b.consume("e2", "order.confirmed", 1).await.unwrap();
         assert!(second.delivered, "the duplicate WAS delivered");
@@ -395,7 +394,7 @@ mod tests {
         let b = BrokerMock::new();
         b.publish(msg("e6")).await.unwrap();
         b.consume("e6", "t", 1).await.unwrap();
-        b.redeliver("e6").await.unwrap();
+        let _ = b.redeliver("e6").await.unwrap();
         b.consume("e6", "t", 1).await.unwrap();
 
         let dump = b.inbox_dump().await;
