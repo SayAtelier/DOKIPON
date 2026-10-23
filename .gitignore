@@ -216,3 +216,7 @@ tools/commerce-e2e/reports/
 # 静态发布暂存目录 (per 10/22 Vercel 部署)
 # 纯构建产物副本, 由 docs/prototype/ 复制而来, 不入 commit
 /.deploy/
+
+# 构建日志 (per L12.1 临时 log 不入 commit)
+crates/*.log
+crates/*.log.err
