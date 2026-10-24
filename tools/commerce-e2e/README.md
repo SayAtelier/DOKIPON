@@ -114,6 +114,23 @@ npm run local          # start the stack, print the base URL
 npm run local:audit    # start it, run the checks, tear it down, exit non-zero on a finding
 ```
 
+`local:audit` runs the audit's **contract half** by default: every route,
+every status code, every ProblemDetails, with no browser and no dependency
+beyond Node's own `fetch`. It is quick and it is the part that does not need
+a static bundle.
+
+The **browser half** — every button on the storefront and in the operator
+console, clicked in a real browser — is opt-in, because it needs both a
+built static bundle and a Chrome:
+
+```
+DOKIPON_LOCAL_FULL_AUDIT=1 npm run local:audit
+```
+
+Without that flag the run reports the contract and stops. A green local run
+without it therefore says nothing about the Flutter surfaces; the browser
+half has to be asked for by name.
+
 ### What it is
 
 The deployment's **function topology**, run locally:
@@ -211,6 +228,7 @@ when it is not.
 | `DOKIPON_LOCAL_BUNDLE` | `<repo>/public` | the static bundle's directory |
 | `DOKIPON_VERCEL_JSON` | `<repo>/vercel.json` | the routing configuration to apply |
 | `DOKIPON_LOCAL_NO_BUILD` | — | set it to skip the Docker build |
+| `DOKIPON_LOCAL_FULL_AUDIT` | — | set it to `1` to run the browser half too, not only the contract half |
 | `DOKIPON_LOCAL_VERBOSE` | — | set it to log every request the origin routes |
 | `DOKIPON_LOCAL_IMAGE` | `rust:1.98.1-slim-bookworm` | the image the processes are built and run in |
 

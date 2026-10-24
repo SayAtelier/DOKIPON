@@ -117,6 +117,12 @@ runs it.
 - **Where the reports go**: `tools/commerce-e2e/reports/audit-<timestamp>.{json,md}`.
   The Markdown file is the one to read; the JSON is for diffing against a
   previous run.
+- **What it does not cover**: a control that the semantics tree does not
+  expose at the moment the list is taken is never audited. Flutter builds
+  the tree lazily, so only part of the catalogue is in the list at that
+  moment — the rest comes into the tree when the page is scrolled. A green
+  run says every control the app exposed was checked; it does not say every
+  control in the app was checked.
 
 ### `verify-deployment.mjs` — the facts the contract cannot see
 
