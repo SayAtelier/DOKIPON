@@ -341,8 +341,10 @@ if (findings.length === 0 && notMeasured.length === 0) {
   // credential a Vercel Secret cannot give back, and a line that claims it
   // is there when it is not is worse than no line at all.
   if (existsSync(CREDENTIALS)) {
-    console.log(`      the credentials file is still at ${CREDENTIALS} — it is the only copy of the`);
-    console.log('      admin password. Delete it once you have it.');
+    console.log(`      the credentials file is at ${CREDENTIALS} — it is the only copy of the`);
+    console.log('      admin password: the platform cannot give a secret back, so losing');
+    console.log('      this file means rotating the credential and redeploying. Keep it');
+    console.log('      somewhere safe (a password manager), not only on this disk.');
   } else {
     console.log(`      there is no credentials file at ${CREDENTIALS}.`);
     console.log('      The credential came from elsewhere, so nothing was left behind.');

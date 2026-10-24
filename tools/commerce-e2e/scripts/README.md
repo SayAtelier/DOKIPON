@@ -138,7 +138,9 @@ runs it.
   `reports/.local-credentials.json` for the local stack's. The deployed one
   is looked up first and is the only copy of a password a Vercel Secret
   cannot give back; the local runner writes and removes **its own** file
-  and never the deployed one. No browser.
+  and never the deployed one. Keep the deployed credential somewhere safe
+  as well as on this disk: losing the file means rotating the credential
+  and redeploying, because there is nothing to read back. No browser.
 - **How to run it**: `node scripts/verify-deployment.mjs`.
 - **What it prints**: one line per check — `PASS`, `FAIL` or `UNMEASURED` —
   then a closing line with the totals.
