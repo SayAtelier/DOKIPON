@@ -611,6 +611,7 @@ async function main() {
   const apiProblems = out.api.filter((r) => r.problems.length);
   const surfaceProblems = out.surfaces.filter((s) => s.problems.length || s.brokenControls > 0);
   const brokenTotal = out.surfaces.reduce((n, s) => n + (s.brokenControls || 0), 0);
+  const unmeasuredTotal = out.surfaces.reduce((n, s) => n + (s.unmeasuredControls || 0), 0);
   out.verdict = {
     apiFindings: apiProblems.length,
     brokenControls: brokenTotal,
