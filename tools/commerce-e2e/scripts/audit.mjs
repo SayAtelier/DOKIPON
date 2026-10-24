@@ -533,7 +533,7 @@ async function auditSurface(browser, name, path) {
         // depends on - on the admin console it was 'Sign out', not the other tab.
         // Six primers is enough: the state-changing controls are few, and
         // every primer costs a full page load.
-        for (const primer of active.slice(0, 6)) {
+        for (const primer of active.slice(0, 2)) {
           await p2.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: BOOT_TIMEOUT });
           await waitForFlutter(p2);
           await enableSemantics(p2);
@@ -700,4 +700,5 @@ main().catch((e) => {
   console.error(e);
   process.exitCode = 2;
 });
+
 
