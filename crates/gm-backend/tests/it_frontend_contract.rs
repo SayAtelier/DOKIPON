@@ -19,7 +19,8 @@ use serde_json::Value;
 // ============================================================================
 
 fn test_state() -> AppState {
-    let config = GmConfig::for_test("127.0.0.1:0", "127.0.0.1:0", "http://127.0.0.1:50055").unwrap();
+    let config =
+        GmConfig::for_test("127.0.0.1:0", "127.0.0.1:0", "http://127.0.0.1:50055").unwrap();
     AppState::new(config)
 }
 
@@ -37,7 +38,8 @@ fn assert_no_snake_key(obj: &Value, keys: &[&str], what: &str) {
 }
 
 fn obj_of(v: &Value) -> &serde_json::Map<String, Value> {
-    v.as_object().unwrap_or_else(|| panic!("期望 JSON 对象，实际: {v}"))
+    v.as_object()
+        .unwrap_or_else(|| panic!("期望 JSON 对象，实际: {v}"))
 }
 
 // ============================================================================
@@ -66,14 +68,32 @@ async fn ct_players_matches_frontend_interface() {
     let p = &players[0];
 
     // Players.tsx 读取的字段
-    assert!(p["name"].is_string(), "players[].name 应为字符串（前端读 player.name）：{p}");
+    assert!(
+        p["name"].is_string(),
+        "players[].name 应为字符串（前端读 player.name）：{p}"
+    );
     assert!(p["level"].is_number(), "players[].level 应为数字：{p}");
-    assert!(p["vipLevel"].is_number(), "players[].vipLevel 应为数字（前端读 player.vipLevel）：{p}");
-    assert!(p["totalSpend"].is_number(), "players[].totalSpend 应为数字：{p}");
-    assert!(p["lastLogin"].is_string(), "players[].lastLogin 应为字符串：{p}");
+    assert!(
+        p["vipLevel"].is_number(),
+        "players[].vipLevel 应为数字（前端读 player.vipLevel）：{p}"
+    );
+    assert!(
+        p["totalSpend"].is_number(),
+        "players[].totalSpend 应为数字：{p}"
+    );
+    assert!(
+        p["lastLogin"].is_string(),
+        "players[].lastLogin 应为字符串：{p}"
+    );
     assert!(p["status"].is_string(), "players[].status 应为字符串：{p}");
-    assert!(p.get("guild").is_some(), "players[] 应有 guild 键（可为 null）：{p}");
-    assert!(p.get("region").is_some(), "players[] 应有 region 键（可为 null）：{p}");
+    assert!(
+        p.get("guild").is_some(),
+        "players[] 应有 guild 键（可为 null）：{p}"
+    );
+    assert!(
+        p.get("region").is_some(),
+        "players[] 应有 region 键（可为 null）：{p}"
+    );
 
     // 旧的 snake_case 必须消失
     assert_no_snake_key(
@@ -86,7 +106,14 @@ async fn ct_players_matches_frontend_interface() {
     let stats = obj_of(&body["stats"]);
     for key in ["overall", "filtered"] {
         let s = obj_of(stats.get(key).expect("stats 子键"));
-        for field in ["total", "online", "offline", "banned", "averageLevel", "highValue"] {
+        for field in [
+            "total",
+            "online",
+            "offline",
+            "banned",
+            "averageLevel",
+            "highValue",
+        ] {
             assert!(
                 s.contains_key(field),
                 "stats.{key} 应含 `{field}`（前端 Players.tsx 直接读它）"
@@ -94,7 +121,10 @@ async fn ct_players_matches_frontend_interface() {
         }
     }
     assert!(
-        !stats["overall"].as_object().unwrap().contains_key("average_level"),
+        !stats["overall"]
+            .as_object()
+            .unwrap()
+            .contains_key("average_level"),
         "stats.overall 不应再输出 average_level"
     );
 
@@ -189,7 +219,9 @@ async fn ct_grants_match_frontend_interface() {
     let resp = test::call_service(&app, req).await;
     assert!(resp.status().is_success(), "道具发放应成功");
 
-    let req = test::TestRequest::get().uri("/gm/items/grants").to_request();
+    let req = test::TestRequest::get()
+        .uri("/gm/items/grants")
+        .to_request();
     let resp = test::call_service(&app, req).await;
     let body: Value = test::read_body_json(resp).await;
     let grants = body["grants"].as_array().expect("grants 数组");
@@ -229,7 +261,9 @@ async fn ct_tickets_match_frontend_interface() {
     let resp = test::call_service(&app, req).await;
     assert!(resp.status().is_success(), "建单应成功");
 
-    let req = test::TestRequest::get().uri("/gm/support/tickets").to_request();
+    let req = test::TestRequest::get()
+        .uri("/gm/support/tickets")
+        .to_request();
     let resp = test::call_service(&app, req).await;
     let body: Value = test::read_body_json(resp).await;
     let tickets = body["tickets"].as_array().expect("tickets 数组");
@@ -266,12 +300,18 @@ async fn ct_reports_match_frontend_interface() {
     let r = &reports[0];
 
     // Reports.tsx: type → category → reportType
-    assert!(r["type"].is_string(), "应有 `type` 键（前端类型回退链第一顺位）");
+    assert!(
+        r["type"].is_string(),
+        "应有 `type` 键（前端类型回退链第一顺位）"
+    );
     // Reports.tsx: generatedAt → createdAt → updatedAt
     assert!(r["generatedAt"].is_string(), "应有 `generatedAt` 键");
     // Reports.tsx: summary → metrics 前 3 项
     assert!(r["summary"].is_string(), "应有 `summary` 键");
-    assert!(r["metrics"].is_object(), "应有 `metrics` 对象（前端据此渲染聚合卡片）");
+    assert!(
+        r["metrics"].is_object(),
+        "应有 `metrics` 对象（前端据此渲染聚合卡片）"
+    );
     assert!(
         !r["metrics"].as_object().unwrap().is_empty(),
         "metrics 不应为空对象，否则聚合卡片无内容"
@@ -295,7 +335,9 @@ async fn ct_canvas_accepts_frontend_payload() {
     .await;
 
     // 锚点清单：前端 Canvas.tsx 期望 anchors: string[]
-    let req = test::TestRequest::get().uri("/gm/canvas/anchors").to_request();
+    let req = test::TestRequest::get()
+        .uri("/gm/canvas/anchors")
+        .to_request();
     let resp = test::call_service(&app, req).await;
     let body: Value = test::read_body_json(resp).await;
     let anchors = body["anchors"].as_array().expect("anchors 数组");
@@ -370,7 +412,9 @@ async fn ct_summary_is_consistent_with_players_and_lists_broadcasts() {
     let body: Value = test::read_body_json(resp).await;
 
     // 广播历史不再恒为 []
-    let recent = body["activity"]["recentBroadcasts"].as_array().expect("recentBroadcasts");
+    let recent = body["activity"]["recentBroadcasts"]
+        .as_array()
+        .expect("recentBroadcasts");
     assert!(!recent.is_empty(), "summary.recentBroadcasts 不应为空数组");
     assert_eq!(recent[0]["message"], "contract test broadcast");
     assert!(
@@ -380,7 +424,9 @@ async fn ct_summary_is_consistent_with_players_and_lists_broadcasts() {
     assert_no_snake_key(&recent[0], &["created_at"], "recentBroadcasts[]");
 
     // playerStats 与 /gm/players 的 stats.overall 同源
-    let req = test::TestRequest::get().uri("/gm/players?pageSize=1").to_request();
+    let req = test::TestRequest::get()
+        .uri("/gm/players?pageSize=1")
+        .to_request();
     let resp = test::call_service(&app, req).await;
     let players_body: Value = test::read_body_json(resp).await;
     assert_eq!(
@@ -413,7 +459,10 @@ async fn ct_servers_and_metrics_match_frontend_expectations() {
     let servers = body["servers"].as_array().expect("servers 数组");
     assert!(!servers.is_empty());
     let s = &servers[0];
-    assert!(s["onlinePlayers"].is_number(), "前端读 server.onlinePlayers");
+    assert!(
+        s["onlinePlayers"].is_number(),
+        "前端读 server.onlinePlayers"
+    );
     assert!(s.get("lastUpdated").is_some(), "前端读 server.lastUpdated");
     assert_no_snake_key(s, &["online_players", "last_updated"], "servers[]");
 
@@ -425,8 +474,14 @@ async fn ct_servers_and_metrics_match_frontend_expectations() {
         text.contains("online_connections "),
         "metrics 应含 online_connections，前端正则依赖它: {text}"
     );
-    assert!(text.contains("running_servers "), "metrics 应含 running_servers");
-    assert!(text.contains("total_servers "), "metrics 应含 total_servers");
+    assert!(
+        text.contains("running_servers "),
+        "metrics 应含 running_servers"
+    );
+    assert!(
+        text.contains("total_servers "),
+        "metrics 应含 total_servers"
+    );
 
     // 抓到的值应等于分片在线人数之和
     let mut sum = 0u64;
@@ -438,7 +493,10 @@ async fn ct_servers_and_metrics_match_frontend_expectations() {
         .find_map(|l| l.strip_prefix("online_connections "))
         .and_then(|v| v.trim().parse().ok())
         .expect("online_connections 数值");
-    assert_eq!(scraped, sum, "online_connections 应等于分片 online_players 之和");
+    assert_eq!(
+        scraped, sum,
+        "online_connections 应等于分片 online_players 之和"
+    );
 }
 
 // ============================================================================
