@@ -12,8 +12,10 @@
 //
 // The admin password comes from the deployment's own environment. The script
 // reads it from `ADMIN_PASSWORD` (and `ADMIN_USER`) when they are set, and
-// otherwise from the credentials file the deploy step wrote
-// (`reports/.deploy-credentials.json`, which is git-ignored).
+// otherwise from a credentials file (which is git-ignored):
+// `reports/.deploy-credentials.json` for a deployed credential, and
+// `reports/.local-credentials.json` for the local stack's. The deployed one
+// is looked up first.
 //
 // ## The three answers
 //
@@ -36,6 +38,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
 const BASE = (process.env.DOKIPON_BASE || 'https://dokipon-commerce.vercel.app').replace(/\/$/, '');
 const CREDENTIALS = resolve(ROOT, 'reports', '.deploy-credentials.json');
+const LOCAL_CREDENTIALS = resolve(ROOT, 'reports', '.local-credentials.json');
 
 const findings = [];
 const notMeasured = [];
@@ -57,8 +60,21 @@ function unmeasured(name, detail = '') {
 }
 
 /**
- * The admin credential, from the environment first and from the deploy
- * step's credentials file second.
+ * The admin credential, from the environment first and from a credentials
+ * file second.
+ *
+ * Two files, and the order matters:
+ *
+ *   - `.deploy-credentials.json` is the **deployed** credential. It is the
+ *     only copy: a Vercel Secret's value cannot be read back, so a lost
+ *     file is a lost credential and the deployment has to be given a new
+ *     one. Nothing but the deploy step may write it.
+ *   - `.local-credentials.json` is the **local** stack's credential. It is
+ *     written and removed by the local runner, and it is published in the
+ *     repository, so it is worth nothing.
+ *
+ * The deployed one is looked up first: a local run must never answer for a
+ * deployment.
  */
 function credential() {
   if (process.env.ADMIN_PASSWORD) {
@@ -68,13 +84,19 @@ function credential() {
       source: 'the environment',
     };
   }
-  if (existsSync(CREDENTIALS)) {
-    const stored = JSON.parse(readFileSync(CREDENTIALS, 'utf8'));
-    if (stored.ADMIN_PASSWORD) {
+  for (const file of [CREDENTIALS, LOCAL_CREDENTIALS]) {
+    if (!existsSync(file)) continue;
+    let stored = null;
+    try {
+      stored = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (stored && stored.ADMIN_PASSWORD) {
       return {
         user: stored.ADMIN_USER || 'admin',
         password: stored.ADMIN_PASSWORD,
-        source: CREDENTIALS,
+        source: file,
       };
     }
   }
@@ -315,8 +337,16 @@ if (!token) {
 console.log('');
 if (findings.length === 0 && notMeasured.length === 0) {
   console.log(`deployment verification: OK (${notes.length} checks)`);
-  console.log(`      the credentials file is still at ${CREDENTIALS} — it is the only copy of the`);
-  console.log('      admin password. Delete it once you have it.');
+  // Only say the file is there when it is. The file is the only copy of a
+  // credential a Vercel Secret cannot give back, and a line that claims it
+  // is there when it is not is worse than no line at all.
+  if (existsSync(CREDENTIALS)) {
+    console.log(`      the credentials file is still at ${CREDENTIALS} — it is the only copy of the`);
+    console.log('      admin password. Delete it once you have it.');
+  } else {
+    console.log(`      there is no credentials file at ${CREDENTIALS}.`);
+    console.log('      The credential came from elsewhere, so nothing was left behind.');
+  }
   process.exit(0);
 }
 if (findings.length === 0) {

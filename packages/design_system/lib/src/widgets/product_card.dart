@@ -32,57 +32,93 @@ class ProductCard extends StatelessWidget {
     final isLowStock = product.availability == Availability.lowStock;
     final theme = Theme.of(context);
 
-    return InkWell(
-      onTap: onOpen,
-      borderRadius: BorderRadius.circular(0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 1:1, the way the reference store photographs a garment. The
-          // height is set by the grid, not by the card, so the photo and the
-          // text below it always line up across a row.
-          AspectRatio(
-            aspectRatio: 1,
-            child: _ProductImage(
-              product: product,
-              imageUrl: imageUrl,
-            ),
-          ),
-          const SizedBox(height: DokSpace.md),
-          Text(
-            product.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleLarge, // 14px serif, was titleSmall
-          ),
-          const SizedBox(height: DokSpace.xs),
-          PriceLabel(money: product.price, showStrikethrough: true),
-          const SizedBox(height: DokSpace.xs),
-          AvailabilityBadge(
-            availability: product.availability,
-            dense: true,
-            useWarmthForLowStock: isLowStock, // blush warmth for low stock
-          ),
-          if (onAdd != null && showQuickAdd) ...[
-            const SizedBox(height: DokSpace.md),
-            SizedBox(
-              width: double.infinity,
-              height: 48, // 44dp touch target
-              child: FilledButton(
-                onPressed: purchasable ? onAdd : null,
-                child: Text(
-                  purchasable
-                      ? 'カートに追加'
-                      : '在庫切れ / Out of stock',
+    // The card is a button, and it says so.
+    //
+    // Every other tappable widget in this package wraps its `InkWell` in
+    // `Semantics(button: true, ...)`: the cart, the utility icons, the
+    // category strip, the cart drawer's item. This card did not, and a
+    // bare `InkWell` does not give a stable role: Flutter exposed it as a
+    // button before the grid settled and as a group afterwards, so the
+    // card's role depended on the scroll position — a screen reader user
+    // could not tell it was activatable, and the audit could not find it
+    // either.
+    //
+    // The text inside is excluded from the semantics tree and put into the
+    // card's own label instead, so it is announced once rather than twice.
+    // The add-to-cart button keeps its own semantics: it is a separate
+    // control, and it has to stay reachable.
+    return Semantics(
+      button: true,
+      label: _spokenLabel(product),
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 1:1, the way the reference store photographs a garment. The
+            // height is set by the grid, not by the card, so the photo and the
+            // text below it always line up across a row.
+            ExcludeSemantics(
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: _ProductImage(
+                  product: product,
+                  imageUrl: imageUrl,
                 ),
               ),
             ),
+            const SizedBox(height: DokSpace.md),
+            ExcludeSemantics(
+              child: Text(
+                product.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleLarge, // 14px serif, was titleSmall
+              ),
+            ),
+            const SizedBox(height: DokSpace.xs),
+            ExcludeSemantics(
+              child: PriceLabel(money: product.price, showStrikethrough: true),
+            ),
+            const SizedBox(height: DokSpace.xs),
+            ExcludeSemantics(
+              child: AvailabilityBadge(
+                availability: product.availability,
+                dense: true,
+                useWarmthForLowStock: isLowStock, // blush warmth for low stock
+              ),
+            ),
+            if (onAdd != null && showQuickAdd) ...[
+              const SizedBox(height: DokSpace.md),
+              SizedBox(
+                width: double.infinity,
+                height: 48, // 44dp touch target
+                child: FilledButton(
+                  onPressed: purchasable ? onAdd : null,
+                  child: Text(
+                    purchasable
+                        ? 'カートに追加'
+                        : '在庫切れ / Out of stock',
+                  ),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
+
+  /// What a screen reader says for the card.
+  ///
+  /// The same three things the shopper reads: the name, the price **in the
+  /// currency's own major unit** (a JPY price is already the price — see
+  /// `Money.spokenAmount`), and the stock state.
+  static String _spokenLabel(ProductSummary product) =>
+      '${product.title} / ${product.price.spokenAmount} ${product.price.currency.code} / '
+      '${AvailabilityBadge.labelFor(product.availability)}';
 }
 
 /// The product photograph, or a typographic stand-in.

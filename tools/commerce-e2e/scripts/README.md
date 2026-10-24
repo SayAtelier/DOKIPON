@@ -133,9 +133,12 @@ runs it.
   payment list route, and — with the admin credential — lets the operator
   see the order that was just placed and read its line's price.
 - **What it needs**: a deployment (`DOKIPON_BASE`). The admin credential:
-  `ADMIN_USER` / `ADMIN_PASSWORD` from the environment, or the credentials
-  file the deploy step wrote (`reports/.deploy-credentials.json`). No
-  browser.
+  `ADMIN_USER` / `ADMIN_PASSWORD` from the environment, or a credentials
+  file — `reports/.deploy-credentials.json` for a deployed credential,
+  `reports/.local-credentials.json` for the local stack's. The deployed one
+  is looked up first and is the only copy of a password a Vercel Secret
+  cannot give back; the local runner writes and removes **its own** file
+  and never the deployed one. No browser.
 - **How to run it**: `node scripts/verify-deployment.mjs`.
 - **What it prints**: one line per check — `PASS`, `FAIL` or `UNMEASURED` —
   then a closing line with the totals.

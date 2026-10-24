@@ -405,10 +405,20 @@ export class LocalStack {
     return result.stdout.trim();
   }
 
-  /** Write the credentials the verification script reads. */
+  /**
+   * Write the local stack's own credential, for a standalone verification
+   * run against a stack this runner left up.
+   *
+   * It goes to **its own file**, not to the deploy step's. The deployed
+   * credential lives at `reports/.deploy-credentials.json` and is the only
+   * copy of a password a Vercel Secret cannot give back; this runner used
+   * to write the local credential over it and then delete it, so a local
+   * test run destroyed the deployed credential. The two are now separate
+   * files, and this one is the only one this runner may touch.
+   */
   writeCredentials() {
     mkdirSync(REPORTS_DIR, { recursive: true });
-    const file = resolve(REPORTS_DIR, '.deploy-credentials.json');
+    const file = resolve(REPORTS_DIR, '.local-credentials.json');
     writeFileSync(
       file,
       `${JSON.stringify(
@@ -468,6 +478,9 @@ export class LocalStack {
       },
     );
     if (verify.code !== 0) failures.push(`the verification reported findings (exit ${verify.code})`);
+    // Only this runner's own file is removed. The deployed credential is
+    // not this runner's to delete: it is the only copy of a password the
+    // platform cannot give back.
     rmSync(credentialsFile, { force: true });
 
     return { failures };
