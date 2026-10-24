@@ -61,6 +61,16 @@ name = "vercel"
 path = "src/bin/vercel.rs"
 required-features = ["vercel"]
 
+# The local deployment's gateway: the same router the Vercel gateway Function
+# serves, over plain HTTP, so the function topology can be run and tested
+# without a deployment.
+#
+# It deliberately does NOT require the `vercel` feature: the `vercel_runtime`
+# dependency must not reach this binary's dependency tree.
+[[bin]]
+name = "local-gateway"
+path = "src/bin/local_gateway.rs"
+
 [profile.release]
 codegen-units = 1
 lto = "fat"
