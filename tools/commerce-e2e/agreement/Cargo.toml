@@ -1,0 +1,39 @@
+[package]
+name = "commerce-e2e-agreement"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.85"
+description = "Mock ↔ product agreement tests: a token the mock issues must be one the product accepts, and the broken flavours must be refused with the product's own problem codes"
+
+# This crate is its own workspace root on purpose.
+#
+# The agreement test needs BOTH the mock and the product, and the rules say
+# they must not live on one side of the fence:
+#
+#   - nothing in `services/` may depend on `commerce-mocks` — the mock is a
+#     test fixture, not a product dependency;
+#   - `commerce-mocks` must not depend on a product service either.
+#
+# So the test lives outside `services/` and outside the mock crate, and it
+# reaches both by path. This is the E2E project's home for it: the mock and
+# the product have to agree on the wire, and the wire is what this project
+# tests.
+[workspace]
+
+[dependencies]
+# The mock (the issuer) and the product (the verifier).
+commerce-mocks = { path = "../../../services/crates/commerce-mocks" }
+commerce-identity = { path = "../../../services/crates/commerce-identity" }
+# `AppError`/`ProblemDetails` — the product's own problem codes.
+commerce-core = { path = "../../../services/crates/commerce-core" }
+
+# Reading the local fixture set (the credentials both sides must use).
+serde_json = "1"
+
+# Driving the mock's own router, so the test covers the token the mock
+# *serves*, not only the token its API returns.
+axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tokio = { version = "1", features = ["full"] }
