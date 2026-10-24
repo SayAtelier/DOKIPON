@@ -166,7 +166,7 @@ SF.ready(function () {
         '</div>';
     }).join('');
     SF.el('order-lines').innerHTML = lines;
-    SF.el('order-total').textContent = SF.money(order.total.amount_minor, order.total.currency);
+    SF.el('order-total').textContent = SF.money(order.total.amountMinor, order.total.currency);
 
     var pollCard = SF.el('poll-card');
     if (SF.isPollable(state) || budgetExhausted) {

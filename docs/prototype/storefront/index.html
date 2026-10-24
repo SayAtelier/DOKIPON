@@ -143,13 +143,26 @@
 
       <h3>仍然存在的限制（如实记录）</h3>
       <ul class="muted" style="padding-left:18px;line-height:1.9">
-        <li><b>inventory 没有列表路由。</b>
-          inventory 服务只有三条预留写路由，没有读路由，因此
-          <span class="k">GET /v1/inventory</span> 是 404，
+        <li><b>payment-adapter 没有列表路由。</b>
+          支付适配器只有三条写路由
+          （<span class="k">POST /v1/payments/authorize</span>、
+          <span class="k">/reconcile</span>、<span class="k">/webhook</span>），没有读路由，因此
+          <span class="k">GET /admin/v1/payments</span> 是 404，
           <span class="k">GET /admin/v1/inventory</span> 也会回
           <span class="k">admin.upstream_error</span>。契约里标着
           <span class="k">x-implemented: false</span> 与
-          <span class="k">x-blocked-by: inventory-service-has-no-list-route</span>。</li>
+          <span class="k">x-blocked-by: payment-adapter-has-no-list-route</span>。
+          <br>（<b>inventory 本身是有读路由的</b>：<span class="k">GET /v1/inventory</span>，
+          见 <span class="k">commerce-inventory/src/lib.rs:281</span>。两者别混。）</li>
+        <li><b>订单行的金额形状仍未对齐。</b>
+          <span class="k">OrderTotal</span> 已改成
+          <span class="k">#[serde(rename = "amountMinor")]</span>，订单总额是对的；
+          但 <span class="k">OrderLine</span> 仍直出 <span class="k">unit_amount_minor</span>（snake、扁平 int），
+          而 Dart 的 <span class="k">OrderLine.fromJson</span> 读的是
+          <span class="k">json['unitAmount']</span>（Money 映射）→ <b>行金额会是 ¥0</b>。
+          这不只是改名，是<b>形状缺失</b>：契约里也没有订单响应的行结构
+          （只有输入侧 <span class="k">OrderLineInput</span>）。
+          好消息是该模型<b>目前没有任何使用者</b>（全仓 grep 0 命中），还没有可见影响。</li>
         <li><b>状态在内存里。</b>
           购物车、订单、库存都是进程内状态，Vercel 可能同时跑多个函数实例，
           跨实例的购物车会「凭空清空」。目录、内容文档与运营后台是静态或幂等读，不受影响。

@@ -554,18 +554,22 @@ async function verifyStorefrontIndex() {
   check('storefront/index: 页面无脚本错误', p.pageErrors.length === 0, p.pageErrors.join(' | '));
 
   const body = p.text('body');
-  check('storefront/index: 声明 12 条契约路径', body.includes('12 条契约路径'), '未找到');
-  check('storefront/index: 列出 BFF 不代理的结论', body.includes('BFF 不代理'), '未找到');
-  check('storefront/index: 记录 /v1/sessions/line 只在 identity',
-    body.includes('commerce-identity') && body.includes('只有它有'), '未找到');
-  check('storefront/index: 记录路径落在 5 个独立进程',
-    body.includes('5 个独立进程'), '未找到');
-  check('storefront/index: 记录桩/真两套实现',
-    body.includes('桩') && body.includes('两套实现'), '未找到');
-  check('storefront/index: 记录电商线字段漂移',
-    body.includes('channel_eligibility') && body.includes('title_i18n'), '未找到');
-  check('storefront/index: 记录订单金额显示 ¥0 的后果',
-    body.includes('订单行与订单总额显示 ¥0'), '未找到');
+  // 索引页的「真实实现现状」必须反映**当前**代码状态：
+  // commerce-edge 已把 12 条路径收进一个进程，snake_case 漂移已在服务端对齐。
+  check('storefront/index: 声明 12 条路径由一个进程提供',
+    body.includes('12 条路径') && body.includes('一个进程'), '未找到');
+  check('storefront/index: 记录 commerce-edge 的存在',
+    body.includes('commerce-edge'), '未找到');
+  check('storefront/index: 标注缺口已闭合',
+    body.includes('已闭合'), '未找到');
+  check('storefront/index: 记录字段已按契约 camelCase 对齐',
+    body.includes('channelEligibility') && body.includes('titleI18n'), '未找到');
+  check('storefront/index: 如实记录 payment-adapter 无读路由',
+    body.includes('payment-adapter'), '未找到');
+  check('storefront/index: 如实记录订单行金额形状未对齐',
+    body.includes('行金额会是 ¥0'), '未找到');
+  check('storefront/index: 澄清 inventory 有读路由',
+    body.includes('inventory 本身是有读路由的'), '未找到');
 
   const screens = p.all('.screen-card').length;
   check('storefront/index: 8 屏入口齐全', screens === 8, String(screens));
@@ -582,23 +586,43 @@ async function verifyStorefrontCatalog() {
   check('storefront/catalog: 缺货商品按钮为「不可 / N/A」',
     p.$('#list').textContent.includes('不可 / N/A'), '未找到');
 
-  // 渠道过滤：LINE 下 prd-1004（line_mini_app:false）不出现
+  // 分类条：7 个真实分类 + ALL（_CategoryNav.categories）
+  const cats = p.all('#category-nav [data-cat]');
+  check('storefront/catalog: 分类条含 7 个分类 + ALL',
+    cats.length === 8, String(cats.length));
+  check('storefront/catalog: 分类条含 BRA & SETS',
+    p.text('#category-nav').includes('BRA & SETS'), '未找到');
+
+  // 分类过滤是**替换**而不是追加
+  p.click(p.$('#category-nav [data-cat="cat-swim"]'));
+  await p.sleep(60);
+  const swimText = p.text('#list');
+  check('storefront/catalog: 选中分类后列表被替换',
+    swimText.includes('潮騒') && !swimText.includes('黒蝶'),
+    swimText.slice(0, 60));
+  check('storefront/catalog: 选中项在分类条上打标',
+    p.$('#category-nav [data-cat="cat-swim"]').className.includes('is-on'), '未打标');
+
+  // 渠道过滤：p-adult-01 只有 Web 可售
+  p.click(p.$('#category-nav [data-cat=""]'));
+  await p.sleep(60);
   p.click(p.$('#channel-slot [data-channel="line"]'));
   await p.sleep(60);
   const lineText = p.text('#list');
   check('storefront/catalog: LINE 渠道隐藏非 LINE 商品',
-    !lineText.includes('限定トートバッグ'), 'LINE 下仍出现');
-  // LINE 限定商品排在第 7 位，先翻页
+    !lineText.includes('深紅 ストッキング'), 'LINE 下仍出现');
   p.click(p.$('#load-more'));
   await p.sleep(60);
-  check('storefront/catalog: LINE 渠道显示 LINE 限定商品',
-    p.text('#list').includes('LINE 限定トート'), 'LINE 限定商品缺失');
+  check('storefront/catalog: LINE 渠道显示可售商品',
+    p.text('#list').includes('潮騒'), '可售商品缺失');
 
-  // 回到 Web：LINE 限定商品应消失
+  // 回到 Web：web-only 商品应出现
   p.click(p.$('#channel-slot [data-channel="web"]'));
   await p.sleep(60);
-  check('storefront/catalog: Web 渠道隐藏 LINE 限定商品',
-    !p.text('#list').includes('LINE 限定トート'), 'Web 下仍出现');
+  p.click(p.$('#load-more'));
+  await p.sleep(60);
+  check('storefront/catalog: Web 渠道显示 web-only 商品',
+    p.text('#list').includes('深紅 ストッキング'), 'web-only 商品缺失');
 
   // 游客横幅
   p.click(p.$('#sim-guest'));
@@ -634,7 +658,7 @@ async function verifyStorefrontProduct() {
 
   p.click(p.$('#bump-version'));
   await p.sleep(60);
-  check('storefront/product: 版本可推进', p.text('#p-chips').includes('v8'), p.text('#p-chips'));
+  check('storefront/product: 版本可推进', p.text('#p-chips').includes('v2'), p.text('#p-chips'));
 
   // 切到 LINE：prd-1001 三渠道都可售，按钮仍可用
   p.click(p.$('[data-channel="line"]'));
@@ -650,7 +674,7 @@ async function verifyStorefrontCart() {
 
   const lines = p.all('#cart-lines .line-item');
   check('storefront/cart: 两行商品', lines.length === 2, String(lines.length));
-  check('storefront/cart: 小计 = 快照合计', p.text('#cart-subtotal').includes('¥4580'), p.text('#cart-subtotal'));
+  check('storefront/cart: 小计 = 快照合计', p.text('#cart-subtotal').includes('¥21700'), p.text('#cart-subtotal'));
   check('storefront/cart: 版本号显示', p.text('#cart-version').includes('v6'), p.text('#cart-version'));
 
   // 数量 +1 → 版本 +1
@@ -706,7 +730,7 @@ async function verifyStorefrontOrder() {
   check('storefront/order: 事件轨迹 6 条', trail.length === 6, String(trail.length));
   check('storefront/order: 轨迹含状态跃迁',
     p.text('#trail').includes('payment_unknown'), p.text('#trail').slice(0, 60));
-  check('storefront/order: 订单总额正确', p.text('#order-total').includes('¥4580'), p.text('#order-total'));
+  check('storefront/order: 订单总额正确', p.text('#order-total').includes('¥21700'), p.text('#order-total'));
   check('storefront/order: Outbox 列出', p.all('#outbox li').length === 2, String(p.all('#outbox li').length));
   p.win.close();
 }

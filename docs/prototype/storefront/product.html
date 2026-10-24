@@ -138,7 +138,8 @@ SF.ready(function () {
     SF.el('appbar-sub').textContent = SF.CHANNEL_LABEL[channel] + ' · 商品詳細';
 
     var ok = eligible(product);
-    var purchasable = SF.isPurchasable(product.availability);
+    var availability = SF.availabilityOf(product);
+    var purchasable = SF.isPurchasable(availability);
 
     bannerSlot.innerHTML = !ok
       ? SF.banner(
@@ -148,10 +149,13 @@ SF.ready(function () {
       : '';
 
     SF.el('p-title').textContent = product.title_i18n.ja;
-    SF.el('p-desc').textContent = product.description_i18n.ja;
+    // 服务端的 demo 目录 description_i18n 是空 map（catalog seed: HashMap::new()），
+    // 所以详情页的描述位本来就是空的 —— 照实呈现，不编文案。
+    var desc = product.description_i18n || {};
+    SF.el('p-desc').textContent = desc.ja || desc.en || '';
     SF.el('p-price').textContent = SF.money(product.amount_minor, product.currency);
     SF.el('p-currency').textContent = product.currency;
-    SF.el('p-availability').innerHTML = SF.availabilityBadge(product.availability, false);
+    SF.el('p-availability').innerHTML = SF.availabilityBadge(availability, false);
 
     SF.el('p-chips').innerHTML = [
       '<span class="chip chip--muted">' + product.product_id + '</span>',

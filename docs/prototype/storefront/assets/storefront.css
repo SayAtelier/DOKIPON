@@ -401,6 +401,39 @@ a { color: var(--brand); }
 .qty button:hover { background: var(--surface-alt); }
 .qty span { min-width: 34px; text-align: center; font-size: 14px; font-weight: 600; }
 
+/* category strip — _CategoryNav（storefront_app.dart L728） */
+.catnav {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding: 6px 0 10px;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
+}
+
+.catnav::-webkit-scrollbar { display: none; }
+
+.catnav__item {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-height: 44px;
+  padding: 4px 2px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink-muted);
+  border-bottom: 2px solid transparent;
+}
+
+.catnav__ja { font-size: 12px; font-weight: 600; color: var(--ink); }
+.catnav__en { font-size: 9.5px; letter-spacing: 0.08em; font-weight: 700; }
+.catnav__item.is-on { border-bottom-color: var(--brand); }
+.catnav__item.is-on .catnav__en { color: var(--brand); }
+
 /* bottom bar (checkout status bar) */
 .bottom-bar {
   position: sticky;

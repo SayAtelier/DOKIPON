@@ -118,111 +118,139 @@ window.SF = (function () {
   }
 
   /* ---------------------------------------------------------------- data */
-  /* Server-shaped rows. product_id / amount_minor / channel_eligibility are
-     the **server** names; the client reads productId / price{amountMinor} /
-     channelEligibility. See index.html for the full comparison. */
+  /* The demo catalogue is copied 1:1 from the seed in
+     services/crates/commerce-catalog/src/lib.rs (the `demo:` array), so the
+     prototype and the running app show the same shelves.
+     Availability is derived with the same rules the service uses
+     (CatalogStore::availability): MadeToOrder → made_to_order,
+     Unbounded → in_stock, Reserved by stock count
+     (<=0 out_of_stock, <=LOW_STOCK_THRESHOLD low_stock). */
+
+  var LOW_STOCK_THRESHOLD = 10;
+
+  /* _CategoryNav.categories (design_system/storefront_app.dart L745) */
+  var CATEGORIES = [
+    { id: 'cat-lingerie', en: 'LINGERIE', ja: 'ランジェリー' },
+    { id: 'cat-bra-sets', en: 'BRA & SETS', ja: 'ブラ＆セット' },
+    { id: 'cat-nightwear', en: 'NIGHTWEAR', ja: 'ナイトウェア' },
+    { id: 'cat-swim', en: 'SWIM', ja: 'スイム' },
+    { id: 'cat-beauty', en: 'BEAUTY', ja: 'ボディケア' },
+    { id: 'cat-goods', en: 'GOODS', ja: 'グッズ' },
+    { id: 'cat-sale', en: 'SALE', ja: 'セール' }
+  ];
 
   var PRODUCTS = [
     {
-      product_id: 'prd-1001', sku: 'sku-1001',
-      title: '産地直送 スペシャルコーヒー 200g',
+      product_id: 'p-bra-01', sku: 'sku-bra-01',
+      title: 'DOKIPON Triple ノ-wire ブラ',
+      title_i18n: { ja: 'DOKIPON Triple ノ-wire ブラ', en: 'Triple Wireless Bra' },
+      amount_minor: 8900, currency: 'JPY',
+      category_id: 'cat-bra-sets', stock_policy: 'reserved', stock: 42, version: 1,
+      channel_eligibility: { web: true, app: true, line_mini_app: true }
+    },
+    {
+      product_id: 'p-brief-01', sku: 'sku-brief-01',
+      title: 'DOKIPON 百合 ショーツ',
+      title_i18n: { ja: 'DOKIPON 百合 ショーツ', en: 'Lily Brief' },
+      amount_minor: 3900, currency: 'JPY',
+      category_id: 'cat-lingerie', stock_policy: 'reserved', stock: 7, version: 1,
+      channel_eligibility: { web: true, app: true, line_mini_app: true }
+    },
+    {
+      product_id: 'p-set-01', sku: 'sku-set-01',
+      title: 'DOKIPON 黒蝶 ブラ＆ショーツセット',
       title_i18n: {
-        ja: '産地直送 スペシャルコーヒー 200g',
-        en: 'Single-origin specialty coffee 200g'
+        ja: 'DOKIPON 黒蝶 ブラ＆ショーツセット',
+        en: 'Black Butterfly Set'
       },
-      description_i18n: {
-        ja: '焙煎したての豆を 200g で。ご注文後に焙煎して発送します。',
-        en: 'Roasted to order. We roast after your order arrives, then ship.'
-      },
-      amount_minor: 1800, currency: 'JPY', availability: 'in_stock',
-      category_id: 'cat-coffee', stock_policy: 'reserved', version: 7,
+      amount_minor: 12900, currency: 'JPY',
+      category_id: 'cat-bra-sets', stock_policy: 'reserved', stock: 0, version: 1,
       channel_eligibility: { web: true, app: true, line_mini_app: true }
     },
     {
-      product_id: 'prd-1002', sku: 'sku-1002',
-      title: '真空保温ボトル 500ml',
+      product_id: 'p-night-01', sku: 'sku-night-01',
+      title: 'DOKIPON 月光 ナイトブラ',
+      title_i18n: { ja: 'DOKIPON 月光 ナイトブラ', en: 'Moonlight Night Bra' },
+      amount_minor: 4900, currency: 'JPY',
+      category_id: 'cat-nightwear', stock_policy: 'reserved', stock: 28, version: 1,
+      channel_eligibility: { web: true, app: true, line_mini_app: true }
+    },
+    {
+      product_id: 'p-cami-01', sku: 'sku-cami-01',
+      title: 'DOKIPON 霞 キャミソール',
+      title_i18n: { ja: 'DOKIPON 霞 キャミソール', en: 'Haze Camisole' },
+      amount_minor: 6900, currency: 'JPY',
+      category_id: 'cat-lingerie', stock_policy: 'made_to_order', stock: -1, version: 1,
+      channel_eligibility: { web: true, app: true, line_mini_app: true }
+    },
+    {
+      product_id: 'p-adult-01', sku: 'sku-adult-01',
+      title: 'DOKIPON 深紅 ストッキング',
+      title_i18n: { ja: 'DOKIPON 深紅 ストッキング', en: 'Crimson Stockings' },
+      amount_minor: 5800, currency: 'JPY',
+      category_id: 'cat-lingerie', stock_policy: 'reserved', stock: 3, version: 1,
+      // App / LINE 不可售 —— 只有 Web 渠道能看到
+      channel_eligibility: { web: true, app: false, line_mini_app: false }
+    },
+    {
+      product_id: 'p-swim-01', sku: 'sku-swim-01',
+      title: 'DOKIPON 潮騒 スイムビーフ',
+      title_i18n: { ja: 'DOKIPON 潮騒 スイムビーフ', en: 'Shiosai Swim Brief' },
+      amount_minor: 5900, currency: 'JPY',
+      category_id: 'cat-swim', stock_policy: 'reserved', stock: 12, version: 1,
+      channel_eligibility: { web: true, app: true, line_mini_app: true }
+    },
+    {
+      product_id: 'p-beauty-01', sku: 'sku-beauty-01',
+      title: 'DOKIPON 雪輪 ボディケアセット',
       title_i18n: {
-        ja: '真空保温ボトル 500ml',
-        en: 'Vacuum flask 500ml'
+        ja: 'DOKIPON 雪輪 ボディケアセット',
+        en: 'Yukiwa Body Care Set'
       },
-      description_i18n: {
-        ja: '12時間保温。LINE での共有にも対応しています。',
-        en: 'Keeps drinks hot for 12 hours. Shareable to LINE.'
-      },
-      amount_minor: 2400, currency: 'JPY', availability: 'in_stock',
-      category_id: 'cat-goods', stock_policy: 'reserved', version: 3,
+      amount_minor: 2400, currency: 'JPY',
+      category_id: 'cat-beauty', stock_policy: 'unbounded', stock: -1, version: 1,
       channel_eligibility: { web: true, app: true, line_mini_app: true }
     },
     {
-      product_id: 'prd-1003', sku: 'sku-1003',
-      title: '会員月額パス',
-      title_i18n: { ja: '会員月額パス', en: 'Monthly membership' },
-      description_i18n: {
-        ja: '毎月 980 円で会員特典を利用できます。',
-        en: 'Member perks for 980 JPY per month.'
-      },
-      amount_minor: 980, currency: 'JPY', availability: 'low_stock',
-      category_id: 'cat-membership', stock_policy: 'unbounded', version: 12,
+      product_id: 'p-goods-01', sku: 'sku-goods-01',
+      title: 'DOKIPON 星屑 ヘアピン',
+      title_i18n: { ja: 'DOKIPON 星屑 ヘアピン', en: 'Hoshikuzu Hair Pin' },
+      amount_minor: 1800, currency: 'JPY',
+      category_id: 'cat-goods', stock_policy: 'unbounded', stock: -1, version: 1,
       channel_eligibility: { web: true, app: true, line_mini_app: true }
     },
     {
-      product_id: 'prd-1004', sku: 'sku-1004',
-      title: '限定トートバッグ',
-      title_i18n: { ja: '限定トートバッグ', en: 'Limited tote bag' },
-      description_i18n: {
-        ja: '在庫切れ。再入荷予定はありません。',
-        en: 'Out of stock, no restock scheduled.'
+      product_id: 'p-sale-01', sku: 'sku-sale-01',
+      title: 'DOKIPON 薄暮 セール セット',
+      title_i18n: {
+        ja: 'DOKIPON 薄暮 セール セット',
+        en: 'Twilight Sale Set'
       },
-      amount_minor: 3200, currency: 'JPY', availability: 'out_of_stock',
-      category_id: 'cat-goods', stock_policy: 'reserved', version: 5,
-      channel_eligibility: { web: true, app: true, line_mini_app: false }
-    },
-    {
-      product_id: 'prd-1005', sku: 'sku-1005',
-      title: '手仕事の陶器セット',
-      title_i18n: { ja: '手仕事の陶器セット', en: 'Handmade ceramics set' },
-      description_i18n: {
-        ja: '受注生産。2週間程度でお送りします。',
-        en: 'Made to order. Ships in about two weeks.'
-      },
-      amount_minor: 8800, currency: 'JPY', availability: 'made_to_order',
-      category_id: 'cat-craft', stock_policy: 'made_to_order', version: 2,
+      amount_minor: 3900, currency: 'JPY',
+      category_id: 'cat-sale', stock_policy: 'reserved', stock: 5, version: 1,
       channel_eligibility: { web: true, app: true, line_mini_app: true }
-    },
-    {
-      product_id: 'prd-1006', sku: 'sku-1006',
-      title: 'ギフトカード 1000円',
-      title_i18n: { ja: 'ギフトカード 1000円', en: 'Gift card 1000 JPY' },
-      description_i18n: { ja: '有効期限 1 年。', en: 'Valid for one year.' },
-      amount_minor: 1000, currency: 'JPY', availability: 'in_stock',
-      category_id: 'cat-gift', stock_policy: 'unbounded', version: 1,
-      channel_eligibility: { web: true, app: true, line_mini_app: true }
-    },
-    {
-      product_id: 'prd-1007', sku: 'sku-1007',
-      title: '城堡ブレンド 紅茶 100g',
-      title_i18n: { ja: '城堡ブレンド 紅茶 100g', en: 'Castle blend black tea 100g' },
-      description_i18n: {
-        ja: '香りの強い城堡ブレンド。',
-        en: 'A strong, malty castle blend.'
-      },
-      amount_minor: 1200, currency: 'JPY', availability: 'in_stock',
-      category_id: 'cat-tea', stock_policy: 'reserved', version: 4,
-      channel_eligibility: { web: true, app: true, line_mini_app: true }
-    },
-    {
-      product_id: 'prd-1008', sku: 'sku-1008',
-      title: 'LINE 限定トート',
-      title_i18n: { ja: 'LINE 限定トート', en: 'LINE exclusive tote' },
-      description_i18n: {
-        ja: 'LINE でのみ販売しています。',
-        en: 'Sold only inside LINE.'
-      },
-      amount_minor: 1500, currency: 'JPY', availability: 'in_stock',
-      category_id: 'cat-goods', stock_policy: 'reserved', version: 2,
-      channel_eligibility: { web: false, app: false, line_mini_app: true }
     }
   ];
+
+  /**
+   * catalog::CatalogStore::availability 的等价实现。
+   */
+  function availabilityOf(product) {
+    if (product.stock_policy === 'made_to_order') return 'made_to_order';
+    if (product.stock_policy === 'unbounded') return 'in_stock';
+    if (typeof product.stock !== 'number' || product.stock < 0) return 'in_stock';
+    if (product.stock <= 0) return 'out_of_stock';
+    if (product.stock <= LOW_STOCK_THRESHOLD) return 'low_stock';
+    return 'in_stock';
+  }
+
+  /* _CategoryNav.labelOf —— 空分类时的标题 */
+  function categoryLabel(categoryId) {
+    for (var i = 0; i < CATEGORIES.length; i++) {
+      if (CATEGORIES[i].id === categoryId) return CATEGORIES[i].en;
+    }
+    return categoryId;
+  }
 
   var CART = {
     cart_id: 'cart-8f21a0',
@@ -230,20 +258,26 @@ window.SF = (function () {
     version: 6,
     expires_at_ms: Date.now() + 1000 * 60 * 60 * 24 * 3,
     items: [
-      { sku: 'sku-1001', quantity: 2, unit_amount_snapshot: 1800, currency: 'JPY' },
-      { sku: 'sku-1003', quantity: 1, unit_amount_snapshot: 980, currency: 'JPY' }
+      { sku: 'sku-bra-01', quantity: 2, unit_amount_snapshot: 8900, currency: 'JPY' },
+      { sku: 'sku-sale-01', quantity: 1, unit_amount_snapshot: 3900, currency: 'JPY' }
     ]
   };
 
+  /* 订单的形状按服务端真实响应抄：total 是 camelCase（OrderTotal 用了
+     #[serde(rename = "amountMinor")]），而 lines 是 serde 结构体直出，
+     字段仍是 snake_case 的 unit_amount_minor。
+     ⚠️ Dart 的 OrderLine.fromJson 读的是 `unitAmount`（Money 映射），
+     服务端从未产出该形状 → 行金额会是 ¥0（订单总额是对的）。
+     该模型目前**没有任何使用者**（全仓 grep 0 命中），所以暂无可见影响。 */
   var ORDER = {
     order_id: 'ord-20261022-0142',
     buyer_id: 'buyer-7712',
     state: 'confirmed',
     lines: [
-      { sku: 'sku-1001', quantity: 2, unit_amount_minor: 1800, currency: 'JPY' },
-      { sku: 'sku-1003', quantity: 1, unit_amount_minor: 980, currency: 'JPY' }
+      { sku: 'sku-bra-01', quantity: 2, unit_amount_minor: 8900, currency: 'JPY' },
+      { sku: 'sku-sale-01', quantity: 1, unit_amount_minor: 3900, currency: 'JPY' }
     ],
-    total: { amount_minor: 4580, currency: 'JPY' },
+    total: { amountMinor: 21700, currency: 'JPY' },
     reservation_id: 'rsv-5521',
     provider_ref: 'psp_7c19a2',
     transitions_used: 5,
@@ -432,6 +466,10 @@ window.SF = (function () {
     isPending: isPending,
     checkoutMessage: checkoutMessage,
     PRODUCTS: PRODUCTS,
+    CATEGORIES: CATEGORIES,
+    LOW_STOCK_THRESHOLD: LOW_STOCK_THRESHOLD,
+    availabilityOf: availabilityOf,
+    categoryLabel: categoryLabel,
     CART: CART,
     ORDER: ORDER,
     PROBLEMS: PROBLEMS,

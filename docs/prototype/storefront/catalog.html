@@ -42,6 +42,8 @@
         <div class="screen">
           <div id="banner-slot"></div>
 
+          <div class="catnav" id="category-nav"></div>
+
           <div class="btn-row" style="justify-content:space-between">
             <span class="section-label" id="count-label">商品</span>
             <div id="channel-slot"></div>
@@ -70,7 +72,7 @@
 
       <h4>忠实に再現した挙動</h4>
       <ul class="muted" style="padding-left:18px;line-height:1.8">
-        <li><b>チャネルで商品が変わる</b> — チャネル非対応商品はサーバが返さない（<span class="mono">channel_eligibility</span>）。左の <b>Web / App / LINE</b> を切り替えて確認。</li>
+        <li><b>チャネルで商品が変わる</b> — チャネル非対応商品はサーバが返さない（<span class="mono">channelEligibility</span>）。左の <b>Web / App / LINE</b> を切り替えて確認。</li>
         <li><b>カーソルページング</b> — 実クライアントは <span class="mono">limit=20</span> 固定（本プロトタイプでは説明用に 6 件/页）、<span class="mono">next_cursor</span> があれば「もっと見る」。</li>
         <li><b>ページ取得失敗で既存リストを消さない</b> — <span class="mono">CatalogController.load()</span> は失敗時も <span class="mono">_items</span> を保持。</li>
         <li><b>在庫切れは購入不可</b> — <span class="mono">ProductCard</span> は out-of-stock だと「追加」ボタンを出さず「不可 / N/A」を出す。</li>
@@ -110,6 +112,7 @@ SF.ready(function () {
   var guest = false;
   var failed = false;
   var empty = false;
+  var selectedCategory = null;   // null = すべて（未筛选）
   var visible = 6;      // first page
   var pageSize = 6;
 
@@ -145,7 +148,13 @@ SF.ready(function () {
         'warning', 'OK', 'dismiss-banner')
       : '';
 
-    var all = SF.PRODUCTS.filter(eligible);
+    // 分类条：_CategoryNav —— 横向滚动，选中项打标
+    renderCategoryNav();
+
+    // 分类过滤是**替换**而不是追加（CatalogController.selectCategory）
+    var all = SF.PRODUCTS.filter(eligible).filter(function (p) {
+      return !selectedCategory || p.category_id === selectedCategory;
+    });
 
     if (failed) {
       listEl.innerHTML =
@@ -159,7 +168,11 @@ SF.ready(function () {
     }
 
     if (empty || all.length === 0) {
-      listEl.innerHTML = '<div class="empty">商品がありません / No products available</div>';
+      listEl.innerHTML = '<div class="empty">' +
+        (selectedCategory
+          ? SF.categoryLabel(selectedCategory) + ' の商品はありません / No products in this category'
+          : '商品がありません / No products available') +
+        '</div>';
       SF.el('load-more').hidden = true;
       SF.el('count-label').textContent = '商品';
       return;
@@ -170,13 +183,14 @@ SF.ready(function () {
     SF.el('load-more').hidden = visible >= all.length;
 
     listEl.innerHTML = shown.map(function (p) {
-      var purchasable = SF.isPurchasable(p.availability);
+      var availability = SF.availabilityOf(p);
+      var purchasable = SF.isPurchasable(availability);
       return '<div class="pcard" data-open="' + p.product_id + '">' +
         '<div class="pcard__main">' +
         '<p class="pcard__title">' + SF.esc(localize(p)) + '</p>' +
         '<div class="price">' + SF.money(p.amount_minor, p.currency) +
         '<span class="price__cur">' + p.currency + '</span></div>' +
-        '<div style="margin-top:8px">' + SF.availabilityBadge(p.availability, true) + '</div>' +
+        '<div style="margin-top:8px">' + SF.availabilityBadge(availability, true) + '</div>' +
         '<div class="pcard__sku" style="margin-top:6px">' + p.sku + '</div>' +
         '</div>' +
         '<button type="button" class="btn btn--sm" data-add="' + p.product_id + '"' +
@@ -184,6 +198,21 @@ SF.ready(function () {
         (purchasable ? '追加 / Add' : '不可 / N/A') + '</button>' +
         '</div>';
     }).join('');
+  }
+
+  function renderCategoryNav() {
+    var nav = SF.el('category-nav');
+    if (!nav) return;
+    nav.innerHTML = SF.CATEGORIES.map(function (c) {
+      var selected = c.id === selectedCategory;
+      return '<button type="button" class="catnav__item' + (selected ? ' is-on' : '') + '"' +
+        ' data-cat="' + c.id + '" aria-selected="' + selected + '">' +
+        '<span class="catnav__ja">' + SF.esc(c.ja) + '</span>' +
+        '<span class="catnav__en">' + SF.esc(c.en) + '</span>' +
+        '</button>';
+    }).join('') +
+      '<button type="button" class="catnav__item' + (selectedCategory ? '' : ' is-on') + '" data-cat="">' +
+      '<span class="catnav__ja">すべて</span><span class="catnav__en">ALL</span></button>';
   }
 
   // channel switch
@@ -216,11 +245,22 @@ SF.ready(function () {
         '<div class="price price--lg" style="margin:8px 0 12px">' +
         SF.money(prod.amount_minor, prod.currency) +
         '<span class="price__cur">' + prod.currency + '</span></div>' +
-        SF.availabilityBadge(prod.availability, false) +
+        SF.availabilityBadge(SF.availabilityOf(prod), false) +
         '<p class="muted" style="margin-top:12px">SKU: ' + prod.sku + '</p>' +
         '<p class="muted">価格はサーバー側で決定されます / The charged price is set server-side.</p>';
       SF.el('sheet-backdrop').classList.add('open');
     }
+  });
+
+  // 分类条：点选即**替换**列表（CatalogController.selectCategory），不是追加
+  SF.el('category-nav').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-cat]');
+    if (!btn) return;
+    var cat = btn.getAttribute('data-cat');
+    selectedCategory = cat || null;
+    visible = pageSize;          // 换分类 = 换查询，cursor 归零
+    failed = false;
+    render();
   });
 
   SF.el('sheet-backdrop').addEventListener('click', function (e) {

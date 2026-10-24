@@ -142,7 +142,7 @@ SF.ready(function () {
         '</div>';
     }).join('');
 
-    SF.el('order-total').textContent = SF.money(order.total.amount_minor, order.total.currency);
+    SF.el('order-total').textContent = SF.money(order.total.amountMinor, order.total.currency);
 
     SF.el('order-chips').innerHTML = [
       '<span class="chip chip--ok">' + order.state + '</span>',
