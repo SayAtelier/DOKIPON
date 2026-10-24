@@ -254,10 +254,17 @@ export class LocalStack {
    * Remove the containers a killed run left behind.
    *
    * A run that is killed outright — not stopped, not failed — cannot tear
-   * itself down, and its container would keep the ports bound. The next run
-   * finds it by the label, sees that the process that owned it is gone, and
-   * removes it. A container whose owner is still alive is left alone: that
-   * is a run in progress.
+   * itself down, and its container would keep the ports bound, so the next
+   * run would fail to start. Two cases:
+   *
+   * - a container this runner started carries the label with the pid of
+   *   the run that owns it. If that pid is gone, the run was killed, and
+   *   the container is removed. A container whose owner is still alive is
+   *   left alone: that is a run in progress.
+   * - a container named like this one but carrying **no** such label was
+   *   started by a runner that did not label it, so there is no owner to
+   *   ask about. It cannot be a run of this version, and it holds the
+   *   ports, so it goes.
    */
   async sweepStaleContainers() {
     const listed = await run(
@@ -285,6 +292,28 @@ export class LocalStack {
       }
       if (alive) continue;
       this.log(`==> removing the container ${id} left behind by the run that owned pid ${pid}`);
+      await run('docker', ['rm', '-f', id], { echo: false });
+    }
+
+    const unlabelled = await run(
+      'docker',
+      [
+        'ps',
+        '-a',
+        '--filter',
+        'name=dokipon-local-',
+        '--format',
+        '{{.ID}} {{.Label "dokipon.local.pid"}} {{.Names}}',
+      ],
+      { echo: false },
+    );
+    if (unlabelled.code !== 0) return;
+    for (const line of unlabelled.stdout.split(/\r?\n/)) {
+      const [id, pid, name] = line.trim().split(/\s+/);
+      if (!id || !name) continue;
+      if (pid) continue;
+      if (name === CONTAINER_NAME) continue;
+      this.log(`==> removing the container ${name} left behind by an earlier runner`);
       await run('docker', ['rm', '-f', id], { echo: false });
     }
   }
