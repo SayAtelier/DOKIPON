@@ -12,7 +12,14 @@ use std::sync::RwLock;
 #[tokio::main]
 async fn main() {
     let port: u16 = std::env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-    let secret = std::env::var("PSP_WEBHOOK_SECRET").unwrap_or_else(|_| "dev-only-secret".into());
+    // The webhook secret is a credential, not configuration: a deployment
+    // that keeps the development value accepts a webhook signed by anyone.
+    // The service refuses to start without a real one.
+    let secret = commerce_core::secrets::require(
+        "PSP_WEBHOOK_SECRET",
+        commerce_core::secrets::DEV_PSP_WEBHOOK_SECRET,
+    )
+    .expect("PSP_WEBHOOK_SECRET must be set to a real webhook secret");
     let store: SharedPayment = Arc::new(RwLock::new(PaymentAdapter::new(secret)));
     let listener = tokio::net::TcpListener::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port)))
         .await

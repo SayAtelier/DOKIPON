@@ -14,10 +14,23 @@ use std::sync::RwLock;
 #[tokio::main]
 async fn main() {
     let port: u16 = std::env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    // The signing key and the channel id are credentials, not configuration:
+    // a deployment that keeps the development values accepts an id token
+    // signed by anyone. The service refuses to start without real ones.
+    let expected_audience = commerce_core::secrets::require(
+        "LINE_CHANNEL_ID",
+        commerce_core::secrets::DEV_LINE_CHANNEL_ID,
+    )
+    .expect("LINE_CHANNEL_ID must be set to a real channel id");
+    let signing_key = commerce_core::secrets::require(
+        "LINE_ID_TOKEN_KEY",
+        commerce_core::secrets::DEV_LINE_ID_TOKEN_KEY,
+    )
+    .expect("LINE_ID_TOKEN_KEY must be set to a real signing key");
     let verifier = Arc::new(TokenVerifier {
-        expected_audience: std::env::var("LINE_CHANNEL_ID").unwrap_or_else(|_| "dev-channel".into()),
+        expected_audience,
         expected_issuer: "https://access.line.me".to_string(),
-        signing_key: std::env::var("LINE_ID_TOKEN_KEY").unwrap_or_else(|_| "dev-only-key".into()),
+        signing_key,
     });
     let store: SharedIdentity = Arc::new(RwLock::new(IdentityStore::new(commerce_core::idempotency::now_ms())));
     let listener = tokio::net::TcpListener::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port)))

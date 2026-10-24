@@ -13,6 +13,7 @@ pub mod idempotency;
 pub mod price_authority;
 pub mod json_body;
 pub mod routes;
+pub mod secrets;
 
 pub use error::{AppError, ProblemDetails};
 pub use money::{Money, Currency};

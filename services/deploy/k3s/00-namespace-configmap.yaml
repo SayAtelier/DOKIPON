@@ -19,9 +19,6 @@ metadata:
 data:
   RUST_LOG: "info"
   RUST_BACKTRACE: "1"
-  LINE_CHANNEL_ID: "dev-channel"
-  LINE_ID_TOKEN_KEY: "dev-only-key"
-  PSP_WEBHOOK_SECRET: "dev-only-secret"
   # BFF and admin -> upstream wiring (k3s cluster DNS, not 127.0.0.1)
   IDENTITY_URL: "http://commerce-identity:8081"
   CATALOG_URL: "http://commerce-catalog:8082"
@@ -29,6 +26,38 @@ data:
   INVENTORY_URL: "http://commerce-inventory:8084"
   ORDER_URL: "http://commerce-order:8085"
   PAYMENT_ADAPTER_URL: "http://commerce-payment-adapter:8086"
+---
+# The credentials the services verify with.
+#
+# They are not in the ConfigMap above, and that is deliberate: a value in a
+# committed manifest is a published value. The signing key, the channel id
+# and the webhook secret are the three values that decide who the deployment
+# trusts, and a deployment that starts with the published ones trusts anyone
+# who has read this repository — anyone can sign a LINE id token, and anyone
+# can confirm a payment.
+#
+# The Secret is committed with empty values, and the services refuse to
+# start while a value is empty, so the deployment does not come up until
+# these are filled in. Fill them in with:
+#
+#   kubectl -n commerce create secret generic commerce-service-credentials \
+#     --from-literal=LINE_CHANNEL_ID=<the channel id> \
+#     --from-literal=LINE_ID_TOKEN_KEY=<a random secret> \
+#     --from-literal=PSP_WEBHOOK_SECRET=<a random secret> \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+# (or edit the Secret in place with `kubectl -n commerce edit secret
+# commerce-service-credentials`).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: commerce-service-credentials
+  namespace: commerce
+type: Opaque
+stringData:
+  LINE_CHANNEL_ID: ""
+  LINE_ID_TOKEN_KEY: ""
+  PSP_WEBHOOK_SECRET: ""
 ---
 apiVersion: v1
 kind: Secret

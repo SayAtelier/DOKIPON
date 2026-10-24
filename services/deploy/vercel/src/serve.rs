@@ -10,13 +10,28 @@ use axum::Router;
 use tower::ServiceBuilder;
 use vercel_runtime::axum::VercelLayer;
 
+/// A configuration failure, as the Function's error type.
+///
+/// `vercel_runtime::Error` is `Box<dyn std::error::Error + Send + Sync>`, so
+/// a configuration failure is a plain boxed error. The Function then exits
+/// non-zero instead of serving traffic it cannot authenticate.
+///
+/// Every Function includes this module, and only the ones that read a
+/// credential need this helper, so it is allowed to go unused in the rest.
+#[allow(dead_code)]
+pub fn config_error(message: String) -> vercel_runtime::Error {
+    Box::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        message,
+    ))
+}
+
 /// Serve `router` as a Vercel function.
 ///
 /// The router is the whole function: the Function's path is stripped by
 /// Vercel's routing before the request arrives, and the service's own routes
 /// are rooted at `/`.
-pub fn function(router: Router) -> Result<(), vercel_runtime::Error> {
-    // The admin facade reads its credentials and its upstream URLs from the
+pub fn function(router: Router) -> Result<(), vercel_runtime::Error> {    // The admin facade reads its credentials and its upstream URLs from the
     // environment, and so does every service that needs a secret. The logs
     // are the only way to see what a Function did, so they are always on.
     tracing_subscriber::fmt()

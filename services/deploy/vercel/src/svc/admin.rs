@@ -8,13 +8,12 @@
 mod serve;
 
 pub fn run() -> Result<(), vercel_runtime::Error> {
-    let router = commerce_edge::msa::service::admin().map_err(
-        |message| -> vercel_runtime::Error {
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                message,
-            ))
-        },
-    )?;
+    // The operator console's facade authenticates the operator with a
+    // password. A Function that kept the development password would let
+    // anyone into the console, so the Function refuses to start without a
+    // real one.
+    commerce_edge::secrets::require_for(commerce_edge::secrets::Service::Admin)
+        .map_err(serve::config_error)?;
+    let router = commerce_edge::msa::service::admin().map_err(serve::config_error)?;
     serve::function(router)
 }

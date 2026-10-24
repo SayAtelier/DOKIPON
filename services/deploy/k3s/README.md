@@ -28,6 +28,37 @@ Envoy 终止 TLS 并按路径前缀转发到各 Pod —— 它就是集群版的
 | `10-services.yaml` | 每个服务一个 Deployment + Service |
 | `build-images.sh` | 构建并推送容器镜像 |
 
+## 凭据要先填好
+
+`00-namespace-configmap.yaml` 里有两个 Secret，**部署前必须填**：
+
+| Secret | 键 | 不填会怎样 |
+|---|---|---|
+| `commerce-service-credentials` | `LINE_CHANNEL_ID`、`LINE_ID_TOKEN_KEY`、`PSP_WEBHOOK_SECRET` | identity 与 payment 容器拒绝启动 |
+| `commerce-admin-credentials` | `ADMIN_PASSWORD`（`ADMIN_USER` 已有） | 运营后台对整个互联网开放 |
+
+清单里这些值是**空的**，不是开发默认值——因为提交进仓库的值就是公开的值。
+服务在启动前会检查：空、或者还是开发默认值（`dev-only-key` 之类），
+**容器直接拒绝启动**。
+
+填法：
+
+```bash
+kubectl -n commerce create secret generic commerce-service-credentials \
+  --from-literal=LINE_CHANNEL_ID=<channel id> \
+  --from-literal=LINE_ID_TOKEN_KEY=<随机密钥> \
+  --from-literal=PSP_WEBHOOK_SECRET=<随机密钥> \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl -n commerce create secret generic commerce-admin-credentials \
+  --from-literal=ADMIN_USER=operator \
+  --from-literal=ADMIN_PASSWORD=<随机密码> \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+要接受开发默认值跑一次本地集群，另外设 `DOKIPON_ALLOW_DEV_SECRETS=1`；
+部署**永远不要**设它。
+
 ## 与函数版的差别
 
 只有拓扑不同：**服务代码、契约、字段名、状态语义全部一样**。

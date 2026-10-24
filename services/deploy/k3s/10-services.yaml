@@ -99,6 +99,16 @@ spec:
         env:
         - name: PORT
           value: '8081'
+        - name: LINE_CHANNEL_ID
+          valueFrom:
+            secretKeyRef:
+              name: commerce-service-credentials
+              key: LINE_CHANNEL_ID
+        - name: LINE_ID_TOKEN_KEY
+          valueFrom:
+            secretKeyRef:
+              name: commerce-service-credentials
+              key: LINE_ID_TOKEN_KEY
         ports:
         - name: http
           containerPort: 8081
@@ -467,6 +477,11 @@ spec:
         env:
         - name: PORT
           value: '8086'
+        - name: PSP_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: commerce-service-credentials
+              key: PSP_WEBHOOK_SECRET
         ports:
         - name: http
           containerPort: 8086
@@ -554,21 +569,29 @@ spec:
             secretKeyRef:
               name: commerce-admin-credentials
               key: OPERATOR_USER
+              # The operator and the viewer are optional roles. The Secret
+              # this manifest ships does not define them, and a missing key
+              # that is not marked optional stops the container from starting
+              # at all — so the admin console would never come up.
+              optional: true
         - name: OPERATOR_PASSWORD
           valueFrom:
             secretKeyRef:
               name: commerce-admin-credentials
               key: OPERATOR_PASSWORD
+              optional: true
         - name: VIEWER_USER
           valueFrom:
             secretKeyRef:
               name: commerce-admin-credentials
               key: VIEWER_USER
+              optional: true
         - name: VIEWER_PASSWORD
           valueFrom:
             secretKeyRef:
               name: commerce-admin-credentials
               key: VIEWER_PASSWORD
+              optional: true
         ports:
         - name: http
           containerPort: 8087

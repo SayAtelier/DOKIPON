@@ -71,13 +71,15 @@ pub fn identity() -> Arc<RwLock<commerce_identity::IdentityStore>> {
 ///
 /// The webhook secret is the PSP's, read from the environment. The default is
 /// a development value: it is not a credential, and a deployment that cares
-/// sets the variable.
+/// sets the variable. The deployment's entry point refuses to start while
+/// the default is still in place — see `commerce_core::secrets` — so the
+/// default only ever reaches a local run.
+///
+/// The adapter reads the clock on every request, so the webhook's freshness
+/// window is measured against the current time.
 pub fn payment() -> Arc<RwLock<commerce_payment_adapter::PaymentAdapter>> {
-    Arc::new(RwLock::new(
-        commerce_payment_adapter::PaymentAdapter::new(
-            std::env::var("PSP_WEBHOOK_SECRET").unwrap_or_else(|_| "dev-only-secret".into()),
-        ),
-    ))
+    let secret = std::env::var("PSP_WEBHOOK_SECRET").unwrap_or_else(|_| "dev-only-secret".into());
+    Arc::new(RwLock::new(commerce_payment_adapter::PaymentAdapter::new(secret)))
 }
 
 /// The content store: the editable content document.
@@ -88,6 +90,12 @@ pub fn content() -> Arc<RwLock<commerce_content::ContentStore>> {
 }
 
 /// The verifier the identity service checks LINE id tokens against.
+///
+/// The signing key and the channel id are read from the environment. The
+/// defaults are development values: an id token signed with the development
+/// key would be accepted by anyone who reads this repository. The
+/// deployment's entry point refuses to start while a default is still in
+/// place — see `commerce_core::secrets`.
 pub fn identity_verifier() -> Arc<commerce_identity::TokenVerifier> {
     Arc::new(commerce_identity::TokenVerifier {
         expected_audience: std::env::var("LINE_CHANNEL_ID")

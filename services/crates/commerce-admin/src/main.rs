@@ -11,6 +11,11 @@ use std::env;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
+    // The operator's password is a credential, not configuration: a
+    // deployment that keeps the development value lets anyone into the
+    // console. The service refuses to start without a real one.
+    commerce_core::secrets::require_for(commerce_core::secrets::Service::Admin)
+        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
     let state = AdminState::from_env()
         .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
     let port = env::var("PORT")

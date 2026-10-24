@@ -31,6 +31,12 @@ async fn main() -> Result<(), Error> {
         )
         .init();
 
+    // This Function serves every service in one process, so it needs every
+    // service's credentials. A Function that kept a development credential
+    // would authenticate nobody it should not, so it refuses to start.
+    commerce_edge::secrets::require_for(commerce_edge::secrets::Service::All)
+        .map_err(|message| Box::<dyn std::error::Error + Send + Sync>::from(message))?;
+
     // The admin facade reads its credentials and its upstream URLs from the
     // environment. On Vercel those are the project's environment variables.
     // `vercel_runtime::Error` is `Box<dyn std::error::Error + Send + Sync>`,

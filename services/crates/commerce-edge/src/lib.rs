@@ -139,6 +139,13 @@ impl PriceSource for InProcessPrices {
 /// shows.
 pub use commerce_core::routes::{owner_of as route_for, ServiceId};
 
+/// The credentials a deployment has to set before it starts a service.
+///
+/// Re-exported here so that the deployment's entry points — which depend on
+/// this crate, not on `commerce-core` directly — can check the credentials
+/// without naming another dependency.
+pub use commerce_core::secrets;
+
 /// The eight service routers, ready to be dispatched to.
 #[derive(Clone)]
 pub struct EdgeServices {

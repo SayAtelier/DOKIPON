@@ -72,6 +72,28 @@ services/deploy/vercel/
 - `ADMIN_USER` / `ADMIN_PASSWORD` 决定运营后台的凭据；`ADMIN_SESSION_ID` 是 admin
   代客户读订单时呈现的会话 id（订单按 buyer 隔离，没有它每个读都会 401）。
 
+### 凭据是必填的
+
+`ADMIN_PASSWORD`、`LINE_ID_TOKEN_KEY`、`LINE_CHANNEL_ID`、`PSP_WEBHOOK_SECRET`
+这四项**没有可用的默认值**，部署必须自己给：
+
+| 变量 | 决定什么 | 不给会怎样 |
+|---|---|---|
+| `ADMIN_PASSWORD` | 谁能登录运营后台 | 后台对整个互联网开放 |
+| `LINE_ID_TOKEN_KEY` | 谁签发的 LINE id 令牌算数 | 任何人都能伪造任意 LINE 用户登录 |
+| `LINE_CHANNEL_ID` | id 令牌的受众 | 同上，且令牌不绑定渠道 |
+| `PSP_WEBHOOK_SECRET` | 哪个 PSP 的回调算数 | 任何人都能伪造支付成功回调 |
+
+原因很直接：这几个开发默认值（`dev-only-admin` / `dev-only-key` /
+`dev-only-secret`）就写在仓库里。一个没设这些变量的部署**不会报错**——它会照常
+提供服务，只是任何读过这份源码的人都能进来。
+
+所以服务在启动前会检查这些值：没设、空、或者还是开发默认值，**服务直接拒绝启动**，
+而不是带着开发默认值对外服务。
+
+本地跑（要接受开发默认值）另外设 `DOKIPON_ALLOW_DEV_SECRETS=1`；
+部署**永远不要**设它。
+
 ## 状态
 
 服务把状态放在**内存**里。函数实例之间不共享——一次加购如果落到另一个实例，那个实例

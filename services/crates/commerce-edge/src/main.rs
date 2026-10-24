@@ -16,6 +16,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
+    // This process serves every service, so it needs every service's
+    // credentials. A deployment that keeps a development credential would
+    // authenticate nobody it should not, so it refuses to start.
+    commerce_edge::secrets::require_for(commerce_edge::secrets::Service::All)
+        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
+
     let admin = commerce_admin::AdminState::from_env()
         .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
 
