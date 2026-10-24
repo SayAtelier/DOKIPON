@@ -144,8 +144,10 @@
   "mockAgreement": {
     "$comment": "The mock issues LINE-shaped id_tokens and the identity service verifies them. If the two disagree about the token's shape, every test that uses the mock is testing a fiction. This test mints with the mock and verifies with the product's own verifier, using the credentials above on both sides.",
     "test": "tools/commerce-e2e/agreement/tests/line_token_agreement.rs",
+    "overHttp": "tools/commerce-e2e/mock_data/local/check-fixture-set.ps1",
     "run": "cargo test --manifest-path tools/commerce-e2e/agreement/Cargo.toml",
     "accepts": "a well-formed token",
+    "clock": "The mock's issuer mints against the wall clock, so its token is valid for an hour from the moment it is minted — the same comparison the product makes. A token the product refuses as expired was minted more than an hour ago, or by something other than this mock.",
     "refuses": {
       "tampered (signed with another key)": "identity.bad_signature",
       "expired": "identity.expired_token",

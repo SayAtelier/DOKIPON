@@ -14,6 +14,7 @@ This directory is that one place.
 |---|---|---|
 | `local.env` | the flat `KEY=VALUE` form: the six credentials, the guard switch | a launcher (`docker run --env-file`, `set -a; . local.env; set +a`) |
 | `local.json` | the manifest: the same credentials with their variable names and the service that reads them, the port map, and the seeded dataset the services already hold | a machine (the launcher, and the mock↔product agreement test) |
+| `check-fixture-set.ps1` | the self-check: starts the mock and the identity service **from this set** and proves the product accepts the mock's token and refuses the four broken flavours | whoever wants to know whether the set still wires up |
 
 ## Every value here is a local development value
 
@@ -47,6 +48,14 @@ every test that uses it wrong. The agreement test
 (`tools/commerce-e2e/agreement/tests/line_token_agreement.rs`) reads the
 values out of `local.json` and uses them on both sides, so the fixture set
 cannot drift away from the mock.
+
+`check-fixture-set.ps1` is the same thing over HTTP: it starts
+`mock-line-identity` and `commerce-identity` from this set, mints a token at
+the mock, and posts it to the product's `/v1/sessions/line`.
+
+```bash
+pwsh -File tools/commerce-e2e/mock_data/local/check-fixture-set.ps1
+```
 
 ## The seeded dataset is not here, on purpose
 
