@@ -105,11 +105,17 @@ class AdminOrderTrailEntry {
       AdminOrderTrailEntry(
         sequence: _int(json['sequence']),
         event: _optionalString(json, const ['event']) ?? '',
+        // The contract spells the two states `from` and `to`
+        // (`contracts/openapi.yaml` -> `TrailEntry`:
+        // `{sequence, event, from, to}`), and the service sends exactly that.
+        // This client used to look for `fromState` / `from_state`, which the
+        // service has never sent — so every step of the timeline came out
+        // "unknown → unknown" instead of the transition that happened.
         from: CheckoutStatus.parse(
-          _optionalString(json, const ['fromState', 'from_state']),
+          _optionalString(json, const ['from', 'fromState', 'from_state']),
         ),
         to: CheckoutStatus.parse(
-          _optionalString(json, const ['toState', 'to_state']),
+          _optionalString(json, const ['to', 'toState', 'to_state']),
         ),
         occurredAt: _dateTime(json, const ['occurredAt', 'occurred_at']),
       );
