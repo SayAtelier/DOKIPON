@@ -24,6 +24,30 @@ DOKIPON 的 commerce 产品线有**两套**部署目标。它们跑的是同一�
 那个实例看不到。这不是某一版的缺陷，而是 commerce 服务当前的状态模型；两版都受它约束。
 要变成生产可用的持久化，需要把可变 store（cart / order / inventory）搬进共享数据库。
 
+## 凭据：两版都必须自己给，没有默认值
+
+下面四项是**凭据**，不是配置：
+
+| 变量 | 决定什么 | 不给的后果 |
+|---|---|---|
+| `ADMIN_PASSWORD` | 谁能登录运营后台 | 后台对整个互联网开放（订单、库存、reconcile 写操作） |
+| `LINE_ID_TOKEN_KEY` | 谁签发的 LINE id 令牌算数 | 任何人都能伪造任意 LINE 用户登录，读那个人的购物车、下那个人的单 |
+| `LINE_CHANNEL_ID` | id 令牌的受众 | 同上，且令牌不绑定渠道 |
+| `PSP_WEBHOOK_SECRET` | 哪个 PSP 的回调算数 | 任何人都能伪造支付成功回调 |
+
+开发默认值（`dev-only-admin` / `dev-only-key` / `dev-only-secret`）就写在仓库里。
+**服务在启动前会检查这些值**：没设、为空、或者还是开发默认值，服务**直接拒绝启动**。
+
+所以两版的部署都是：**先填凭据，再起服务**。填法见
+`k3s/README.md`（两个 Secret）与 `vercel/env.example`（项目环境变量）。
+
+本地跑、想接受开发默认值，另外设 `DOKIPON_ALLOW_DEV_SECRETS=1`；
+部署**永远不要**设它。
+
+> 这个检查是有来历的：线上部署曾带着全部三个开发默认值对外服务，而它**没有报错**——
+> 服务照常起、照常答，只是任何读过这份源码的人都能进后台、伪造用户登录、伪造支付回调。
+> 静默的失败是最坏的一种，所以现在的失败方式是「起不来」。
+
 ## 一处无法回避的例外
 
 Vercel 要求**函数入口在部署根的 `api/` 下**，而部署根必须是**仓库根**——因为函数要编译
@@ -81,3 +105,18 @@ curl -s https://<host>/v1/products   | head -c 200  # 200，items[] 带 productI
 ```
 
 完整的前端实测（逐控件点击、契约断言）见 `tools/commerce-e2e/`。
+
+契约断言里除了 23 条路径的字段，还包含**凭据回归**：用开发口令登录、用公开密钥
+伪造 LINE id 令牌、用公开密钥签 PSP 回调——这三种都必须被拒绝；以及
+`authorized_at_ms` 必须是真实时间戳（不是 0）。只跑合约段、不等 Flutter 启动：
+
+```bash
+cd tools/commerce-e2e && DOKIPON_AUDIT_API_ONLY=1 node scripts/audit.mjs
+```
+
+k3s 清单本身的凭据自检（引用的 secret key 存不存在、服务拿到没拿到必需凭据、
+清单里有没有写着开发默认值）：
+
+```bash
+python tools/commerce-e2e/scripts/check-manifest-secrets.py
+```
