@@ -1,76 +1,138 @@
-// probe-admin-tabs.mjs — do the two admin tabs switch, and back?
-//
-// The audit reported "Orders Tab 1 of 2" as inert: the click changed nothing.
-// Two readings, and they need different fixes:
-//
-//   (a) the Orders tab is *already* the selected one, so clicking it is a
-//       no-op by design — the audit's instrument gap, because the DOM does
-//       not say which tab is selected;
-//   (b) the tab really does not switch back — a dead control.
-//
-// So: click Catalog, then click Orders, and see whether the screen comes
-// back. That is the whole question, and it needs one page, not twenty-five.
-import { chromium } from 'playwright';
+#!/usr/bin/env node
+/**
+ * probe-admin-tabs.mjs — do the two admin tabs switch, and switch back?
+ *
+ * ## The question
+ *
+ * The audit reported "Orders Tab 1 of 2" as inert: the click changed
+ * nothing. Two readings, and they need different fixes:
+ *
+ *   (a) the Orders tab is *already* the selected one, so clicking it is a
+ *       no-op by design — an artefact of the instrument, because the DOM
+ *       does not say which tab is selected;
+ *   (b) the tab really does not switch back — a dead control.
+ *
+ * The audit answers this only approximately: it re-clicks a control that
+ * did nothing after some *other* control changed the page, and it picks
+ * the primer itself. This probe asks the round trip directly: click
+ * Catalog, then click Orders, and see whether the screen comes back.
+ *
+ * So the question is: **do the admin tabs switch both ways?**
+ *
+ * ## What it needs
+ *
+ * A deployment to look at (`DOKIPON_BASE`), a browser, and the admin
+ * credential (`ADMIN_USER` / `ADMIN_PASSWORD`) to get past the login. If
+ * the credential is refused, the tabs cannot be reached at all — that is
+ * reported as UNMEASURED, because the credential question belongs to
+ * `verify-deployment.mjs` and this probe has nothing to say about it.
+ */
 
-const BASE = (process.env.DOKIPON_BASE || 'https://dokipon-commerce.vercel.app').replace(/\/$/, '');
-const USER = process.env.ADMIN_USER || 'admin';
-const PASSWORD = process.env.ADMIN_PASSWORD || 'dev-only-admin';
+import {
+  baseUrl,
+  bootFlutter,
+  clickControl,
+  collectors,
+  enableSemantics,
+  findControl,
+  isMain,
+  openSurface,
+  signIn,
+  signature,
+  standalone,
+} from './probe-lib.mjs';
 
-const browser = await chromium.launch({
-  channel: 'chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
-});
-const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-const page = await context.newPage();
+export const id = 'probe-admin-tabs';
+export const title = 'probe-admin-tabs';
+export const surface = '/admin/';
+export const question = 'do the admin tabs switch, and switch back?';
 
-await page.goto(`${BASE}/admin/`, { waitUntil: 'domcontentloaded', timeout: 300_000 });
-const placeholder = page.locator('flt-semantics-placeholder').first();
-if (await placeholder.count()) {
-  await placeholder.evaluate((el) => el.click()).catch(() => {});
-}
-await page.locator('flt-semantics[role="button"]').first().waitFor({ timeout: 300_000 });
-await page.waitForTimeout(1500);
+const ORDERS = /orders|注文/i;
+const CATALOG = /catalog|カタログ/i;
 
-// Sign in.
-const inputs = page.locator('input, textarea');
-if ((await inputs.count()) >= 2) {
-  await inputs.nth(0).click();
-  await page.waitForTimeout(300);
-  await page.keyboard.type(USER, { delay: 40 });
-  await inputs.nth(1).click();
-  await page.waitForTimeout(300);
-  await page.keyboard.type(PASSWORD, { delay: 40 });
-  const signIn = page.locator('flt-semantics[role="button"]', { hasText: /sign in|ログイン/i }).first();
-  if ((await signIn.count()) > 0) {
-    await signIn.click({ force: true, timeout: 30_000 }).catch(() => {});
-    await page.waitForTimeout(4000);
+export async function run(page, report) {
+  const state = collectors(page);
+
+  const opened = await openSurface(page, '/admin/');
+  if (opened.error) {
+    report.unmeasured('the admin console is reachable', `${opened.error} (${opened.url})`);
+    return;
+  }
+  if (opened.status >= 400) {
+    report.fail('the admin console is served', `the edge answered ${opened.status}`);
+    return;
+  }
+  report.pass('the admin console is served', `status ${opened.status}`);
+
+  const boot = await bootFlutter(page);
+  if (!boot.mounted) {
+    const dropped = state.failedRequests.filter((r) => !/fonts\.(googleapis|gstatic)\.com/.test(r.url));
+    if (dropped.length) {
+      report.unmeasured('the admin app mounts', `${dropped[0].reason} — the link did not deliver ${dropped[0].url}`);
+    } else {
+      report.fail('the admin app mounts', boot.reason);
+    }
+    return;
+  }
+  report.pass('the admin app mounts', 'flutter-view is attached');
+
+  if (!(await enableSemantics(page))) {
+    report.fail('the semantics tree can be enabled', 'the app exposes no inspectable control');
+    return;
+  }
+  report.pass('the semantics tree can be enabled', 'the controls are inspectable');
+
+  const login = await signIn(page);
+  if (!login.ok) {
+    report.unmeasured(
+      'the tabs can be reached',
+      `the admin console refused the credential (${login.reason}) — the credential question belongs to verify-deployment.mjs`,
+    );
+    return;
+  }
+  report.pass('the admin console accepts the credential', 'the credential fields are gone');
+
+  const orders = await findControl(page, ORDERS, ['tab', 'button']);
+  const catalog = await findControl(page, CATALOG, ['tab', 'button']);
+  if (!orders) {
+    report.fail('the Orders tab is present', 'no control labelled Orders');
+    return;
+  }
+  if (!catalog) {
+    report.fail('the Catalog tab is present', 'no control labelled Catalog');
+    return;
+  }
+  report.pass('both tabs are present', `“${orders.label}” and “${catalog.label}”`);
+
+  const initial = await signature(page);
+  report.note('the screen starts on', (await page.locator('flt-semantics').first().getAttribute('aria-label')) || '(no label)');
+
+  // Each control is looked up again right before it is clicked: the click
+  // that changes the screen also changes the semantics tree, so an index
+  // found earlier can point at a different control afterwards.
+  const afterCatalogClick = await clickControl(page, CATALOG, ['tab', 'button'], { settleMs: 3000 });
+  const afterCatalog = await signature(page);
+  if (afterCatalogClick.error) {
+    report.fail('clicking Catalog switches the screen', afterCatalogClick.error);
+  } else if (afterCatalog !== initial) {
+    report.pass('clicking Catalog switches the screen', 'the screen changed');
+  } else {
+    report.fail('clicking Catalog switches the screen', 'the click changed nothing');
+  }
+
+  const afterOrdersClick = await clickControl(page, ORDERS, ['tab', 'button'], { settleMs: 3000 });
+  const afterOrders = await signature(page);
+  if (afterOrdersClick.error) {
+    report.fail('clicking Orders brings the screen back', afterOrdersClick.error);
+  } else if (afterOrders !== afterCatalog) {
+    const back = afterOrders === initial;
+    report.pass('clicking Orders brings the screen back', back ? 'the screen is back where it started' : 'the screen changed');
+  } else {
+    report.fail('clicking Orders brings the screen back', 'the click changed nothing — the tab does not switch back');
   }
 }
 
-const tab = (name) => page.locator('flt-semantics[role="tab"]', { hasText: name }).first();
-const title = async () => {
-  const t = await page.locator('flt-semantics').first().getAttribute('aria-label');
-  return (t || '').replace(/\n/g, ' ');
-};
-
-const ordersTab = tab('Orders');
-const catalogTab = tab('Catalog');
-console.log(`the Orders tab is there:  ${(await ordersTab.count()) > 0}`);
-console.log(`the Catalog tab is there: ${(await catalogTab.count()) > 0}`);
-console.log(`the screen starts on:     ${JSON.stringify(await title())}`);
-
-await catalogTab.click({ force: true, timeout: 60_000 });
-await page.waitForTimeout(3000);
-const afterCatalog = await title();
-console.log(`after clicking Catalog:   ${JSON.stringify(afterCatalog)}`);
-
-await ordersTab.click({ force: true, timeout: 60_000 });
-await page.waitForTimeout(3000);
-const afterOrders = await title();
-console.log(`after clicking Orders:    ${JSON.stringify(afterOrders)}`);
-
-const switchedOut = afterCatalog !== afterOrders;
-console.log(switchedOut ? 'PASS: the tabs switch both ways' : 'FAIL: clicking Orders changed nothing');
-
-await browser.close();
-process.exit(switchedOut ? 0 : 1);
+if (isMain(import.meta.url)) {
+  console.log(`probing ${baseUrl()}\n`);
+  process.exit(await standalone({ title, run }));
+}

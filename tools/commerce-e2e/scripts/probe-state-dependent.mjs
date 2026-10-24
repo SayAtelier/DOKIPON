@@ -1,90 +1,150 @@
-import { chromium } from 'playwright';
+#!/usr/bin/env node
+/**
+ * probe-state-dependent.mjs — is a control that does nothing state-dependent
+ * or dead?
+ *
+ * ## The question
+ *
+ * Some controls are *supposed* to do nothing in the state the app starts in.
+ * The "all products" control is one: the catalogue already shows everything,
+ * so clearing the filter changes nothing — that is correct behaviour, not a
+ * dead button. It was reported as a dead control once (SHOP COLLECTION),
+ * and it was a real defect then.
+ *
+ * The distinction only shows up in the **round trip**: select a category
+ * (the screen changes), then click "all products" (the screen must change
+ * back). A control that only ever does nothing is dead; a control that
+ * does nothing at first and works after a state change is correct.
+ *
+ * The audit re-clicks a control that did nothing after some *other*
+ * control changed the page, but it chooses the primer itself, so it cannot
+ * be relied on to pick the one that matters. This probe picks it.
+ *
+ * So the question is: **once a category is selected, does the all-products
+ * control bring the catalogue back?**
+ *
+ * ## What it needs
+ *
+ * A deployment to look at (`DOKIPON_BASE`) and a browser. No credential.
+ */
 
-const BASE = process.env.DOKIPON_BASE || 'https://dokipon-commerce.vercel.app';
-const browser = await chromium.launch({
-  channel: 'chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
-});
-const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-const page = await ctx.newPage();
-const errs = [];
-page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text().split('\n')[0]); });
+import {
+  baseUrl,
+  bootFlutter,
+  catalogueSize,
+  clickControl,
+  collectors,
+  enableSemantics,
+  findControl,
+  isMain,
+  openSurface,
+  signature,
+  standalone,
+} from './probe-lib.mjs';
 
-const sig = () => page.evaluate(() =>
-  [...document.querySelectorAll('flt-semantics')]
-    .map((n) => `${n.getAttribute('role') || '-'}|${(n.getAttribute('aria-label') || n.textContent || '').trim().slice(0, 60)}`)
-    .join('\n'),
-);
-const clickText = async (re) => {
-  const btns = page.locator('flt-semantics[role="button"]');
-  const n = await btns.count();
-  for (let i = 0; i < n; i++) {
-    const l = await btns.nth(i).evaluate((x) => (x.getAttribute('aria-label') || x.textContent || '').trim());
-    if (re.test(l)) { await btns.nth(i).click({ force: true, timeout: 8000 }); return l; }
+export const id = 'probe-state-dependent';
+export const title = 'probe-state-dependent';
+export const surface = '/ (storefront)';
+export const question = 'is a control that does nothing state-dependent, or dead?';
+
+/** A category control on the storefront. */
+const CATEGORY = /ランジェリー|lingerie/i;
+/** The control that clears the category — "all products". */
+const ALL_PRODUCTS = /shop collection|すべて|all products|すべて表示/i;
+
+const productLines = (signatureText) => signatureText.split('\n').filter((line) => /DOKIPON/.test(line)).length;
+
+export async function run(page, report) {
+  const state = collectors(page);
+
+  const opened = await openSurface(page, '/');
+  if (opened.error) {
+    report.unmeasured('the storefront is reachable', `${opened.error} (${opened.url})`);
+    return;
   }
-  return null;
-};
+  if (opened.status >= 400) {
+    report.fail('the storefront is served', `the edge answered ${opened.status}`);
+    return;
+  }
+  report.pass('the storefront is served', `status ${opened.status}`);
 
-// ---------- storefront ----------
-await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('flutter-view', { state: 'attached', timeout: 240000 });
-await page.waitForTimeout(3000);
-await page.locator('flt-semantics-placeholder').first().evaluate((el) => el.click()).catch(() => {});
-await page.waitForTimeout(1000);
+  const boot = await bootFlutter(page);
+  if (!boot.mounted) {
+    const dropped = state.failedRequests.filter((r) => !/fonts\.(googleapis|gstatic)\.com/.test(r.url));
+    if (dropped.length) {
+      report.unmeasured('the storefront app mounts', `${dropped[0].reason} — the link did not deliver ${dropped[0].url}`);
+    } else {
+      report.fail('the storefront app mounts', boot.reason);
+    }
+    return;
+  }
+  report.pass('the storefront app mounts', 'flutter-view is attached');
 
-const s0 = await sig();
-console.log('storefront initial semantics lines =', s0.split('\n').length);
-console.log('  has SHOP COLLECTION      :', /SHOP COLLECTION/.test(s0));
-console.log('  has a LINGERIE category  :', /ランジェリー/.test(s0));
+  if (!(await enableSemantics(page))) {
+    report.fail('the semantics tree can be enabled', 'the app exposes no inspectable control');
+    return;
+  }
+  report.pass('the semantics tree can be enabled', 'the controls are inspectable');
 
-const before = await sig();
-const hit = await clickText(/ランジェリー|LINGERIE/);
-await page.waitForTimeout(2500);
-const afterCat = await sig();
-console.log(`\nclicked category "${hit}"`);
-console.log('  semantics changed        :', before !== afterCat);
-const lines = (s) => s.split('\n').filter((l) => /DOKIPON/.test(l)).length;
-console.log('  product lines before/after:', lines(before), '/', lines(afterCat));
+  const products = await catalogueSize(page);
+  if (products === 0) {
+    report.unmeasured('a category control is present', 'the catalogue is empty — there is no category to filter');
+    return;
+  }
+  report.note('the catalogue holds', `${products ?? 'an unknown number of'} product(s)`);
 
-// now SHOP COLLECTION has something to clear
-const beforeAll = await sig();
-const hit2 = await clickText(/SHOP COLLECTION/);
-await page.waitForTimeout(2500);
-const afterAll = await sig();
-console.log(`\nclicked "${hit2}" (after a category was selected)`);
-console.log('  semantics changed        :', beforeAll !== afterAll);
-console.log('  product lines before/after:', lines(beforeAll), '/', lines(afterAll));
+  const category = await findControl(page, CATEGORY, ['button', 'tab', 'link']);
+  if (!category) {
+    report.fail('a category control is present', 'no control labelled with a category');
+    return;
+  }
+  report.pass('a category control is present', `“${category.label}”`);
 
-// ---------- admin ----------
-await page.goto(BASE + '/admin/', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('flutter-view', { state: 'attached', timeout: 240000 });
-await page.waitForTimeout(3000);
-await page.locator('flt-semantics-placeholder').first().evaluate((el) => el.click()).catch(() => {});
-await page.waitForTimeout(1000);
-const inputs = page.locator('input, textarea');
-if ((await inputs.count()) >= 2) {
-  await inputs.nth(0).click(); await page.waitForTimeout(300);
-  await page.keyboard.type('admin', { delay: 40 });
-  await inputs.nth(1).click(); await page.waitForTimeout(300);
-  await page.keyboard.type('dev-only-admin', { delay: 40 });
-  await clickText(/Sign in/i);
-  await page.waitForTimeout(3000);
+  const beforeCategory = await signature(page);
+  const clickedCategory = await clickControl(page, CATEGORY, ['button', 'tab', 'link'], { settleMs: 3000 });
+  const afterCategory = await signature(page);
+
+  if (clickedCategory.error) {
+    report.fail('clicking the category changes the catalogue', clickedCategory.error);
+    return;
+  }
+  if (afterCategory !== beforeCategory) {
+    report.pass(
+      'clicking the category changes the catalogue',
+      `${productLines(beforeCategory)} → ${productLines(afterCategory)} product lines`,
+    );
+  } else {
+    report.fail('clicking the category changes the catalogue', 'the click changed nothing');
+    return;
+  }
+
+  const all = await findControl(page, ALL_PRODUCTS, ['button', 'tab', 'link']);
+  if (!all) {
+    report.fail('the all-products control is present', 'no control labelled with the whole catalogue');
+    return;
+  }
+  report.pass('the all-products control is present', `“${all.label}”`);
+
+  const beforeAll = await signature(page);
+  const clickedAll = await clickControl(page, ALL_PRODUCTS, ['button', 'tab', 'link'], { settleMs: 3000 });
+  const afterAll = await signature(page);
+
+  if (clickedAll.error) {
+    report.fail('the all-products control works once a category is selected', clickedAll.error);
+  } else if (afterAll !== beforeAll) {
+    report.pass(
+      'the all-products control works once a category is selected',
+      `${productLines(beforeAll)} → ${productLines(afterAll)} product lines — it is state-dependent, not dead`,
+    );
+  } else {
+    report.fail(
+      'the all-products control works once a category is selected',
+      'the click changed nothing, in a state where it had to change something — the control is dead',
+    );
+  }
 }
-const a0 = await sig();
-console.log('\nadmin after login, semantics lines =', a0.split('\n').length);
-const aBefore = await sig();
-const tab = await clickText(/Catalog/i);
-await page.waitForTimeout(2500);
-const aAfter = await sig();
-console.log(`clicked admin tab "${tab}"`);
-console.log('  semantics changed        :', aBefore !== aAfter);
-const aBefore2 = await sig();
-const tab2 = await clickText(/Orders/i);
-await page.waitForTimeout(2500);
-const aAfter2 = await sig();
-console.log(`clicked admin tab "${tab2}"`);
-console.log('  semantics changed        :', aBefore2 !== aAfter2);
 
-console.log('\nerrors:', JSON.stringify(errs.slice(0, 8)));
-await browser.close();
+if (isMain(import.meta.url)) {
+  console.log(`probing ${baseUrl()}\n`);
+  process.exit(await standalone({ title, run }));
+}

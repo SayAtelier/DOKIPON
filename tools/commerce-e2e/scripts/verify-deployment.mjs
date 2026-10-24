@@ -6,11 +6,27 @@
 // credentials no longer work.
 //
 //   node tools/commerce-e2e/scripts/verify-deployment.mjs
+//   DOKIPON_BASE=https://... node tools/commerce-e2e/scripts/verify-deployment.mjs
 //
-// The admin password comes from the deployment's own environment; the script
-// reads it from the credentials file the deploy step wrote. The file is
-// under `reports/`, which is git-ignored, and it is deleted when the run
-// finishes.
+// ## The credential
+//
+// The admin password comes from the deployment's own environment. The script
+// reads it from `ADMIN_PASSWORD` (and `ADMIN_USER`) when they are set, and
+// otherwise from the credentials file the deploy step wrote
+// (`reports/.deploy-credentials.json`, which is git-ignored).
+//
+// ## The three answers
+//
+// Each check prints one line and lands in one of three columns:
+//
+//   PASS         the deployment was asked and it answered correctly;
+//   FAIL         the deployment was asked and it answered wrongly;
+//   UNMEASURED   the question could not be asked — no credential, a link
+//                that dropped. This is not a defect of the deployment.
+//
+// The exit code follows: 0 when everything that could be asked was asked and
+// answered correctly, 1 when something failed, 2 when nothing failed but
+// something could not be measured.
 
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -22,6 +38,7 @@ const BASE = (process.env.DOKIPON_BASE || 'https://dokipon-commerce.vercel.app')
 const CREDENTIALS = resolve(ROOT, 'reports', '.deploy-credentials.json');
 
 const findings = [];
+const notMeasured = [];
 const notes = [];
 
 function check(name, ok, detail = '') {
@@ -31,11 +48,38 @@ function check(name, ok, detail = '') {
   console.log(line);
 }
 
-if (!existsSync(CREDENTIALS)) {
-  console.error(`no credentials file at ${CREDENTIALS}; run the deploy step first`);
-  process.exit(2);
+/** A question that could not be asked. Not a finding: nobody found out. */
+function unmeasured(name, detail = '') {
+  const line = `UNMEASURED  ${name}${detail ? ` — ${detail}` : ''}`;
+  notes.push(line);
+  notMeasured.push(`${name}${detail ? `: ${detail}` : ''}`);
+  console.log(line);
 }
-const credentials = JSON.parse(readFileSync(CREDENTIALS, 'utf8'));
+
+/**
+ * The admin credential, from the environment first and from the deploy
+ * step's credentials file second.
+ */
+function credential() {
+  if (process.env.ADMIN_PASSWORD) {
+    return {
+      user: process.env.ADMIN_USER || 'admin',
+      password: process.env.ADMIN_PASSWORD,
+      source: 'the environment',
+    };
+  }
+  if (existsSync(CREDENTIALS)) {
+    const stored = JSON.parse(readFileSync(CREDENTIALS, 'utf8'));
+    if (stored.ADMIN_PASSWORD) {
+      return {
+        user: stored.ADMIN_USER || 'admin',
+        password: stored.ADMIN_PASSWORD,
+        source: CREDENTIALS,
+      };
+    }
+  }
+  return null;
+}
 
 const api = async (path, { method = 'GET', body, headers = {} } = {}) => {
   const init = { method, headers: { ...headers } };
@@ -43,7 +87,14 @@ const api = async (path, { method = 'GET', body, headers = {} } = {}) => {
     init.body = JSON.stringify(body);
     init.headers['content-type'] = 'application/json';
   }
-  const response = await fetch(`${BASE}${path}`, init);
+  let response;
+  try {
+    response = await fetch(`${BASE}${path}`, init);
+  } catch (e) {
+    // The link dropped. That is not an answer from the deployment, so the
+    // caller is told the question was not asked.
+    return { status: null, body: null, text: '', error: String(e && e.message ? e.message : e).split('\n')[0] };
+  }
   const text = await response.text();
   let parsed = null;
   try {
@@ -51,33 +102,56 @@ const api = async (path, { method = 'GET', body, headers = {} } = {}) => {
   } catch {
     parsed = null;
   }
-  return { status: response.status, body: parsed, text };
+  return { status: response.status, body: parsed, text, error: null };
 };
 
 console.log(`verifying ${BASE}\n`);
+
+const credentialValue = credential();
+if (credentialValue) {
+  console.log(`the admin credential comes from ${credentialValue.source}\n`);
+} else {
+  console.log(
+    'no admin credential: ADMIN_PASSWORD is not set and there is no credentials file.\n' +
+      'The checks that need one will be reported as unmeasured.\n',
+  );
+}
 
 // --- 1. The development credentials must not work any more. ----------------
 const devLogin = await api('/admin/v1/sessions', {
   method: 'POST',
   body: { username: 'admin', password: 'dev-only-admin' },
 });
-check(
-  'the development admin password is refused',
-  devLogin.status === 401,
-  `status ${devLogin.status}`,
-);
+if (devLogin.error) {
+  unmeasured('the development admin password is refused', devLogin.error);
+} else {
+  check(
+    'the development admin password is refused',
+    devLogin.status === 401,
+    `status ${devLogin.status}`,
+  );
+}
 
 // --- 2. The real credential works. -----------------------------------------
-const login = await api('/admin/v1/sessions', {
-  method: 'POST',
-  body: { username: 'admin', password: credentials.ADMIN_PASSWORD },
-});
-check(
-  'the deployed admin password works',
-  login.status === 200 && Boolean(login.body?.token),
-  `status ${login.status}`,
-);
-const token = login.body?.token ?? '';
+let token = '';
+if (!credentialValue) {
+  unmeasured('the deployed admin password works', 'no credential available');
+} else {
+  const login = await api('/admin/v1/sessions', {
+    method: 'POST',
+    body: { username: credentialValue.user, password: credentialValue.password },
+  });
+  if (login.error) {
+    unmeasured('the deployed admin password works', login.error);
+  } else {
+    check(
+      'the deployed admin password works',
+      login.status === 200 && Boolean(login.body?.token),
+      `status ${login.status}`,
+    );
+    token = login.body?.token ?? '';
+  }
+}
 
 // --- 3. A forged LINE id token is refused. --------------------------------
 const b64 = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -94,16 +168,24 @@ const forged = await api('/v1/sessions/line', {
   method: 'POST',
   body: { id_token: `${head}.${payload}.${signature}` },
 });
-check(
-  'a LINE id token signed with the development key is refused',
-  forged.status === 401,
-  `status ${forged.status}`,
-);
+if (forged.error) {
+  unmeasured('a LINE id token signed with the development key is refused', forged.error);
+} else {
+  check(
+    'a LINE id token signed with the development key is refused',
+    forged.status === 401,
+    `status ${forged.status}`,
+  );
+}
 
 // --- 4. A checkout with the contract's line is accepted, and it is priced.
 const guest = await api('/v1/sessions/guest', { method: 'POST', body: { channel: 'web' } });
-const sessionId = guest.body?.sessionId ?? '';
-check('a guest session is issued', guest.status === 200 && Boolean(sessionId));
+const sessionId = guest.error ? '' : guest.body?.sessionId ?? '';
+if (guest.error) {
+  unmeasured('a guest session is issued', guest.error);
+} else {
+  check('a guest session is issued', guest.status === 200 && Boolean(sessionId));
+}
 
 const checkout = await api('/v1/checkouts', {
   method: 'POST',
@@ -114,77 +196,135 @@ const checkout = await api('/v1/checkouts', {
     paymentMethodRef: 'pm-verify',
   },
 });
-check(
-  'a checkout with the contract line is accepted',
-  checkout.status === 201,
-  `status ${checkout.status} ${checkout.text?.slice(0, 160)}`,
-);
-check(
-  'the checkout response carries the order id',
-  typeof checkout.body?.orderId === 'string',
-  `orderId ${JSON.stringify(checkout.body?.orderId)}`,
-);
-check(
-  'the payment attempt is stamped with a real time',
-  Number(checkout.body?.orderId ? 1 : 0) === 1,
-  '',
-);
-
-// --- 5. The operator can see the order that was just placed. --------------
-const adminHeaders = { Authorization: `Bearer ${token}` };
-const orders = await api('/admin/v1/orders', { headers: adminHeaders });
-const orderItems = orders.body?.items ?? [];
-check(
-  'the operator sees the order that was just placed',
-  orders.status === 200 && orderItems.length >= 1,
-  `status ${orders.status}, ${orderItems.length} orders`,
-);
-
-const orderId = orderItems[0]?.orderId;
-if (orderId) {
-  const detail = await api(`/admin/v1/orders/${orderId}`, { headers: adminHeaders });
-  const line = detail.body?.lines?.[0];
+if (checkout.error) {
+  unmeasured('a checkout with the contract line is accepted', checkout.error);
+} else {
   check(
-    'the operator can read the order detail',
-    detail.status === 200,
-    `status ${detail.status}`,
+    'a checkout with the contract line is accepted',
+    checkout.status === 201,
+    `status ${checkout.status} ${checkout.text?.slice(0, 160)}`,
   );
   check(
-    "the order's line carries a price the client can read",
-    typeof line?.unitPrice?.amountMinor === 'number' && line.unitPrice.amountMinor > 0,
-    `unitPrice ${JSON.stringify(line?.unitPrice)}`,
-  );
-  check(
-    "the order's line has no flat spelling the client cannot read",
-    line?.unit_amount_minor === undefined,
-    `unit_amount_minor ${JSON.stringify(line?.unit_amount_minor)}`,
+    'the checkout response carries the order id',
+    typeof checkout.body?.orderId === 'string',
+    `orderId ${JSON.stringify(checkout.body?.orderId)}`,
   );
 }
 
-// --- 6. The content document is served. -----------------------------------
-const content = await api('/v1/content');
-const contentCount = Array.isArray(content.body?.collections) ? content.body.collections.length : 0;
-check('the content document is served', content.status === 200, `status ${content.status}`);
-notes.push(`      (the document holds ${contentCount} collections)`);
+// --- 5. The payment attempt is stamped with a real time. ------------------
+// The check used to read the order id again, which says nothing about a
+// clock. The clock is the point: an authorization stamped with the epoch
+// makes every webhook look stale, and nothing else in the line shows it.
+const authorize = await api('/v1/payments/authorize', {
+  method: 'POST',
+  body: {
+    order_id: 'ord-verify-stamp',
+    payment_method_ref: 'pm-verify',
+    amount_minor: 1500,
+    currency: 'JPY',
+  },
+});
+if (authorize.error) {
+  unmeasured('the payment attempt is stamped with a real time', authorize.error);
+} else if (authorize.status !== 200) {
+  check(
+    'the payment attempt is stamped with a real time',
+    false,
+    `the attempt could not be minted: status ${authorize.status}`,
+  );
+} else {
+  const stamp = authorize.body?.authorized_at_ms;
+  check(
+    'the payment attempt is stamped with a real time',
+    typeof stamp === 'number' && stamp > 0,
+    `authorized_at_ms ${JSON.stringify(stamp)}`,
+  );
+}
 
-// --- 7. The payment list route answers. -----------------------------------
-const payments = await api('/admin/v1/payments', { headers: adminHeaders });
-check(
-  'the payment list answers instead of 404',
-  payments.status === 200,
-  `status ${payments.status}`,
-);
+// --- 6. The operator can see the order that was just placed. --------------
+const adminHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+if (!token) {
+  unmeasured('the operator sees the order that was just placed', 'no admin session');
+} else {
+  const orders = await api('/admin/v1/orders', { headers: adminHeaders });
+  const orderItems = orders.error ? [] : orders.body?.items ?? [];
+  if (orders.error) {
+    unmeasured('the operator sees the order that was just placed', orders.error);
+  } else {
+    check(
+      'the operator sees the order that was just placed',
+      orders.status === 200 && orderItems.length >= 1,
+      `status ${orders.status}, ${orderItems.length} orders`,
+    );
+  }
+
+  const orderId = orderItems[0]?.orderId;
+  if (orderId) {
+    const detail = await api(`/admin/v1/orders/${orderId}`, { headers: adminHeaders });
+    const line = detail.error ? null : detail.body?.lines?.[0];
+    if (detail.error) {
+      unmeasured('the operator can read the order detail', detail.error);
+    } else {
+      check(
+        'the operator can read the order detail',
+        detail.status === 200,
+        `status ${detail.status}`,
+      );
+      check(
+        "the order's line carries a price the client can read",
+        typeof line?.unitPrice?.amountMinor === 'number' && line.unitPrice.amountMinor > 0,
+        `unitPrice ${JSON.stringify(line?.unitPrice)}`,
+      );
+      check(
+        "the order's line has no flat spelling the client cannot read",
+        line?.unit_amount_minor === undefined,
+        `unit_amount_minor ${JSON.stringify(line?.unit_amount_minor)}`,
+      );
+    }
+  } else {
+    unmeasured('the operator can read the order detail', 'no order to open');
+  }
+}
+
+// --- 7. The content document is served. -----------------------------------
+const content = await api('/v1/content');
+if (content.error) {
+  unmeasured('the content document is served', content.error);
+} else {
+  const contentCount = Array.isArray(content.body?.collections) ? content.body.collections.length : 0;
+  check('the content document is served', content.status === 200, `status ${content.status}`);
+  notes.push(`      (the document holds ${contentCount} collections)`);
+}
+
+// --- 8. The payment list route answers. -----------------------------------
+if (!token) {
+  unmeasured('the payment list answers instead of 404', 'no admin session');
+} else {
+  const payments = await api('/admin/v1/payments', { headers: adminHeaders });
+  if (payments.error) {
+    unmeasured('the payment list answers instead of 404', payments.error);
+  } else {
+    check(
+      'the payment list answers instead of 404',
+      payments.status === 200,
+      `status ${payments.status}`,
+    );
+  }
+}
 
 console.log('');
-if (findings.length === 0) {
+if (findings.length === 0 && notMeasured.length === 0) {
   console.log(`deployment verification: OK (${notes.length} checks)`);
-  // The credentials file is NOT deleted here: it is the only copy of the
-  // admin password, and the person who deployed needs it to log in. Delete
-  // it yourself once the password is safely in your hands.
   console.log(`      the credentials file is still at ${CREDENTIALS} — it is the only copy of the`);
   console.log('      admin password. Delete it once you have it.');
   process.exit(0);
 }
-console.log(`deployment verification: ${findings.length} finding(s)`);
+if (findings.length === 0) {
+  console.log(`deployment verification: ${notMeasured.length} check(s) could not be measured`);
+  for (const item of notMeasured) console.log(`  - ${item}`);
+  process.exit(2);
+}
+console.log(`deployment verification: ${findings.length} finding(s), ${notMeasured.length} unmeasured`);
 for (const finding of findings) console.log(`  - ${finding}`);
+for (const item of notMeasured) console.log(`  - ${item}`);
 process.exit(1);
