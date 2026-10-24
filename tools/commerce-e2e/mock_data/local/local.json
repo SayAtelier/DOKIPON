@@ -1,0 +1,157 @@
+{
+  "$comment": "DOKIPON commerce — LOCAL DEVELOPMENT fixture set. Every credential in this file is a local development value, published on purpose so a local run is reproducible and deterministic. None of them is a credential. The services refuse to start while a published development value is in place (services/crates/commerce-core/src/secrets.rs); a local run is the legitimate case for that guard, so `switch` below sets DOKIPON_ALLOW_DEV_SECRETS=1. A deployment must never read this file.",
+  "kind": "dokipon-local-fixture-set",
+  "version": 1,
+  "scope": "local-development-only",
+  "envFile": "local.env",
+  "switch": {
+    "env": "DOKIPON_ALLOW_DEV_SECRETS",
+    "value": "1",
+    "why": "The guard in commerce-core/src/secrets.rs refuses the published development values (dev-only-admin, dev-only-key, dev-channel, dev-only-secret, dev-only-service-token) unless this switch is set. A local run sets it. A deployment must not.",
+    "appliesTo": "the local run only"
+  },
+  "credentials": {
+    "$comment": "The values below are local-only names, NOT the published development values, so this file cannot be mistaken for a deployment's credential set. `env` is the variable name the service reads.",
+    "adminUser": {
+      "env": "ADMIN_USER",
+      "value": "admin",
+      "kind": "local-development",
+      "readBy": "commerce-admin"
+    },
+    "adminPassword": {
+      "env": "ADMIN_PASSWORD",
+      "value": "local-dev-admin-password",
+      "kind": "local-development",
+      "readBy": "commerce-admin"
+    },
+    "lineIdTokenKey": {
+      "env": "LINE_ID_TOKEN_KEY",
+      "value": "local-dev-line-id-token-key",
+      "kind": "local-development",
+      "readBy": "commerce-identity, and mock-line-identity (it signs with this key)"
+    },
+    "lineChannelId": {
+      "env": "LINE_CHANNEL_ID",
+      "value": "local-dev-channel-0001",
+      "kind": "local-development",
+      "readBy": "commerce-identity (the id_token's audience), and mock-line-identity (it mints for this channel)"
+    },
+    "pspWebhookSecret": {
+      "env": "PSP_WEBHOOK_SECRET",
+      "value": "local-dev-psp-webhook-secret",
+      "kind": "local-development",
+      "readBy": "commerce-payment-adapter"
+    },
+    "serviceToken": {
+      "env": "SERVICE_TOKEN",
+      "value": "local-dev-service-token",
+      "kind": "local-development",
+      "readBy": "commerce-order (the operator's view of the orders), and commerce-admin (presents it)"
+    }
+  },
+  "ports": {
+    "$comment": "The services read PORT one per process; the launcher sets it from this map. The mock ports are the crates' own defaults (services/crates/commerce-mocks/src/bin/*.rs) and are overridable with PORT as well.",
+    "services": {
+      "commerce-bff": 8080,
+      "commerce-identity": 8081,
+      "commerce-catalog": 8082,
+      "commerce-cart": 8083,
+      "commerce-inventory": 8084,
+      "commerce-order": 8085,
+      "commerce-payment-adapter": 8086,
+      "commerce-admin": 8087,
+      "commerce-content": 8096
+    },
+    "mocks": {
+      "mock-psp": 9001,
+      "mock-broker": 9002,
+      "mock-postgres": 9003,
+      "mock-line-identity": 9004,
+      "mock-liff-webview": 9005,
+      "mock-ledger": 9006
+    },
+    "urls": {
+      "CATALOG_URL": "http://127.0.0.1:8082",
+      "IDENTITY_URL": "http://127.0.0.1:8081",
+      "CART_URL": "http://127.0.0.1:8083",
+      "INVENTORY_URL": "http://127.0.0.1:8084",
+      "ORDER_URL": "http://127.0.0.1:8085",
+      "PAYMENT_ADAPTER_URL": "http://127.0.0.1:8086",
+      "CONTENT_URL": "http://127.0.0.1:8096"
+    }
+  },
+  "seed": {
+    "$comment": "The services seed themselves. This fixture set POINTS at those seeds; it does not duplicate them — a second copy of a catalogue is a second truth. Every service reads the same seeds in every topology (services/crates/commerce-edge/src/stores.rs builds them for the in-process edge and the function topology alike).",
+    "catalogue": {
+      "seededBy": "commerce_catalog::CatalogStore::seed_demo",
+      "where": "services/crates/commerce-catalog/src/lib.rs:140",
+      "alsoBuiltAt": "services/crates/commerce-edge/src/stores.rs:26",
+      "contents": "10 products, each with one SKU. 7 of the SKUs are Reserved (they carry a stock level), 1 is MadeToOrder (sku-cami-01), 2 are Unbounded (sku-beauty-01, sku-goods-01). p-adult-01 is web-only: it is not eligible for the app or the LINE channel.",
+      "expected": {
+        "productsCount": 10,
+        "reservedSkus": {
+          "sku-bra-01": 42,
+          "sku-brief-01": 7,
+          "sku-set-01": 0,
+          "sku-night-01": 28,
+          "sku-adult-01": 3,
+          "sku-swim-01": 12,
+          "sku-sale-01": 5
+        },
+        "noStockLevelSkus": ["sku-cami-01", "sku-beauty-01", "sku-goods-01"],
+        "outOfStockSkus": ["sku-set-01"],
+        "lineChannelExcludes": ["p-adult-01"],
+        "note": "GET /v1/products answers 10 items for the web channel and 9 for channel=app and channel=line (p-adult-01 is eligible for web only). The channel filter is the server's job, not the client's (services/crates/commerce-catalog/src/lib.rs:285)."
+      }
+    },
+    "inventory": {
+      "seededBy": "commerce_inventory::InventoryStore::new",
+      "where": "services/crates/commerce-inventory/src/lib.rs:86",
+      "seedConstant": "commerce_inventory::DEMO_STOCK_SEED (services/crates/commerce-inventory/src/lib.rs:38), used by services/crates/commerce-inventory/src/main.rs",
+      "alsoBuiltAt": "services/crates/commerce-edge/src/stores.rs:51",
+      "contents": "The 7 Reserved SKUs of the catalogue, with the same quantities. A SKU in the catalogue but not in the ledger makes a purchasable product fail at the last step of checkout, so the two lists must stay identical.",
+      "expected": {
+        "levels": {
+          "sku-bra-01": 42,
+          "sku-brief-01": 7,
+          "sku-set-01": 0,
+          "sku-night-01": 28,
+          "sku-adult-01": 3,
+          "sku-swim-01": 12,
+          "sku-sale-01": 5
+        },
+        "note": "The ledger holds no level for the MadeToOrder and Unbounded SKUs: those do not take part in the inventory step."
+      }
+    },
+    "content": {
+      "seededBy": "commerce_content::ContentStore::new",
+      "where": "services/crates/commerce-content/src/lib.rs:66",
+      "alsoBuiltAt": "services/crates/commerce-edge/src/stores.rs:86",
+      "contents": "The content document is NOT seeded: it starts EMPTY (revision 0, every section at its default) unless CONTENT_PATH points at a JSON document that already exists. The service persists what the operator writes back to that path, atomically.",
+      "expected": {
+        "revision": 0,
+        "empty": true,
+        "contentPathEnv": "CONTENT_PATH",
+        "note": "A local run that wants a persisted document sets CONTENT_PATH to a writable path and PUTs /v1/content with the expected revision; a run that does not set it keeps the document in memory only."
+      }
+    },
+    "cartAndOrders": {
+      "seededBy": "none",
+      "where": "services/crates/commerce-edge/src/stores.rs:31 (cart), :36 (order)",
+      "contents": "Both start empty. A local run creates a guest session (POST /v1/sessions/guest) before it can put anything in a cart."
+    }
+  },
+  "mockAgreement": {
+    "$comment": "The mock issues LINE-shaped id_tokens and the identity service verifies them. If the two disagree about the token's shape, every test that uses the mock is testing a fiction. This test mints with the mock and verifies with the product's own verifier, using the credentials above on both sides.",
+    "test": "tools/commerce-e2e/agreement/tests/line_token_agreement.rs",
+    "run": "cargo test --manifest-path tools/commerce-e2e/agreement/Cargo.toml",
+    "accepts": "a well-formed token",
+    "refuses": {
+      "tampered (signed with another key)": "identity.bad_signature",
+      "expired": "identity.expired_token",
+      "wrong audience": "identity.bad_audience",
+      "wrong issuer": "identity.bad_issuer",
+      "nonce mismatch": "identity.nonce_mismatch"
+    }
+  }
+}
