@@ -245,7 +245,14 @@ async function auditControl(page, control, state) {
       await target.click({ timeout: 5000, force: true });
     }
   } catch (e) {
-    clickError = String(e && e.message ? e.message : e).split('\n')[0];
+    // The **whole** message, not its first line. Playwright's first line is
+    // always "locator.click: Timeout 5000ms exceeded." and the reason is
+    // below it, in the call log: "element is not visible", "element is not
+    // stable", "<div> intercepts pointer events". Keeping only the first
+    // line threw away the one part that says whether the control was
+    // unreachable (the page had not finished rendering it) or genuinely
+    // broken — and made every one of those findings unreadable.
+    clickError = String(e && e.message ? e.message : e);
   }
   await page.waitForTimeout(SETTLE_MS);
 
@@ -268,7 +275,9 @@ async function auditControl(page, control, state) {
     if (/not visible|not stable|not enabled|outside of the viewport|intercepts pointer/i.test(clickError)) {
       skipped = 'not reachable on screen';
     } else {
-      problems.push(`click failed: ${clickError}`);
+      // The first two lines are the summary and the call log's beginning;
+      // the whole message is kept in the report.
+      problems.push(`click failed: ${clickError.split('\n').slice(0, 3).join(' | ')}`);
     }
   }
   if (state.pageErrors.length) problems.push(`uncaught: ${state.pageErrors[0]}`);
