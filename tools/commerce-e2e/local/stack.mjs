@@ -219,9 +219,12 @@ export class LocalStack {
 
   /** Start the container the Rust processes run in. */
   async startContainer() {
+    await this.sweepStaleContainers();
     await run('docker', ['rm', '-f', CONTAINER_NAME], { echo: false });
 
     const args = ['run', '-d', '--rm', '--name', CONTAINER_NAME];
+    args.push('--label', `dokipon.local=true`);
+    args.push('--label', `dokipon.local.pid=${process.pid}`);
     args.push('-v', `${REPO_POSIX}:/work`);
     args.push('-w', '/work');
     for (const [name, value] of Object.entries(this.serviceEnv())) {
@@ -245,6 +248,45 @@ export class LocalStack {
     }
     this.containerStarted = true;
     this.log(`==> the container ${CONTAINER_NAME} is up`);
+  }
+
+  /**
+   * Remove the containers a killed run left behind.
+   *
+   * A run that is killed outright — not stopped, not failed — cannot tear
+   * itself down, and its container would keep the ports bound. The next run
+   * finds it by the label, sees that the process that owned it is gone, and
+   * removes it. A container whose owner is still alive is left alone: that
+   * is a run in progress.
+   */
+  async sweepStaleContainers() {
+    const listed = await run(
+      'docker',
+      [
+        'ps',
+        '-a',
+        '--filter',
+        'label=dokipon.local=true',
+        '--format',
+        '{{.ID}} {{.Label "dokipon.local.pid"}}',
+      ],
+      { echo: false },
+    );
+    if (listed.code !== 0) return;
+    for (const line of listed.stdout.split(/\r?\n/)) {
+      const [id, pid] = line.trim().split(/\s+/);
+      if (!id || !pid) continue;
+      if (Number(pid) === process.pid) continue;
+      let alive = true;
+      try {
+        process.kill(Number(pid), 0);
+      } catch {
+        alive = false;
+      }
+      if (alive) continue;
+      this.log(`==> removing the container ${id} left behind by the run that owned pid ${pid}`);
+      await run('docker', ['rm', '-f', id], { echo: false });
+    }
   }
 
   /** The address of the process that serves each Function. */
@@ -372,6 +414,12 @@ export class LocalStack {
         env: {
           DOKIPON_BASE: this.base,
           DOKIPON_AUDIT_API_ONLY: full ? '' : '1',
+          // The audit signs into the operator console with these, so the
+          // local run has to hand it the credential the local stack runs
+          // with — otherwise it tries the development password and the
+          // console's own screens are never audited.
+          ADMIN_USER: this.credentials.adminUser,
+          ADMIN_PASSWORD: this.credentials.adminPassword,
         },
         echo: true,
       },
@@ -399,7 +447,12 @@ export class LocalStack {
   /** Tear the stack down. */
   async stop() {
     if (this.origin) {
-      await new Promise((resolvePromise) => this.origin.server.close(resolvePromise));
+      const { server } = this.origin;
+      // A browser that is still holding a keep-alive connection would keep
+      // `close()` waiting for it; the connections are cut so the teardown
+      // cannot hang on a socket nobody is going to close.
+      if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+      await new Promise((resolvePromise) => server.close(resolvePromise));
       this.origin = null;
     }
     if (this.containerStarted) {
