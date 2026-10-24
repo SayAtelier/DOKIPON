@@ -19,6 +19,17 @@ npm run audit
 The audit drives a real Chrome through every interactive control the app
 exposes, and reports the ones that do not work.
 
+**The contract half needs no browser and no `npm install`.** It talks to the
+deployment over plain HTTP:
+
+```
+node scripts/audit.mjs            # the whole thing (browser + contract)
+DOKIPON_AUDIT_API_ONLY=1 node scripts/audit.mjs   # the contract half only
+```
+
+So a machine — a CI job, the local deployment runner — can check the
+contract without installing a browser library.
+
 ### Driving a Flutter Web app
 
 Flutter renders to a canvas, so the buttons are not DOM elements and a
