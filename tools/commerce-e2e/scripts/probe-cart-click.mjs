@@ -28,14 +28,16 @@
 import {
   baseUrl,
   bootFlutter,
+  catalogueSize,
+  clickControl,
   collectors,
-  controlLocator,
   enableSemantics,
   findControl,
   isMain,
   openSurface,
   signature,
   standalone,
+  waitForControl,
 } from './probe-lib.mjs';
 
 export const id = 'probe-cart-click';
@@ -81,17 +83,24 @@ export async function run(page, report) {
   report.pass('the semantics tree can be enabled', 'the controls are inspectable');
 
   // The whole point of this probe: wait for the control instead of racing it.
-  const addToCart = await findControl(page, ADD_TO_CART);
-  if (!addToCart) {
+  const products = await catalogueSize(page);
+  if (products === 0) {
+    report.unmeasured('the add-to-cart control appears', 'the catalogue is empty — there is nothing to add to cart');
+    return;
+  }
+  report.note('the catalogue holds', `${products ?? 'an unknown number of'} product(s)`);
+
+  const appeared = await waitForControl(page, ADD_TO_CART, ['button', 'tab', 'link'], 300_000);
+  if (!appeared.found) {
     report.fail('the add-to-cart control appears', 'it never rendered, although the app is running');
     return;
   }
-  report.pass('the add-to-cart control appears', `“${addToCart.label}”`);
+  report.pass('the add-to-cart control appears', `“${appeared.found.label}”`);
 
-  const cart = await findControl(page, (label) => CART_BUTTON.test(label) && !ADD_TO_CART.test(label));
+  // The cart button — which must not be the add-to-cart button itself.
   const cartLabel = async () => {
-    if (!cart) return null;
-    return controlLocator(page, cart.role, cart.index).getAttribute('aria-label');
+    const found = await findControl(page, (label) => CART_BUTTON.test(label) && !ADD_TO_CART.test(label));
+    return found ? found.label : null;
   };
 
   const before = await cartLabel();
@@ -104,21 +113,16 @@ export async function run(page, report) {
   };
   page.on('request', onRequest);
 
-  const target = controlLocator(page, addToCart.role, addToCart.index);
-  let clickError = null;
-  try {
-    await target.click({ timeout: 60_000 });
-  } catch (e) {
-    clickError = String(e && e.message ? e.message : e).split('\n')[0];
-  }
-  await page.waitForTimeout(3000);
+  // The control is looked up again here: the click that follows may change
+  // the semantics tree, and a stale index would land on another control.
+  const clicked = await clickControl(page, ADD_TO_CART, ['button', 'tab', 'link'], { timeout: 60_000, settleMs: 3000 });
   page.off('request', onRequest);
 
   const after = await cartLabel();
   const signatureAfter = await signature(page);
 
-  if (clickError) {
-    report.fail('pressing add-to-cart dispatches', clickError);
+  if (clicked.error) {
+    report.fail('pressing add-to-cart dispatches', clicked.error);
   } else {
     report.pass('pressing add-to-cart dispatches', 'the click reached the control');
   }

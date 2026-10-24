@@ -343,7 +343,14 @@ async function runProbeSteps(steps) {
     context = await browser.newContext({ viewport: VIEWPORT });
     for (const step of steps) {
       announce(step);
-      const module = await import(pathToFileURL(resolve(HERE, step.script)).href);
+      const started = Date.now();
+      let module;
+      try {
+        module = await import(pathToFileURL(resolve(HERE, step.script)).href);
+      } catch (e) {
+        record(step, 'UNMEASURED', [`the probe could not be loaded: ${String(e && e.message ? e.message : e).split('\n')[0]}`], 0);
+        continue;
+      }
       const report = createReport(step.id);
       const page = await context.newPage();
       try {
@@ -355,9 +362,10 @@ async function runProbeSteps(steps) {
       }
       const summary = report.summary();
       const code = exitCodeFor(summary);
-      if (code === 1) record(step, 'FAIL', summary.failedItems, 0);
-      else if (code === 2) record(step, 'UNMEASURED', summary.unmeasuredItems, 0);
-      else record(step, 'PASS', [], 0);
+      const seconds = (Date.now() - started) / 1000;
+      if (code === 1) record(step, 'FAIL', summary.failedItems, seconds);
+      else if (code === 2) record(step, 'UNMEASURED', summary.unmeasuredItems, seconds);
+      else record(step, 'PASS', [], seconds);
       console.log('');
       console.log(`${step.id}: ${summary.passed} passed, ${summary.failed} failed, ${summary.unmeasured} unmeasured`);
     }

@@ -31,8 +31,9 @@
 import {
   baseUrl,
   bootFlutter,
+  catalogueSize,
+  clickControl,
   collectors,
-  controlLocator,
   enableSemantics,
   findControl,
   isMain,
@@ -85,6 +86,13 @@ export async function run(page, report) {
   }
   report.pass('the semantics tree can be enabled', 'the controls are inspectable');
 
+  const products = await catalogueSize(page);
+  if (products === 0) {
+    report.unmeasured('a category control is present', 'the catalogue is empty — there is no category to filter');
+    return;
+  }
+  report.note('the catalogue holds', `${products ?? 'an unknown number of'} product(s)`);
+
   const category = await findControl(page, CATEGORY, ['button', 'tab', 'link']);
   if (!category) {
     report.fail('a category control is present', 'no control labelled with a category');
@@ -93,17 +101,11 @@ export async function run(page, report) {
   report.pass('a category control is present', `“${category.label}”`);
 
   const beforeCategory = await signature(page);
-  let error = null;
-  try {
-    await controlLocator(page, category.role, category.index).click({ force: true, timeout: 30_000 });
-  } catch (e) {
-    error = String(e && e.message ? e.message : e).split('\n')[0];
-  }
-  await page.waitForTimeout(3000);
+  const clickedCategory = await clickControl(page, CATEGORY, ['button', 'tab', 'link'], { settleMs: 3000 });
   const afterCategory = await signature(page);
 
-  if (error) {
-    report.fail('clicking the category changes the catalogue', error);
+  if (clickedCategory.error) {
+    report.fail('clicking the category changes the catalogue', clickedCategory.error);
     return;
   }
   if (afterCategory !== beforeCategory) {
@@ -124,17 +126,11 @@ export async function run(page, report) {
   report.pass('the all-products control is present', `“${all.label}”`);
 
   const beforeAll = await signature(page);
-  let allError = null;
-  try {
-    await controlLocator(page, all.role, all.index).click({ force: true, timeout: 30_000 });
-  } catch (e) {
-    allError = String(e && e.message ? e.message : e).split('\n')[0];
-  }
-  await page.waitForTimeout(3000);
+  const clickedAll = await clickControl(page, ALL_PRODUCTS, ['button', 'tab', 'link'], { settleMs: 3000 });
   const afterAll = await signature(page);
 
-  if (allError) {
-    report.fail('the all-products control works once a category is selected', allError);
+  if (clickedAll.error) {
+    report.fail('the all-products control works once a category is selected', clickedAll.error);
   } else if (afterAll !== beforeAll) {
     report.pass(
       'the all-products control works once a category is selected',

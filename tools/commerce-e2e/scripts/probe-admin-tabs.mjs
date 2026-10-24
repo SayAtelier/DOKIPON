@@ -31,8 +31,8 @@
 import {
   baseUrl,
   bootFlutter,
+  clickControl,
   collectors,
-  controlLocator,
   enableSemantics,
   findControl,
   isMain,
@@ -107,31 +107,23 @@ export async function run(page, report) {
   const initial = await signature(page);
   report.note('the screen starts on', (await page.locator('flt-semantics').first().getAttribute('aria-label')) || '(no label)');
 
-  const click = async (control) => {
-    let error = null;
-    try {
-      await controlLocator(page, control.role, control.index).click({ force: true, timeout: 30_000 });
-    } catch (e) {
-      error = String(e && e.message ? e.message : e).split('\n')[0];
-    }
-    await page.waitForTimeout(3000);
-    return error;
-  };
-
-  const afterCatalogClick = await click(catalog);
+  // Each control is looked up again right before it is clicked: the click
+  // that changes the screen also changes the semantics tree, so an index
+  // found earlier can point at a different control afterwards.
+  const afterCatalogClick = await clickControl(page, CATALOG, ['tab', 'button'], { settleMs: 3000 });
   const afterCatalog = await signature(page);
-  if (afterCatalogClick) {
-    report.fail('clicking Catalog switches the screen', afterCatalogClick);
+  if (afterCatalogClick.error) {
+    report.fail('clicking Catalog switches the screen', afterCatalogClick.error);
   } else if (afterCatalog !== initial) {
     report.pass('clicking Catalog switches the screen', 'the screen changed');
   } else {
     report.fail('clicking Catalog switches the screen', 'the click changed nothing');
   }
 
-  const afterOrdersClick = await click(orders);
+  const afterOrdersClick = await clickControl(page, ORDERS, ['tab', 'button'], { settleMs: 3000 });
   const afterOrders = await signature(page);
-  if (afterOrdersClick) {
-    report.fail('clicking Orders brings the screen back', afterOrdersClick);
+  if (afterOrdersClick.error) {
+    report.fail('clicking Orders brings the screen back', afterOrdersClick.error);
   } else if (afterOrders !== afterCatalog) {
     const back = afterOrders === initial;
     report.pass('clicking Orders brings the screen back', back ? 'the screen is back where it started' : 'the screen changed');

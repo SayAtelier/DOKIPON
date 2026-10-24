@@ -325,6 +325,65 @@ export function controlLocator(page, role, index) {
 }
 
 /**
+ * How many products the catalogue holds.
+ *
+ * `null` when the catalogue could not be read. `0` is a real answer: a
+ * deployment with an empty catalogue has no product card, so a probe that
+ * looks for a control on one has nothing to measure.
+ */
+export async function catalogueSize(page) {
+  try {
+    const response = await page.request.get(`${baseUrl()}/v1/products`, { timeout: 20_000 });
+    if (response.status() !== 200) return null;
+    const body = await response.json();
+    return Array.isArray(body.items) ? body.items.length : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Wait for a control whose label matches, and report how long it took.
+ *
+ * The wait is the point: a control that renders late is not a broken
+ * control, and an instrument that clicks before the control exists is
+ * measuring itself.
+ */
+export async function waitForControl(page, pattern, roles = ['button', 'tab', 'link'], timeoutMs = 300_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const found = await findControl(page, pattern, roles);
+    if (found) return { found, waitedMs: timeoutMs - (deadline - Date.now()) };
+    if (Date.now() >= deadline) return { found: null, waitedMs: timeoutMs };
+    await page.waitForTimeout(2000);
+  }
+}
+
+/**
+ * Find a control by its label and click it.
+ *
+ * The control is looked up **again** at the moment of the click: a click
+ * that changes the screen changes the semantics tree, so an index found
+ * before the click can point at a different control afterwards. The label
+ * is the stable thing.
+ */
+export async function clickControl(page, pattern, roles = ['button', 'tab', 'link'], options = {}) {
+  const found = await findControl(page, pattern, roles);
+  if (!found) return { found: null, label: null, error: 'no control matched' };
+  let error = null;
+  try {
+    await controlLocator(page, found.role, found.index).click({
+      force: options.force !== false,
+      timeout: options.timeout || 30_000,
+    });
+  } catch (e) {
+    error = String(e && e.message ? e.message : e).split('\n')[0];
+  }
+  if (options.settleMs) await page.waitForTimeout(options.settleMs);
+  return { found, label: found.label, error };
+}
+
+/**
  * Sign in to the admin console.
  *
  * The fields are **typed**, not filled: Flutter's web text editing mirrors
