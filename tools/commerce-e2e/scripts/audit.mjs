@@ -726,6 +726,53 @@ async function auditSurface(browser, name, path) {
   return report;
 }
 
+/**
+ * Put one order in the store, so the admin console has something to open.
+ *
+ * The demo store starts empty: nobody has bought anything, so the operator
+ * console's order list is empty, so the order **detail** screen — the one
+ * that parses the order's lines, and the one that used to throw while doing
+ * it — is never reachable and never audited.
+ *
+ * A defect behind an empty screen is a defect the audit cannot see. So the
+ * audit buys something first.
+ */
+async function seedOrder(api) {
+  try {
+    const guest = await api.fetch(`${BASE}/v1/sessions/guest`, {
+      method: 'POST',
+      timeout: 20_000,
+      headers: { 'content-type': 'application/json' },
+      data: JSON.stringify({ channel: 'web' }),
+    });
+    const session = await guest.json();
+    const sessionId = session.sessionId;
+    if (!sessionId) return { seeded: false, reason: 'no guest session' };
+
+    const checkout = await api.fetch(`${BASE}/v1/checkouts`, {
+      method: 'POST',
+      timeout: 30_000,
+      headers: {
+        'content-type': 'application/json',
+        'x-session-id': sessionId,
+        'idempotency-key': `audit-seed-${Date.now()}`,
+      },
+      // The contract's line carries no price: the server prices it.
+      data: JSON.stringify({
+        lines: [{ sku: 'sku-bra-01', quantity: 1 }],
+        paymentMethodRef: 'pm-audit-seed',
+      }),
+    });
+    if (checkout.status() !== 201) {
+      return { seeded: false, reason: `checkout answered ${checkout.status()}` };
+    }
+    const body = await checkout.json();
+    return { seeded: true, orderId: body.orderId ?? null };
+  } catch (e) {
+    return { seeded: false, reason: String(e && e.message ? e.message : e).split('\n')[0] };
+  }
+}
+
 async function main() {
   mkdirSync(REPORTS, { recursive: true });
   // The contract check does not need a browser. `DOKIPON_AUDIT_API_ONLY=1`
@@ -751,6 +798,11 @@ async function main() {
       const ctx = await browser.newContext({ viewport: VIEWPORT });
       const page = await ctx.newPage();
       out.api = await auditApi(page.request);
+
+      // Buy something, so the operator console's order detail screen is
+      // reachable and gets audited like every other control.
+      out.seed = await seedOrder(page.request);
+
       await ctx.close();
 
       for (const [name, path] of [['storefront', '/'], ['admin', '/admin/']]) {
@@ -787,6 +839,13 @@ async function main() {
   lines.push('# DOKIPON commerce deployment audit');
   lines.push('');
   lines.push(`- base: ${BASE}`);
+  if (out.seed) {
+    lines.push(
+      out.seed.seeded
+        ? `- seeded one order (${out.seed.orderId ?? 'id unknown'}) so the operator console's order detail screen is reachable`
+        : `- could not seed an order: ${out.seed.reason ?? 'unknown'} — the operator console's order screens are therefore NOT covered by this run`,
+    );
+  }
   lines.push(`- started: ${started}`);
   lines.push(`- finished: ${out.finishedAt}`);
   lines.push('');
