@@ -12,7 +12,7 @@
 // under `reports/`, which is git-ignored, and it is deleted when the run
 // finishes.
 
-import { readFileSync, existsSync, rmSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -178,7 +178,11 @@ check(
 console.log('');
 if (findings.length === 0) {
   console.log(`deployment verification: OK (${notes.length} checks)`);
-  rmSync(CREDENTIALS, { force: true });
+  // The credentials file is NOT deleted here: it is the only copy of the
+  // admin password, and the person who deployed needs it to log in. Delete
+  // it yourself once the password is safely in your hands.
+  console.log(`      the credentials file is still at ${CREDENTIALS} — it is the only copy of the`);
+  console.log('      admin password. Delete it once you have it.');
   process.exit(0);
 }
 console.log(`deployment verification: ${findings.length} finding(s)`);
