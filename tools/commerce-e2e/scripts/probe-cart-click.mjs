@@ -1,63 +1,148 @@
-// probe-cart-click.mjs — does "add to cart" actually work?
-//
-// The audit reported eight "click failed: Timeout 5000ms exceeded" on the
-// product cards. That is what a control looks like when the app has not
-// finished rendering the catalogue yet: the button does not exist, so the
-// click has nothing to click. The audit's per-control loop reloads the page
-// for every control, and on a slow link the catalogue can take longer than
-// the click's timeout.
-//
-// So this waits for the control to be there — and only then asks whether
-// pressing it does anything. That is the difference between "the button is
-// broken" and "the button was not there yet".
-import { chromium } from 'playwright';
+#!/usr/bin/env node
+/**
+ * probe-cart-click.mjs — does "add to cart" actually work?
+ *
+ * ## The question
+ *
+ * The audit reported eight "click failed: Timeout 5000ms exceeded" on the
+ * product cards. There are two readings, and they need different fixes:
+ *
+ *   (a) the button is broken — the control is painted and does nothing;
+ *   (b) the button was not there yet — the catalogue had not finished
+ *       rendering when the audit clicked it.
+ *
+ * The audit cannot tell them apart: its per-control loop reloads the page
+ * for every control and clicks within five seconds of the page loading, so
+ * on a slow link the control may simply not exist yet. This probe waits for
+ * the control to appear — up to five minutes — and only then asks whether
+ * pressing it does anything.
+ *
+ * So the question is: **given enough time to render, does the product
+ * card's add-to-cart control work?**
+ *
+ * ## What it needs
+ *
+ * A deployment to look at (`DOKIPON_BASE`) and a browser. No credential.
+ */
 
-const BASE = (process.env.DOKIPON_BASE || 'https://dokipon-commerce.vercel.app').replace(/\/$/, '');
+import {
+  baseUrl,
+  bootFlutter,
+  collectors,
+  controlLocator,
+  enableSemantics,
+  findControl,
+  isMain,
+  openSurface,
+  signature,
+  standalone,
+} from './probe-lib.mjs';
 
-const browser = await chromium.launch({
-  channel: 'chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
-});
-const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-const page = await context.newPage();
+export const id = 'probe-cart-click';
+export const title = 'probe-cart-click';
+export const surface = '/ (storefront)';
+export const question = 'given enough time to render, does add-to-cart work?';
 
-const apiCalls = [];
-page.on('request', (r) => {
-  if (/\/v1\/|\/admin\/v1\//.test(r.url())) apiCalls.push(`${r.method()} ${r.url()}`);
-});
+/** The control under test. */
+const ADD_TO_CART = /カートに追加|add to cart/i;
+/** The cart button — which must not be the add-to-cart button itself. */
+const CART_BUTTON = /カート|cart/i;
 
-await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded', timeout: 300_000 });
-const placeholder = page.locator('flt-semantics-placeholder').first();
-if (await placeholder.count()) {
-  await placeholder.evaluate((el) => el.click()).catch(() => {});
+export async function run(page, report) {
+  const state = collectors(page);
+
+  const opened = await openSurface(page, '/');
+  if (opened.error) {
+    report.unmeasured('the storefront is reachable', `${opened.error} (${opened.url})`);
+    return;
+  }
+  if (opened.status >= 400) {
+    report.fail('the storefront is served', `the edge answered ${opened.status}`);
+    return;
+  }
+  report.pass('the storefront is served', `status ${opened.status}`);
+
+  const boot = await bootFlutter(page);
+  if (!boot.mounted) {
+    const dropped = state.failedRequests.filter((r) => !/fonts\.(googleapis|gstatic)\.com/.test(r.url));
+    if (dropped.length) {
+      report.unmeasured('the storefront app mounts', `${dropped[0].reason} — the link did not deliver ${dropped[0].url}`);
+    } else {
+      report.fail('the storefront app mounts', boot.reason);
+    }
+    return;
+  }
+  report.pass('the storefront app mounts', 'flutter-view is attached');
+
+  if (!(await enableSemantics(page))) {
+    report.fail('the semantics tree can be enabled', 'the app exposes no inspectable control');
+    return;
+  }
+  report.pass('the semantics tree can be enabled', 'the controls are inspectable');
+
+  // The whole point of this probe: wait for the control instead of racing it.
+  const addToCart = await findControl(page, ADD_TO_CART);
+  if (!addToCart) {
+    report.fail('the add-to-cart control appears', 'it never rendered, although the app is running');
+    return;
+  }
+  report.pass('the add-to-cart control appears', `“${addToCart.label}”`);
+
+  const cart = await findControl(page, (label) => CART_BUTTON.test(label) && !ADD_TO_CART.test(label));
+  const cartLabel = async () => {
+    if (!cart) return null;
+    return controlLocator(page, cart.role, cart.index).getAttribute('aria-label');
+  };
+
+  const before = await cartLabel();
+  const signatureBefore = await signature(page);
+  const pageErrorsBefore = state.pageErrors.length;
+  const consoleErrorsBefore = state.consoleErrors.length;
+  const calls = [];
+  const onRequest = (r) => {
+    if (/\/v1\/|\/admin\/v1\//.test(r.url())) calls.push(`${r.method()} ${r.url()}`);
+  };
+  page.on('request', onRequest);
+
+  const target = controlLocator(page, addToCart.role, addToCart.index);
+  let clickError = null;
+  try {
+    await target.click({ timeout: 60_000 });
+  } catch (e) {
+    clickError = String(e && e.message ? e.message : e).split('\n')[0];
+  }
+  await page.waitForTimeout(3000);
+  page.off('request', onRequest);
+
+  const after = await cartLabel();
+  const signatureAfter = await signature(page);
+
+  if (clickError) {
+    report.fail('pressing add-to-cart dispatches', clickError);
+  } else {
+    report.pass('pressing add-to-cart dispatches', 'the click reached the control');
+  }
+
+  const reacted = after !== before || signatureAfter !== signatureBefore || calls.length > 0;
+  if (reacted) {
+    const what = calls.length ? calls[calls.length - 1] : 'the cart label and the screen changed';
+    report.pass('pressing add-to-cart changes the cart', what);
+  } else {
+    report.fail('pressing add-to-cart changes the cart', 'nothing changed: no request, no new label, no change on screen');
+  }
+
+  const newErrors = [
+    ...state.pageErrors.slice(pageErrorsBefore),
+    ...state.consoleErrors.slice(consoleErrorsBefore).filter((t) => !/Failed to load resource/i.test(t)),
+  ];
+  if (newErrors.length) {
+    report.fail('pressing add-to-cart raises no error', newErrors[0].split('\n')[0]);
+  } else {
+    report.pass('pressing add-to-cart raises no error', 'no uncaught exception, no console error');
+  }
 }
 
-// The control under test: "add to cart" on a product card.
-const addToCart = page.locator('flt-semantics[role="button"]', { hasText: 'カートに追加' }).first();
-await addToCart.waitFor({ timeout: 300_000 });
-console.log('the add-to-cart control is on screen');
-
-const cartBefore = await page
-  .locator('flt-semantics[role="button"]', { hasText: 'カート' })
-  .first()
-  .getAttribute('aria-label');
-console.log(`the cart before the click: ${JSON.stringify(cartBefore)}`);
-
-const started = Date.now();
-await addToCart.click({ timeout: 60_000 });
-console.log(`the click took ${Date.now() - started}ms`);
-await page.waitForTimeout(3000);
-
-const cartAfter = await page
-  .locator('flt-semantics[role="button"]', { hasText: 'カート' })
-  .first()
-  .getAttribute('aria-label');
-console.log(`the cart after the click:  ${JSON.stringify(cartAfter)}`);
-console.log('the API calls the click caused:');
-for (const call of apiCalls.slice(-6)) console.log(`  ${call}`);
-
-const changed = cartBefore !== cartAfter;
-console.log(changed ? 'PASS: the control changed the cart' : 'FAIL: the control changed nothing');
-
-await browser.close();
-process.exit(changed ? 0 : 1);
+if (isMain(import.meta.url)) {
+  console.log(`probing ${baseUrl()}\n`);
+  process.exit(await standalone({ title, run }));
+}
