@@ -27,6 +27,9 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+# The function topology's gateway forwards a request to the owning service's
+# Function over HTTP.
+reqwest = { workspace = true }
 
 # The Vercel Rust runtime. Optional: only the deployment binary needs it.
 vercel_runtime = { version = "2.4", features = ["axum"], optional = true }

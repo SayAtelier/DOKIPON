@@ -5,10 +5,18 @@
   "installCommand": "echo skipped",
   "outputDirectory": "public",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
-    { "source": "/v1/(.*)", "destination": "/api/index" },
-    { "source": "/admin/v1/(.*)", "destination": "/api/index" },
-    { "source": "/healthz", "destination": "/api/index" }
+    { "source": "/api/svc/catalog/(.*)", "destination": "/api/svc/catalog" },
+    { "source": "/api/svc/cart/(.*)", "destination": "/api/svc/cart" },
+    { "source": "/api/svc/order/(.*)", "destination": "/api/svc/order" },
+    { "source": "/api/svc/content/(.*)", "destination": "/api/svc/content" },
+    { "source": "/api/svc/identity/(.*)", "destination": "/api/svc/identity" },
+    { "source": "/api/svc/inventory/(.*)", "destination": "/api/svc/inventory" },
+    { "source": "/api/svc/payment/(.*)", "destination": "/api/svc/payment" },
+    { "source": "/api/svc/admin/(.*)", "destination": "/api/svc/admin" },
+    { "source": "/v1/(.*)", "destination": "/api/gateway" },
+    { "source": "/admin/v1/(.*)", "destination": "/api/gateway" },
+    { "source": "/healthz", "destination": "/api/gateway" },
+    { "source": "/api/(.*)", "destination": "/api/index" }
   ],
   "headers": [
     {

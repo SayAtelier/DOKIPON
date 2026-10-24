@@ -356,6 +356,7 @@ dependencies = [
  "commerce-order",
  "commerce-payment-adapter",
  "http-body-util",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",
