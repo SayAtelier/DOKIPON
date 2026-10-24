@@ -43,10 +43,21 @@ use commerce_mocks::line_identity::{LineIdentityMock, TokenFlavour};
 /// The issuer LINE uses. The product hard-codes it, so the mock does too.
 const ISSUER: &str = "https://access.line.me";
 
-/// A fixed clock for both sides. The mock's clock is moved here so the test
-/// does not depend on the wall clock: an `exp` in the past has to be in the
-/// past **relative to the same instant the verifier is given**.
-const NOW_S: i64 = 1_700_000_000;
+/// The wall clock, in seconds since the epoch — the clock the product
+/// verifies `exp` against (`commerce_identity` reads the real time).
+///
+/// The test uses the wall clock rather than a frozen one on purpose: the
+/// mock's issuer mints against the wall clock too, so this is the same
+/// comparison the service makes. A frozen clock on both sides would hide a
+/// disagreement between the two — and there was one: the mock used to be
+/// frozen in the past, so every token it issued was born expired and every
+/// running service refused it with `identity.expired_token`.
+fn now_s() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
 
 // ---------------------------------------------------------------------------
 // The fixture set: the credentials both sides must use.
@@ -79,12 +90,12 @@ fn credentials() -> (String, String) {
     )
 }
 
-/// The mock, on the fixture set's credentials, with the clock fixed.
+/// The mock, on the fixture set's credentials. Its clock is left alone: the
+/// issuer mints against the wall clock, which is the clock the product
+/// verifies against.
 fn mock() -> LineIdentityMock {
     let (key, channel) = credentials();
-    let mock = LineIdentityMock::new(key, channel);
-    mock.set_now(NOW_S);
-    mock
+    LineIdentityMock::new(key, channel)
 }
 
 /// The product's verifier, on the same credentials.
@@ -115,7 +126,7 @@ fn a_token_the_mock_issues_is_accepted_by_the_identity_service() {
     let token = mock().mint(TokenFlavour::Valid, None);
 
     let claims = verifier()
-        .verify(&token, None, NOW_S)
+        .verify(&token, None, now_s())
         .expect("the product must accept the mock's token");
 
     assert_eq!(claims.sub, "U_mock_user");
@@ -157,7 +168,7 @@ async fn the_token_the_mock_serves_over_http_is_accepted_by_the_identity_service
         .to_string();
 
     let claims = verifier()
-        .verify(&token, None, NOW_S)
+        .verify(&token, None, now_s())
         .expect("the product must accept the token the mock serves");
 
     assert_eq!(claims.sub, "U_mock_user");
@@ -169,7 +180,7 @@ fn a_tampered_token_is_refused() {
     let token = mock().mint(TokenFlavour::WrongSignature, None);
 
     let err = verifier()
-        .verify(&token, None, NOW_S)
+        .verify(&token, None, now_s())
         .expect_err("the product must refuse a token it did not sign");
 
     assert_eq!(problem_code(err), "identity.bad_signature");
@@ -181,7 +192,7 @@ fn an_expired_token_is_refused() {
     let token = mock().mint(TokenFlavour::Expired, None);
 
     let err = verifier()
-        .verify(&token, None, NOW_S)
+        .verify(&token, None, now_s())
         .expect_err("the product must refuse an expired token");
 
     assert_eq!(problem_code(err), "identity.expired_token");
@@ -193,7 +204,7 @@ fn a_wrong_audience_token_is_refused() {
     let token = mock().mint(TokenFlavour::WrongAudience, None);
 
     let err = verifier()
-        .verify(&token, None, NOW_S)
+        .verify(&token, None, now_s())
         .expect_err("the product must refuse a token for another channel");
 
     assert_eq!(problem_code(err), "identity.bad_audience");
@@ -205,7 +216,7 @@ fn a_wrong_issuer_token_is_refused() {
     let token = mock().mint(TokenFlavour::WrongIssuer, None);
 
     let err = verifier()
-        .verify(&token, None, NOW_S)
+        .verify(&token, None, now_s())
         .expect_err("the product must refuse a token from another issuer");
 
     assert_eq!(problem_code(err), "identity.bad_issuer");
@@ -219,7 +230,7 @@ fn a_nonce_mismatch_is_refused() {
     let token = mock().mint(TokenFlavour::NonceMismatch, Some("nonce-issued"));
 
     let err = verifier()
-        .verify(&token, Some("nonce-presented"), NOW_S)
+        .verify(&token, Some("nonce-presented"), now_s())
         .expect_err("the product must refuse a token whose nonce does not match");
 
     assert_eq!(problem_code(err), "identity.nonce_mismatch");

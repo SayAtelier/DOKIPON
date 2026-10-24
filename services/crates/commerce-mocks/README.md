@@ -38,6 +38,14 @@ The full control surface (`/__control/faults`, `/__control/reset`,
 `/__mock/...`) is documented in `tests/mocks/README.md` at the repository
 root; this file does not repeat it.
 
+**The issuer's clock is the wall clock.** `mock-line-identity` mints `exp`
+against the real time, because the product verifies `exp` against **its own**
+clock. An issuer frozen in the past hands out tokens that every running
+service refuses with `identity.expired_token` — a token born expired, usable
+only by a test that froze the product's clock to the same instant. A test
+that wants a frozen clock calls `LineIdentityMock::set_now()`: the
+determinism lives in the test's hands, not in the issuer's.
+
 ## How the local run uses it
 
 The inputs of a local run live in one place:
