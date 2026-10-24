@@ -71,6 +71,8 @@ pub struct LineIdentityMock {
     /// Nonces already handed out. A nonce may be used once — this is what
     /// proves the server's replay defence has something to bite on.
     issued_nonces: Arc<RwLock<HashSet<String>>>,
+    /// The clock this issuer mints against. It starts at the **wall clock**,
+    /// not at a frozen constant: see [`wall_clock_s`].
     now_s: Arc<RwLock<i64>>,
 }
 
@@ -81,7 +83,7 @@ impl LineIdentityMock {
             expected_audience: expected_audience.into(),
             expected_issuer: "https://access.line.me".to_string(),
             issued_nonces: Arc::new(RwLock::new(HashSet::new())),
-            now_s: Arc::new(RwLock::new(1_700_000_000)),
+            now_s: Arc::new(RwLock::new(wall_clock_s())),
         }
     }
 
@@ -207,6 +209,28 @@ pub fn router(mock: LineIdentityMock) -> Router {
 }
 
 // ------------------------------------------------------------------ codecs
+
+/// The wall clock, in seconds since the epoch.
+///
+/// The issuer's clock starts here rather than at a frozen constant, and that
+/// is a wire requirement, not a style choice.
+///
+/// The product verifies `exp` against **its own** clock
+/// (`commerce_identity` uses the wall clock). A mock whose clock was frozen
+/// at a constant in the past therefore issued tokens that every running
+/// service refused with `identity.expired_token` — the token was born
+/// expired. Only a test that froze the *product's* clock to the same instant
+/// could use it, which is exactly the fiction this mock exists to avoid.
+///
+/// So: the default clock is the real one, and a test that wants a frozen one
+/// moves it with [`LineIdentityMock::set_now`]. That is where the
+/// determinism lives — in the test's hands, not in the issuer's.
+fn wall_clock_s() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
 
 fn b64(data: &[u8]) -> String {
     use base64::Engine;
@@ -343,5 +367,21 @@ mod tests {
         m.set_now(2_000_000_000);
         let c = decode_payload(&m.mint(TokenFlavour::Valid, None));
         assert!(c["exp"].as_i64().unwrap() > 2_000_000_000);
+    }
+
+    /// The issuer's clock is the wall clock, so a token it mints is one the
+    /// product can accept **now**. A frozen clock in the past produced tokens
+    /// that every running service refused with `identity.expired_token`: the
+    /// token was born expired.
+    #[test]
+    fn a_freshly_minted_token_is_not_born_expired() {
+        let m = mock();
+        let token = m.mint(TokenFlavour::Valid, None);
+        let exp = decode_payload(&token)["exp"].as_i64().expect("exp is a number");
+        let now = wall_clock_s();
+        assert!(
+            exp > now,
+            "the token must outlive the moment it was minted (exp {exp}, now {now})"
+        );
     }
 }
