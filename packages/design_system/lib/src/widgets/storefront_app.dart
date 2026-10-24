@@ -879,7 +879,10 @@ class _HeroBanner extends StatelessWidget {
           ),
           const SizedBox(height: DokSpace.xl),
           OutlinedButton(
-            onPressed: onShopAll,
+            // Nothing filtered means nothing to clear: the button says so by
+            // being disabled, rather than being a control that is painted,
+            // announced as a button, and does nothing.
+            onPressed: hasCategoryFilter ? onShopAll : null,
             child: const Text('SHOP COLLECTION'),
           ),
         ],

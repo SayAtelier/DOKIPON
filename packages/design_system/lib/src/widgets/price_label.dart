@@ -31,9 +31,12 @@ class PriceLabel extends StatelessWidget {
     final formatted = showCurrency
         ? '${money.format()} ${money.currency.code}'
         : money.format();
-    // Screen readers get the spoken form; a symbol alone is useless.
+    // Screen readers get the spoken form: the amount in the currency's own
+    // major unit, and the code. A symbol alone is useless — and so is a
+    // number that is not the price: the amount is in minor units, and the
+    // currencies that have no minor units (JPY) are already the price.
     return Semantics(
-      label: '${money.amountMinor / 100} ${money.currency.code}',
+      label: '${money.spokenAmount} ${money.currency.code}',
       excludeSemantics: true,
       child: Text(
         formatted,

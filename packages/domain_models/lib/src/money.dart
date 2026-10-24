@@ -94,6 +94,24 @@ class Money {
     return '$sym$whole.$frac';
   }
 
+  /// The amount in the currency's own major unit, without a symbol.
+  ///
+  /// [format] is for the screen: it carries the symbol. A screen reader
+  /// wants the number and the code, and the number has to be the **major**
+  /// unit: JPY has no minor units, so its amount is already the price.
+  ///
+  /// Dividing by 100 unconditionally is how a JPY price of 8900 came to be
+  /// announced as "89 JPY" — a blind shopper hearing a hundredth of the
+  /// price, while the sighted shopper next to them read ¥8900.
+  String get spokenAmount {
+    if (currency.decimalDigits == 0) {
+      return '$amountMinor';
+    }
+    final whole = amountMinor ~/ 100;
+    final frac = (amountMinor % 100).abs().toString().padLeft(2, '0');
+    return '$whole.$frac';
+  }
+
   Map<String, dynamic> toJson() => {
         'amountMinor': amountMinor,
         'currency': currency.code,
