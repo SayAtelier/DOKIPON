@@ -78,6 +78,10 @@ pub struct PaymentAdapter {
     pub script: Option<ProviderScript>,
     pub secret: String,
     pub sequence: u64,
+    /// The time the adapter last read the clock.
+    ///
+    /// A request reads it first, through [`PaymentAdapter::tick`]; the
+    /// tests set it directly, because they need a fixed clock.
     pub now_ms: i64,
 }
 
@@ -89,6 +93,21 @@ impl PaymentAdapter {
     pub fn with_script(mut self, script: ProviderScript) -> Self {
         self.script = Some(script);
         self
+    }
+
+    /// Read the clock and keep it as `now_ms`.
+    ///
+    /// `now_ms` is the time the adapter last read, not a value the caller
+    /// sets. A request reads it first, so a long-lived process answers with
+    /// the current time rather than with the time it started at. A webhook
+    /// that arrives five minutes after the process started is fresh; the
+    /// adapter that never read the clock says it is stale, and rejects it.
+    ///
+    /// The tests set `now_ms` directly instead, because they need a fixed
+    /// clock rather than the real one.
+    pub fn tick(&mut self) -> i64 {
+        self.now_ms = commerce_core::idempotency::now_ms();
+        self.now_ms
     }
 
     fn next_attempt_id(&mut self) -> String {
@@ -291,6 +310,7 @@ async fn authorize(
     let mut guard = store.write().map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
     let amount = Money::new(body.amount_minor, body.currency)
         .map_err(|_| status::unprocessable("payment.bad_amount", "invalid amount", "payment.authorize"))?;
+    guard.tick();
     Ok(Json(guard.authorize(&body.order_id, &body.payment_method_ref, amount)?))
 }
 
@@ -306,6 +326,7 @@ async fn reconcile(
     JsonBody(body): JsonBody<ReconcileBody>,
 ) -> Result<Json<PaymentAttempt>, AppError> {
     let mut guard = store.write().map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
+    guard.tick();
     Ok(Json(guard.reconcile(&body.provider_ref, body.provider_answer)?))
 }
 
@@ -314,7 +335,9 @@ async fn webhook(
     JsonBody(event): JsonBody<WebhookEvent>,
 ) -> Result<Json<PaymentAttempt>, AppError> {
     let mut guard = store.write().map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
-    let now = guard.now_ms;
+    // The freshness window is measured against the clock as it is now, not
+    // against the time the process started.
+    let now = guard.tick();
     Ok(Json(guard.verify_and_accept(event, now)?))
 }
 
