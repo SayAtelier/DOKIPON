@@ -64,12 +64,54 @@
       "path": "/v1/products",
       "expectStatus": 405,
       "note": "the catalogue is read-only: a write to it must be refused, not silently accepted"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/payments/authorize",
+      "expectStatus": 200,
+      "expectJson": "object",
+      "requiredFields": ["attempt_id", "provider_ref", "status", "authorized_at_ms"],
+      "requestBody": {
+        "order_id": "ord-audit-authorize",
+        "payment_method_ref": "pm-audit",
+        "amount_minor": 1500,
+        "currency": "JPY"
+      },
+      "expectFieldMinValue": { "field": "authorized_at_ms", "min": 1 },
+      "note": "the payment adapter stamps the authorization with its own clock. The clock used to be the adapter's `now_ms`, which nothing ever set: it stayed at 0, so every authorization claimed to have happened in 1970 and every webhook was rejected as stale, because the freshness window was measured against epoch zero. The audit could not see it — there was no expectation on this path at all. `authorized_at_ms` has to be a real timestamp now."
+    },
+    {
+      "method": "POST",
+      "path": "/v1/payments/webhook",
+      "expectStatus": 401,
+      "requestBody": {
+        "provider_event_id": "evt-audit-forged",
+        "event_type": "payment.authorized",
+        "provider_ref": "pref_audit_forged",
+        "occurred_at_ms": 1,
+        "signature": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "note": "the PSP webhook is authenticated by a signature the PSP alone knows. A webhook with the wrong signature must be refused. A deployment that kept the development secret would accept a webhook signed by anyone, so this is the assertion that catches it."
+    },
+    {
+      "method": "POST",
+      "path": "/v1/sessions/line",
+      "expectStatus": 401,
+      "requestBody": "forged-line-id-token",
+      "note": "the LINE id token is verified with the signing key the channel is configured with. The development key is published in this repository, so a deployment that still accepts it lets anyone mint a session for any LINE user — which means anyone can read that user's carts and place that user's orders. The audit mints a token with that key and requires the deployment to refuse it."
     }
   ],
   "adminPaths": [
     { "method": "GET", "path": "/admin/v1/products", "expectStatus": 401, "note": "the admin facade is authenticated; without a session it must refuse, not crash" },
     { "method": "GET", "path": "/admin/v1/orders", "expectStatus": 401, "note": "same" },
-    { "method": "GET", "path": "/admin/v1/inventory", "expectStatus": 401, "note": "same — the facade refuses before it even reaches the upstream" }
+    { "method": "GET", "path": "/admin/v1/inventory", "expectStatus": 401, "note": "same — the facade refuses before it even reaches the upstream" },
+    {
+      "method": "POST",
+      "path": "/admin/v1/sessions",
+      "expectStatus": 401,
+      "requestBody": { "username": "admin", "password": "dev-only-admin" },
+      "note": "the development credential must not open the operator console. The development password is published in this repository, so a deployment that still accepts it hands the whole back office — orders, inventory, reconciliation — to anyone who reads the source. This is the assertion that catches it; without it the audit said everything was fine while the console was open to the internet."
+    }
   ],
   "productDetail": {
     "$comment": "ProductDetail is required to carry these camelCase names. A server that emits snake_case here is the exact defect the prototype documented: the Dart client reads camelCase only, so the field silently arrives empty.",

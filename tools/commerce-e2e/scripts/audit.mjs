@@ -52,10 +52,11 @@
  * Writes a JSON report and a Markdown summary under `tools/commerce-e2e/reports/`.
  */
 
-import { chromium } from 'playwright';
+import { chromium, request } from 'playwright';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHmac, createHash } from 'node:crypto';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -345,8 +346,139 @@ async function tryAdminLogin(page) {
   return { ok: stillLogin === 0, reason: stillLogin === 0 ? '' : 'the console still shows the credential fields' };
 }
 
-/** Check the live API against the contract. */
-async function auditApi(page) {
+/**
+ * A LINE id token signed with the development signing key.
+ *
+ * The point of it is that it must NOT work. The development key is published
+ * in the repository, so a deployment that still accepts it lets anyone mint a
+ * session for any LINE user. The audit sends this token and requires the
+ * deployment to refuse it.
+ */
+function forgedLineIdToken() {
+  const b64 = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const now = Math.floor(Date.now() / 1000);
+  const head = b64({ alg: 'HS256', typ: 'JWT' });
+  const payload = b64({
+    iss: 'https://access.line.me',
+    aud: 'dev-channel',
+    sub: 'U_AUDIT_FORGED_USER',
+    exp: now + 600,
+  });
+  const signature = createHmac('sha256', 'dev-only-key')
+    .update(`${head}.${payload}`)
+    .digest('hex');
+  return `${head}.${payload}.${signature}`;
+}
+
+/** The body a request is sent with. */
+function requestBodyFor(spec) {
+  if (spec.requestBody === 'forged-line-id-token') {
+    return JSON.stringify({ id_token: forgedLineIdToken() });
+  }
+  if (spec.requestBody) return JSON.stringify(spec.requestBody);
+  // A POST without a body is rejected by the JSON extractor before the
+  // handler ever runs, which would test the extractor's taste rather than
+  // the endpoint. Send an empty JSON object instead.
+  return '{}';
+}
+
+/**
+ * The PSP webhook secret must not be the development one.
+ *
+ * The audit mints an attempt and then sends a webhook signed with the
+ * development secret. A deployment that still holds the development secret
+ * accepts that signature, and the answer says so: either the webhook is
+ * confirmed (200), or it is refused as stale — a refusal that only happens
+ * *after* the signature was accepted. A deployment with a real secret
+ * refuses the signature itself.
+ *
+ * The error code is what tells the two apart, so the code is checked, not
+ * only the status: a bare 401 would pass on a deployment whose secret is
+ * still the development one.
+ */
+async function auditPaymentSecret(api) {
+  const problems = [];
+  let status = null;
+  let code = null;
+  try {
+    const authorize = await api.fetch(`${BASE}/v1/payments/authorize`, {
+      method: 'POST',
+      timeout: 20_000,
+      headers: { 'content-type': 'application/json' },
+      data: JSON.stringify({
+        order_id: 'ord-audit-webhook',
+        payment_method_ref: 'pm-audit-webhook',
+        amount_minor: 1500,
+        currency: 'JPY',
+      }),
+    });
+    if (authorize.status() !== 200) {
+      problems.push(`could not mint an attempt to sign a webhook for: status ${authorize.status()}`);
+    } else {
+      const attempt = await authorize.json();
+      const occurredAtMs = Date.now();
+      const separator = '\x1f';
+      const raw = [
+        'dev-only-secret',
+        'evt-audit-forged-webhook',
+        'payment.authorized',
+        attempt.provider_ref,
+        String(occurredAtMs),
+      ].join(separator);
+      const signature = createHash('sha256').update(raw, 'utf8').digest('hex');
+      const res = await api.fetch(`${BASE}/v1/payments/webhook`, {
+        method: 'POST',
+        timeout: 20_000,
+        headers: { 'content-type': 'application/json' },
+        data: JSON.stringify({
+          provider_event_id: 'evt-audit-forged-webhook',
+          event_type: 'payment.authorized',
+          provider_ref: attempt.provider_ref,
+          occurred_at_ms: occurredAtMs,
+          signature,
+        }),
+      });
+      status = res.status();
+      const text = await res.text();
+      try {
+        code = JSON.parse(text).code ?? null;
+      } catch {
+        code = null;
+      }
+      if (status !== 401) {
+        problems.push(
+          `status ${status}, expected 401 — the deployment accepted a webhook signed with the ` +
+            'development secret',
+        );
+      } else if (code !== 'payment.webhook_bad_signature') {
+        problems.push(
+          `problem code \`${code}\`, expected \`payment.webhook_bad_signature\` — the deployment ` +
+            "accepted the development secret's signature and refused the event for another reason",
+        );
+      }
+    }
+  } catch (e) {
+    problems.push(`request failed: ${String(e && e.message ? e.message : e).split('\n')[0]}`);
+  }
+  return [
+    {
+      path: '/v1/payments/webhook (signed with the development secret)',
+      method: 'POST',
+      status,
+      problems,
+      note: 'the PSP webhook secret must not be the development one',
+    },
+  ];
+}
+
+/**
+ * Check the live API against the contract.
+ *
+ * `api` is a Playwright APIRequestContext. The contract check does not need
+ * a browser — only the surface audit does — so the same check runs on its
+ * own, without waiting for a Flutter app to boot.
+ */
+async function auditApi(api) {
   const results = [];
   const check = async (spec) => {
     const url = BASE + spec.path;
@@ -354,15 +486,12 @@ async function auditApi(page) {
     let status = null;
     let body = null;
     try {
-      // A POST without a body is rejected by the JSON extractor before the
-      // handler ever runs, which would test the extractor's taste rather
-      // than the endpoint. Send an empty JSON object instead.
       const init = { method: spec.method, timeout: 20_000 };
       if (spec.method === 'POST' || spec.method === 'PATCH' || spec.method === 'PUT') {
-        init.data = '{}';
+        init.data = requestBodyFor(spec);
         init.headers = { 'content-type': 'application/json' };
       }
-      const res = await page.request.fetch(url, init);
+      const res = await api.fetch(url, init);
       status = res.status();
       const text = await res.text();
       if (text.trim().length > 0) {
@@ -392,6 +521,15 @@ async function auditApi(page) {
         problems.push(`\`${spec.expectArrayField.field}\` is empty`);
       }
     }
+    if (body && spec.expectFieldMinValue) {
+      const { field, min } = spec.expectFieldMinValue;
+      const value = body[field];
+      if (typeof value !== 'number') {
+        problems.push(`\`${field}\` is not a number (${JSON.stringify(value)})`);
+      } else if (value < min) {
+        problems.push(`\`${field}\` is ${value}, which is below ${min}`);
+      }
+    }
     results.push({ path: spec.path, method: spec.method, status, problems, note: spec.note });
   };
 
@@ -400,12 +538,12 @@ async function auditApi(page) {
 
   // A product detail must carry the camelCase names the Dart client reads.
   try {
-    const res = await page.request.fetch(`${BASE}/v1/products`, { timeout: 20_000 });
+    const res = await api.fetch(`${BASE}/v1/products`, { timeout: 20_000 });
     const page1 = await res.json();
     const first = (page1.items || [])[0];
     if (first) {
       const id = first.productId ?? first.id ?? '';
-      const detail = await page.request.fetch(`${BASE}/v1/products/${encodeURIComponent(id)}`, { timeout: 20_000 });
+      const detail = await api.fetch(`${BASE}/v1/products/${encodeURIComponent(id)}`, { timeout: 20_000 });
       if (detail.status() === 200) {
         const p = await detail.json();
         const missing = EXPECT.productDetail.requiredFields.filter((f) => !(f in p));
@@ -431,6 +569,11 @@ async function auditApi(page) {
   } catch (e) {
     results.push({ path: '/v1/products (detail)', method: 'GET', status: null, problems: [String(e && e.message ? e.message : e).split('\n')[0]], note: '' });
   }
+
+  // The webhook secret is checked on its own, because it needs a two-step
+  // dance — mint an attempt, then sign a webhook for it — that the static
+  // expectation list cannot express.
+  results.push(...(await auditPaymentSecret(api)));
 
   return results;
 }
@@ -585,24 +728,37 @@ async function auditSurface(browser, name, path) {
 
 async function main() {
   mkdirSync(REPORTS, { recursive: true });
-  const browser = await chromium.launch({
-    channel: 'chrome',
-    args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
-  });
+  // The contract check does not need a browser. `DOKIPON_AUDIT_API_ONLY=1`
+  // runs it on its own, which keeps a contract re-check quick on a slow
+  // link, where booting the Flutter app takes minutes.
+  const apiOnly = process.env.DOKIPON_AUDIT_API_ONLY === '1';
 
   const started = new Date().toISOString();
   const out = { base: BASE, startedAt: started, surfaces: [], api: [] };
-  try {
-    const ctx = await browser.newContext({ viewport: VIEWPORT });
-    const page = await ctx.newPage();
-    out.api = await auditApi(page);
-    await ctx.close();
-
-    for (const [name, path] of [['storefront', '/'], ['admin', '/admin/']]) {
-      out.surfaces.push(await auditSurface(browser, name, path));
+  if (apiOnly) {
+    const api = await request.newContext();
+    try {
+      out.api = await auditApi(api);
+    } finally {
+      await api.dispose();
     }
-  } finally {
-    await browser.close();
+  } else {
+    const browser = await chromium.launch({
+      channel: 'chrome',
+      args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+    });
+    try {
+      const ctx = await browser.newContext({ viewport: VIEWPORT });
+      const page = await ctx.newPage();
+      out.api = await auditApi(page.request);
+      await ctx.close();
+
+      for (const [name, path] of [['storefront', '/'], ['admin', '/admin/']]) {
+        out.surfaces.push(await auditSurface(browser, name, path));
+      }
+    } finally {
+      await browser.close();
+    }
   }
 
   out.finishedAt = new Date().toISOString();
