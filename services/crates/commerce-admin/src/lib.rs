@@ -312,6 +312,12 @@ pub struct AdminState {
     /// service treats an unknown session as an empty buyer, and a deployment
     /// that has seeded an all-orders session needs its own id here.
     admin_session_id: String,
+    /// The service-to-service credential, when the deployment has a real one.
+    ///
+    /// The operator's view of the orders crosses the buyer boundary, so the
+    /// order service only serves it to a caller that presents this. It lives
+    /// in the deployment's environment and never reaches a browser.
+    service_token: Option<String>,
 }
 
 #[derive(Clone)]
@@ -388,6 +394,7 @@ impl AdminState {
             client,
             upstreams: Upstreams::from_env(),
             admin_session_id: env_or("ADMIN_SESSION_ID", "admin-console"),
+            service_token: commerce_core::secrets::service_token(),
         })
     }
 }
@@ -479,9 +486,17 @@ struct InventoryQuery {
     cursor: Option<String>,
 }
 
+/// The page parameters of `GET /admin/v1/payments`.
+///
+/// The contract gives this path an `orderId` filter and a cursor, and the
+/// facade has to pass both on: it used to forward only `limit`, so the
+/// contract's filters could not reach the adapter at all.
 #[derive(Debug, Deserialize)]
 struct PaymentsQuery {
     limit: Option<u32>,
+    #[serde(rename = "orderId", alias = "order_id")]
+    order_id: Option<String>,
+    cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -775,10 +790,10 @@ async fn list_orders(
     if let Some(value) = query.cursor {
         pairs.push(("cursor".to_string(), value));
     }
-    request_upstream(
+    request_upstream_as_operator(
         &state,
         &state.upstreams.order,
-        "/v1/orders",
+        "/v1/operator/orders",
         Method::GET,
         encode_query(pairs),
         None,
@@ -792,10 +807,10 @@ async fn order_detail(
     Path(order_id): Path<String>,
     Extension(correlation): Extension<CorrelationId>,
 ) -> Result<Response, AppError> {
-    request_upstream(
+    request_upstream_as_operator(
         &state,
         &state.upstreams.order,
-        &format!("/v1/orders/{}", encode_segment(&order_id)),
+        &format!("/v1/operator/orders/{}", encode_segment(&order_id)),
         Method::GET,
         None,
         None,
@@ -810,10 +825,10 @@ async fn reconcile_order(
     Extension(correlation): Extension<CorrelationId>,
     JsonBody(body): JsonBody<ReconcileRequest>,
 ) -> Result<Response, AppError> {
-    request_upstream(
+    request_upstream_as_operator(
         &state,
         &state.upstreams.order,
-        &format!("/v1/orders/{}/reconcile", encode_segment(&order_id)),
+        &format!("/v1/operator/orders/{}/reconcile", encode_segment(&order_id)),
         Method::POST,
         None,
         Some(serde_json::json!({ "authorized": body.authorized })),
@@ -903,10 +918,16 @@ async fn list_payments(
     Query(query): Query<PaymentsQuery>,
     Extension(correlation): Extension<CorrelationId>,
 ) -> Result<Response, AppError> {
-    let pairs = query
-        .limit
-        .map(|value| vec![("limit".to_string(), value.to_string())])
-        .unwrap_or_default();
+    let mut pairs = Vec::new();
+    if let Some(value) = query.limit {
+        pairs.push(("limit".to_string(), value.to_string()));
+    }
+    if let Some(value) = query.order_id {
+        pairs.push(("orderId".to_string(), value));
+    }
+    if let Some(value) = query.cursor {
+        pairs.push(("cursor".to_string(), value));
+    }
     request_upstream(
         &state,
         &state.upstreams.payment_adapter,
@@ -987,6 +1008,36 @@ async fn request_upstream(
     body: Option<Value>,
     correlation: &CorrelationId,
 ) -> Result<Response, AppError> {
+    request_upstream_with(state, base_url, path, method, query, body, correlation, false).await
+}
+
+/// The same call, as the operator.
+///
+/// It presents the service-to-service credential and asks for the operator's
+/// view of the orders — the one that crosses the buyer boundary, and the one
+/// the contract describes for `GET /admin/v1/orders`.
+async fn request_upstream_as_operator(
+    state: &AdminState,
+    base_url: &str,
+    path: &str,
+    method: Method,
+    query: Option<String>,
+    body: Option<Value>,
+    correlation: &CorrelationId,
+) -> Result<Response, AppError> {
+    request_upstream_with(state, base_url, path, method, query, body, correlation, true).await
+}
+
+async fn request_upstream_with(
+    state: &AdminState,
+    base_url: &str,
+    path: &str,
+    method: Method,
+    query: Option<String>,
+    body: Option<Value>,
+    correlation: &CorrelationId,
+    operator: bool,
+) -> Result<Response, AppError> {
     let url = match query {
         Some(query) => format!("{}{}?{}", base_url.trim_end_matches('/'), path, query),
         None => format!("{}{}", base_url.trim_end_matches('/'), path),
@@ -1000,6 +1051,25 @@ async fn request_upstream(
         // behalf of the configured admin session rather than a customer, so it
         // must present one or every order read fails.
         .header("x-session-id", state.admin_session_id.as_str());
+    // The operator's view crosses the buyer boundary, so the order service
+    // only serves it to a caller that holds the service-to-service
+    // credential. Without one the answer is "not available", never "every
+    // order".
+    let request = if operator {
+        match state.service_token.as_deref() {
+            Some(token) => request.header("x-service-token", token),
+            None => {
+                return Err(error::status::service_unavailable(
+                    "admin.no_service_credential",
+                    "this deployment has no service-to-service credential, so the operator's \
+                     view of the orders is not available",
+                    &correlation.0,
+                ));
+            }
+        }
+    } else {
+        request
+    };
     let request = match body {
         Some(body) => request.json(&body),
         None => request,
@@ -1236,6 +1306,7 @@ mod tests {
                 .expect("client"),
             upstreams: Upstreams::all_to(base_url),
             admin_session_id: "admin-console".to_string(),
+            service_token: Some("test-service-token".to_string()),
         }
     }
 

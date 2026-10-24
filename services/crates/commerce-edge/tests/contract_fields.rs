@@ -10,10 +10,10 @@
 //!
 //! The contract is not uniformly camelCase, and that is the point of this
 //! test: `amountMinor` and `sessionId` are camelCase, while
-//! `unit_amount_minor`, `unit_amount_snapshot`, `next_cursor`, `owner_id` and
-//! `expires_at_ms` are snake_case. A blanket rename to camelCase breaks the
-//! second group just as surely as the current snake_case breaks the first, so
-//! every assertion below names the exact spelling the contract uses.
+//! `unit_amount_snapshot`, `next_cursor`, `owner_id` and `expires_at_ms` are
+//! snake_case. A blanket rename to camelCase breaks the second group just as
+//! surely as the current snake_case breaks the first, so every assertion
+//! below names the exact spelling the contract uses.
 //!
 //! No network and no ports: the gateway is driven in-process with
 //! `tower::ServiceExt::oneshot`.
@@ -242,14 +242,17 @@ async fn a_checkout_and_its_order_use_the_contract_field_names() {
         "awaitingReconciliation: {body}"
     );
 
-    // `OrderDetail.lines[]`: sku, quantity, unit_amount_minor — snake_case.
+    // `OrderDetail.lines[]`: sku, quantity, unitPrice — and `unitPrice` is a
+    // `Money` object, the same shape as the order's `total` and the
+    // product's `price`. The line used to carry a flat `unit_amount_minor`,
+    // which is what no client reads: the Dart client looks for `unitAmount`,
+    // `unit_amount`, `unitPrice` or `unit_price`, and threw while parsing.
     let line = &body["lines"][0];
     assert_eq!(line["sku"], "sku-bra-01", "line: {line}");
     assert_eq!(line["quantity"], 2, "line: {line}");
-    assert!(
-        line["unit_amount_minor"].is_i64(),
-        "line.unit_amount_minor: {line}"
-    );
+    assert!(line["unitPrice"]["amountMinor"].is_i64(), "line.unitPrice: {line}");
+    assert!(line["unitPrice"]["currency"].is_string(), "line.unitPrice: {line}");
+    assert!(line.get("unit_amount_minor").is_none(), "line: {line}");
 
     // `Money` nested, camelCase — the total of two 8900-yen bras.
     assert_eq!(body["total"]["amountMinor"], 17800, "total: {body}");
@@ -268,7 +271,36 @@ async fn a_checkout_and_its_order_use_the_contract_field_names() {
 
     // The client's price claim was discarded: the catalogue price won.
     assert_eq!(
-        line["unit_amount_minor"], 8900,
+        line["unitPrice"]["amountMinor"], 8900,
         "the server must price from the catalogue, not from the client's claim"
+    );
+}
+
+#[tokio::test]
+async fn a_checkout_that_sends_the_contract_line_is_accepted() {
+    // The contract's `OrderLineInput` requires `sku` and `quantity`. The
+    // price is optional and ignored for billing — the server resolves it
+    // from the catalogue. The service used to require the price anyway, so
+    // a client that sent the contract's line as written was rejected with
+    // 422 before the order was ever priced.
+    let gateway = gateway();
+    let (status, body) = call(
+        &gateway,
+        "POST",
+        "/v1/checkouts",
+        Some(json!({
+            "lines": [{"sku": "sku-bra-01", "quantity": 1}],
+            "paymentMethodRef": "tok_test",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "body: {body}");
+
+    // The response carries the order id the client navigates to.
+    assert!(body["orderId"].is_string(), "orderId: {body}");
+    assert!(body["terminal"].is_boolean(), "terminal: {body}");
+    assert!(
+        body["awaitingReconciliation"].is_boolean(),
+        "awaitingReconciliation: {body}"
     );
 }

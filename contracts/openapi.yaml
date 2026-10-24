@@ -362,6 +362,30 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
 
+  /v1/content:
+    get:
+      tags: [content]
+      operationId: content.read
+      summary: Read the editable storefront content document.
+      description: |
+        The collections, series, trends, topics, pages, FAQ, banners and size
+        guides the operator edits in the admin console. The storefront reads
+        them from here, so the shop's navigation and editorial content come
+        from one document rather than from a hard-coded list.
+
+        The document is served by the edge itself, so the browser stays on a
+        single origin and the page needs no CORS preflight to render its
+        navigation. A content service that is down does not take the
+        catalogue down with it: the edge answers with an empty document and
+        the storefront falls back to its own defaults.
+      responses:
+        '200':
+          description: The content document.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDocument' }
+        '503': { $ref: '#/components/responses/Problem' }
+
   /admin/v1/sessions:
     post:
       tags: [admin]
@@ -423,6 +447,15 @@ paths:
       description: |
         **Required role:** `viewer`. Operators inherit viewer access; admins
         inherit operator and viewer access.
+
+        **How the facade gets this view.** The order service scopes every
+        read to the buyer in `X-Session-Id`, so the facade cannot read another
+        customer's order with a session id. It therefore asks the order
+        service for the operator's view over a service-to-service channel
+        that is not part of this public contract: the order service serves
+        `/v1/operator/orders` only to a caller that presents the deployment's
+        service-to-service credential. No public path resolves to it, and a
+        browser can never present that credential.
       security:
         - adminBearerAuth: []
       x-required-role: viewer
@@ -741,6 +774,57 @@ paths:
         '409': { $ref: '#/components/responses/Problem' }
         '503': { $ref: '#/components/responses/Problem' }
 
+  /admin/v1/content:
+    get:
+      tags: [admin]
+      operationId: admin.content.read
+      summary: Read the editable storefront content document.
+      description: |
+        **Required role:** `viewer`. Operators inherit viewer access; admins
+        inherit operator and viewer access.
+      security:
+        - adminBearerAuth: []
+      x-required-role: viewer
+      responses:
+        '200':
+          description: The content document.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDocument' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+    put:
+      tags: [admin]
+      operationId: admin.content.write
+      summary: Replace the editable storefront content document.
+      description: |
+        **Required role:** `operator`. Operators inherit operator access;
+        admins inherit it too.
+
+        The document carries a `revision`. The console sends back the
+        revision it read, and the service refuses a write against a stale
+        one, so two operators cannot silently overwrite each other.
+      security:
+        - adminBearerAuth: []
+      x-required-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContentDocument' }
+      responses:
+        '200':
+          description: The document as it now stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDocument' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
   /admin/v1/payments:
     get:
       tags: [admin]
@@ -750,18 +834,10 @@ paths:
         **Required role:** `viewer`. Operators inherit viewer access; admins
         inherit operator and viewer access.
 
-        **Not yet backed by an upstream endpoint.** The payment adapter exposes
-        only `POST /v1/payments/authorize`, `POST /v1/payments/reconcile` and
-        `POST /v1/payments/webhook`; it has no read route. A request therefore
-        returns `404` with code `admin.upstream_error` until the adapter gains a
-        listing route. Payment history for a specific order is still reachable
-        indirectly, because the order service embeds the attempt outcome in the
-        order detail response.
+        The facade forwards this to the payment adapter's listing route.
       security:
         - adminBearerAuth: []
       x-required-role: viewer
-      x-implemented: false
-      x-blocked-by: payment-adapter-has-no-list-route
       parameters:
         - name: orderId
           in: query
@@ -1051,10 +1127,11 @@ components:
           type: array
           items:
             type: object
+            required: [sku, quantity, unitPrice]
             properties:
               sku: { type: string }
               quantity: { type: integer }
-              unit_amount_minor: { type: integer }
+              unitPrice: { $ref: '#/components/schemas/Money' }
         total: { $ref: '#/components/schemas/Money' }
         reservationId: { type: [string, 'null'] }
         awaitingReconciliation: { type: boolean }
@@ -1117,6 +1194,33 @@ components:
         timeline:
           type: array
           items: { $ref: '#/components/schemas/TrailEntry' }
+
+    ContentDocument:
+      type: object
+      description: |
+        The editable content document. The eight collections are the
+        editorial content the storefront renders around the catalogue; each
+        item's own shape is defined by the design atlas, and the service is
+        the authority on it.
+      required:
+        [collections, series, trends, topics, pages, faqs, banners, size_guides, updated_at_ms, revision]
+      properties:
+        collections: { type: array, items: { type: object } }
+        series: { type: array, items: { type: object } }
+        trends: { type: array, items: { type: object } }
+        topics: { type: array, items: { type: object } }
+        pages: { type: array, items: { type: object } }
+        faqs: { type: array, items: { type: object } }
+        banners: { type: array, items: { type: object } }
+        size_guides: { type: array, items: { type: object } }
+        updated_at_ms:
+          type: integer
+          format: int64
+          description: When the document was last written, in epoch milliseconds.
+        revision:
+          type: integer
+          format: int64
+          description: Bumped on every write. A write against a stale revision is refused.
 
     Storefront:
       type: object

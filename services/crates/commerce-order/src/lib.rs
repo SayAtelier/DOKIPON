@@ -15,7 +15,7 @@
 //! - a client may never POST a retry to force re-charge
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -72,6 +72,54 @@ pub struct OrderLine {
 /// catalogue's currency.
 fn default_currency() -> Currency {
     Currency::Jpy
+}
+
+/// A line as the client sends it.
+///
+/// The contract's `OrderLineInput` (`contracts/openapi.yaml`) requires
+/// `sku` and `quantity`; `unit_amount_minor` is optional and explicitly
+/// ignored for billing. The order service used to deserialize its **response**
+/// shape here, which made `unit_amount_minor` mandatory — so a client that
+/// sent the contract's line as written was rejected with 422 before the
+/// order was ever priced, even though the price was about to be discarded
+/// anyway.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OrderLineInput {
+    pub sku: String,
+    pub quantity: u32,
+    /// The client's claim about the unit price.
+    ///
+    /// Accepted so that a client which sends it still works, and discarded:
+    /// the server resolves the price from the catalogue.
+    #[serde(default)]
+    pub unit_amount_minor: Option<i64>,
+    /// The currency the client claims. Accepted, and discarded the same way.
+    #[serde(default)]
+    pub currency: Option<Currency>,
+}
+
+/// A line as the contract spells it.
+///
+/// The contract's `AdminOrderDetail` names the field `unitPrice` and gives it
+/// the `Money` shape (`contracts/openapi.yaml` -> `Money`:
+/// `{amountMinor, currency}`), and the Dart client reads it that way
+/// (`packages/api_client/lib/src/admin_models.dart` -> `_orderLine` looks for
+/// `unitAmount`, `unit_amount`, `unitPrice`, `unit_price`).
+///
+/// The service used to emit a flat `unit_amount_minor`, which is none of
+/// those: the admin console's order detail threw a `FormatException` while
+/// parsing the line, and the line's amount was never shown. The stored line
+/// is the service's own shape, so the projection is explicit rather than a
+/// blanket rename that would break the fields that are right.
+fn line_json(line: &OrderLine) -> serde_json::Value {
+    serde_json::json!({
+        "sku": line.sku,
+        "quantity": line.quantity,
+        "unitPrice": {
+            "amountMinor": line.unit_amount_minor,
+            "currency": line.currency,
+        },
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -476,7 +524,7 @@ impl OrderStore {
 /// not been updated still works.
 #[derive(Debug, Deserialize)]
 pub struct SubmitBody {
-    pub lines: Vec<OrderLine>,
+    pub lines: Vec<OrderLineInput>,
     #[serde(rename = "paymentMethodRef", alias = "payment_method_ref")]
     pub payment_method_ref: String,
 }
@@ -486,6 +534,20 @@ pub struct ReconcileBody {
     pub authorized: bool,
 }
 
+/// The header the admin facade presents to ask for an operator's view.
+///
+/// The operator's view crosses the buyer boundary: it lists every customer's
+/// orders and reads any one of them. That is exactly the capability a
+/// customer must not have, so the order service serves it only to a caller
+/// that holds the service-to-service credential — a secret that lives in the
+/// deployment's environment and never reaches a browser.
+///
+/// The routes live under `/v1/operator/`, which no public path resolves to:
+/// the path table in `commerce_core::routes` owns `/v1/orders`, and
+/// `/v1/operator/orders` is not under it, so the gateway answers 404 for it
+/// and the only way in is the facade's own upstream call.
+const OPERATOR_TOKEN_HEADER: &str = "x-service-token";
+
 pub fn router(state: SharedOrder, prices: Arc<dyn PriceSource>) -> Router {
     Router::new()
         .route("/v1/checkouts", post(submit_checkout))
@@ -493,6 +555,12 @@ pub fn router(state: SharedOrder, prices: Arc<dyn PriceSource>) -> Router {
         .route("/v1/orders/{order_id}", get(order_detail))
         .route("/v1/orders/{order_id}/reconcile", post(reconcile_checkout))
         .route("/v1/orders", get(list_orders))
+        .route("/v1/operator/orders", get(operator_list_orders))
+        .route("/v1/operator/orders/{order_id}", get(operator_order_detail))
+        .route(
+            "/v1/operator/orders/{order_id}/reconcile",
+            post(operator_reconcile_checkout),
+        )
         .route("/healthz", get(health))
         .with_state((state, prices))
 }
@@ -525,7 +593,7 @@ fn actor(headers: &HeaderMap) -> Result<String, AppError> {
 /// - the catalogue reports a currency this build does not know → 502,
 ///   because that is a contract violation upstream, not a shopper's mistake.
 async fn reprice(
-    lines: &[OrderLine],
+    lines: &[OrderLineInput],
     prices: &Arc<dyn PriceSource>,
 ) -> Result<Vec<OrderLine>, AppError> {
     const TRACE: &str = "checkout.reprice";
@@ -631,11 +699,24 @@ async fn submit_checkout(
         StatusCode::ACCEPTED
     };
 
+    // The contract's `CheckoutSnapshot` carries `orderId`, `terminal` and
+    // `awaitingReconciliation`. The submit response used to carry none of
+    // them, only `pollable` — so a client that had just bought something had
+    // no order id to navigate to, and the Dart client reads `orderId` from
+    // this very response.
+    let order_id = guard
+        .by_checkout(&checkout_id)
+        .ok()
+        .map(|order| order.order_id.clone());
+
     Ok((
         code,
         Json(serde_json::json!({
             "checkoutId": checkout_id,
+            "orderId": order_id,
             "status": state.as_str(),
+            "terminal": state.is_terminal(),
+            "awaitingReconciliation": state == CheckoutState::PaymentUnknown,
             "pollable": state.is_pollable() || !state.is_terminal(),
             "traceId": guard.now_ms.to_string(),
         })),
@@ -685,15 +766,7 @@ async fn order_detail(
     if order.buyer_id != session {
         return Err(status::forbidden("order.forbidden", "order belongs to another session", "orders.detail"));
     }
-    Ok(Json(serde_json::json!({
-        "orderId": order.order_id,
-        "state": order.state,
-        "lines": order.lines,
-        "total": order.total,
-        "reservationId": order.reservation_id,
-        "awaitingReconciliation": order.awaiting_reconciliation,
-        "timeline": order.trail,
-    })))
+    Ok(Json(order_json(order)))
 }
 
 /// `checkout.reconcile` — the ONLY way out of `PaymentUnknown`.
@@ -751,6 +824,154 @@ async fn list_orders(
     })))
 }
 
+/// The query the operator's order list accepts.
+///
+/// The same three the contract gives `GET /admin/v1/orders`: a state filter,
+/// a page size and a cursor.
+#[derive(Debug, Default, Deserialize)]
+pub struct OperatorOrdersQuery {
+    pub state: Option<CheckoutState>,
+    pub limit: Option<usize>,
+    pub cursor: Option<String>,
+}
+
+/// Check that the request carries the service-to-service credential.
+///
+/// A request without it is refused. That is the whole point: the operator's
+/// view crosses the buyer boundary, and in the function topology the order
+/// service is reachable from the internet, so "the caller says it is an
+/// operator" is not a thing anybody may assert.
+fn require_operator(headers: &HeaderMap) -> Result<(), AppError> {
+    let Some(expected) = commerce_core::secrets::service_token() else {
+        return Err(status::service_unavailable(
+            "order.operator_not_configured",
+            "this deployment has no service-to-service credential, so the operator's view of the orders is not available",
+            "orders.operator",
+        ));
+    };
+    let supplied = headers
+        .get(OPERATOR_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    if !commerce_core::secrets::secret_matches(&expected, supplied) {
+        return Err(status::forbidden(
+            "order.operator_forbidden",
+            "the operator's view of the orders requires the service-to-service credential",
+            "orders.operator",
+        ));
+    }
+    Ok(())
+}
+
+/// The operator's view of the orders: every customer's, not one buyer's.
+///
+/// The contract's `GET /admin/v1/orders` says "List orders across customer
+/// sessions", and the admin facade is the only caller allowed to ask for it.
+/// The order service scoped every read to the session in the header, so the
+/// facade's list was always empty: the operator console showed a table with
+/// no rows, and no order could be opened from it.
+async fn operator_list_orders(
+    State((store, _prices)): State<(SharedOrder, Arc<dyn PriceSource>)>,
+    Query(query): Query<OperatorOrdersQuery>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, AppError> {
+    require_operator(&headers)?;
+    let guard = store.read().map_err(|_| AppError::Internal("order lock poisoned".into()))?;
+
+    let mut orders: Vec<&Order> = guard.orders.values().collect();
+    // Newest first. The order ids are zero-padded sequences, so sorting by
+    // the id sorts by the order the orders were created.
+    orders.sort_by(|a, b| b.order_id.cmp(&a.order_id));
+    if let Some(state) = query.state {
+        orders.retain(|order| order.state == state);
+    }
+
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
+    let start = match query.cursor.as_deref() {
+        Some(cursor) => orders
+            .iter()
+            .position(|order| order.order_id == cursor)
+            .map(|index| index + 1)
+            .unwrap_or(0),
+        None => 0,
+    };
+    let page: Vec<&Order> = orders.iter().skip(start).take(limit).copied().collect();
+    let next_cursor = if start + page.len() < orders.len() {
+        page.last().map(|order| order.order_id.clone())
+    } else {
+        None
+    };
+
+    Ok(Json(serde_json::json!({
+        "items": page
+            .iter()
+            .map(|order| serde_json::json!({
+                "orderId": order.order_id,
+                "state": order.state,
+                "total": order.total,
+                "awaitingReconciliation": order.awaiting_reconciliation,
+            }))
+            .collect::<Vec<_>>(),
+        "next_cursor": next_cursor,
+    })))
+}
+
+/// One order, read across customer sessions.
+///
+/// The buyer-scoped route answers 403 for somebody else's order — correct
+/// for a customer, useless for the operator, whose job is to read exactly
+/// those orders.
+async fn operator_order_detail(
+    State((store, _prices)): State<(SharedOrder, Arc<dyn PriceSource>)>,
+    Path(order_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, AppError> {
+    require_operator(&headers)?;
+    let guard = store.read().map_err(|_| AppError::Internal("order lock poisoned".into()))?;
+    let order = guard.get(&order_id)?;
+    Ok(Json(order_json(order)))
+}
+
+/// The operator's recovery of an order in `payment_unknown`.
+///
+/// The buyer-scoped route keeps the owner check — a customer may not
+/// reconcile somebody else's order. The operator may, because recovering a
+/// payment the provider already answered for is the operator's job.
+async fn operator_reconcile_checkout(
+    State((store, _prices)): State<(SharedOrder, Arc<dyn PriceSource>)>,
+    Path(order_id): Path<String>,
+    headers: HeaderMap,
+    JsonBody(body): JsonBody<ReconcileBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    require_operator(&headers)?;
+    let mut guard = store
+        .write()
+        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
+    let final_state = guard.reconcile(&order_id, body.authorized)?;
+    Ok(Json(serde_json::json!({
+        "orderId": order_id,
+        "state": final_state,
+        "awaitingReconciliation": false,
+    })))
+}
+
+/// An order as the contract spells it.
+///
+/// One projection for both views: the buyer's route and the operator's route
+/// answer the same document, so the contract's two line shapes cannot drift
+/// apart behind a single field name.
+fn order_json(order: &Order) -> serde_json::Value {
+    serde_json::json!({
+        "orderId": order.order_id,
+        "state": order.state,
+        "lines": order.lines.iter().map(line_json).collect::<Vec<_>>(),
+        "total": order.total,
+        "reservationId": order.reservation_id,
+        "awaitingReconciliation": order.awaiting_reconciliation,
+        "timeline": order.trail,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -759,6 +980,18 @@ mod tests {
 
     fn line(sku: &str, qty: u32, amount: i64) -> OrderLine {
         OrderLine { sku: sku.into(), quantity: qty, unit_amount_minor: amount, currency: Currency::Jpy }
+    }
+
+    /// A line as a client sends it. `amount` is the client's *claim* about
+    /// the price, which the server discards; `None` is what a client that
+    /// sends the contract's line as written looks like.
+    fn input(sku: &str, qty: u32, amount: Option<i64>) -> OrderLineInput {
+        OrderLineInput {
+            sku: sku.into(),
+            quantity: qty,
+            unit_amount_minor: amount,
+            currency: None,
+        }
     }
 
     fn store() -> OrderStore {
@@ -833,7 +1066,7 @@ mod tests {
         let prices: Arc<dyn PriceSource> = Arc::new(PriceAuthority::new(catalog.base_url.clone()));
 
         // The client lies: it claims one cent.
-        let lines = vec![line("sku-bra-01", 1, 1)];
+        let lines = vec![input("sku-bra-01", 1, Some(1))];
         let repriced = reprice(&lines, &prices).await.expect("reprice");
 
         assert_eq!(repriced.len(), 1);
@@ -851,7 +1084,7 @@ mod tests {
         let catalog = mock_catalog(r#"{"items":[]}"#.to_string()).await;
         let prices: Arc<dyn PriceSource> = Arc::new(PriceAuthority::new(catalog.base_url.clone()));
 
-        let lines = vec![line("sku-does-not-exist", 1, 1)];
+        let lines = vec![input("sku-does-not-exist", 1, Some(1))];
         let err = reprice(&lines, &prices).await.expect_err("must reject");
         assert_eq!(problem_status(&err), 422);
     }
@@ -862,7 +1095,7 @@ mod tests {
     async fn an_unreachable_catalogue_fails_closed() {
         // Port 1 on loopback refuses connections.
         let prices: Arc<dyn PriceSource> = Arc::new(PriceAuthority::new("http://127.0.0.1:1".to_string()));
-        let lines = vec![line("sku-bra-01", 1, 1)];
+        let lines = vec![input("sku-bra-01", 1, Some(1))];
         let err = reprice(&lines, &prices).await.expect_err("must reject");
         assert_eq!(problem_status(&err), 503);
     }
@@ -878,12 +1111,12 @@ mod tests {
         .await;
         let prices: Arc<dyn PriceSource> = Arc::new(PriceAuthority::new(catalog.base_url.clone()));
 
-        let zero = reprice(&[line("sku-bra-01", 0, 8900)], &prices)
+        let zero = reprice(&[input("sku-bra-01", 0, Some(8900))], &prices)
             .await
             .expect_err("zero quantity must be rejected");
         assert_eq!(problem_status(&zero), 422);
 
-        let huge = reprice(&[line("sku-bra-01", 1000, 8900)], &prices)
+        let huge = reprice(&[input("sku-bra-01", 1000, Some(8900))], &prices)
             .await
             .expect_err("quantity over 99 must be rejected");
         assert_eq!(problem_status(&huge), 422);
@@ -1054,5 +1287,232 @@ mod tests {
             assert_eq!(x.from_state, y.from_state);
             assert_eq!(x.to_state, y.to_state);
         }
+    }
+
+    /// Serve the order router on a loopback port, so a test drives the real
+    /// HTTP boundary rather than a handler's signature.
+    async fn serve(state: SharedOrder, prices: Arc<dyn PriceSource>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address: SocketAddr = listener.local_addr().unwrap();
+        let app = router(state, prices);
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        format!("http://{address}")
+    }
+
+    /// The service-to-service credential, set once for this test binary.
+    ///
+    /// The order service reads it from the environment, the way every other
+    /// credential in this codebase is read. The value is fixed, so every test
+    /// in this binary sees the same one.
+    fn service_credential() -> &'static str {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            std::env::set_var("SERVICE_TOKEN", "test-service-token");
+        });
+        "test-service-token"
+    }
+
+    /// The operator's view crosses the buyer boundary, and only the
+    /// credential gets you there.
+    ///
+    /// The order service scoped every read to the session in the header, so
+    /// the admin console's order list was always empty — a table with no
+    /// rows, and no order that could be opened from it. The contract asks for
+    /// "orders across customer sessions", so the operator's view is a
+    /// requirement, not a nicety.
+    #[tokio::test]
+    async fn the_operator_sees_every_customers_orders() {
+        let credential = service_credential();
+        let catalog = mock_catalog(
+            r#"{"items":[{"sku":"sku-a","price":{"amountMinor":100,"currency":"JPY"}}]}"#
+                .to_string(),
+        )
+        .await;
+        let prices: Arc<dyn PriceSource> = Arc::new(PriceAuthority::new(catalog.base_url.clone()));
+
+        let mut s = store();
+        s.submit("U1", vec![line("sku-a", 1, 100)], "k1", PaymentOutcome::Authorized)
+            .unwrap();
+        s.submit("U2", vec![line("sku-a", 1, 100)], "k2", PaymentOutcome::Authorized)
+            .unwrap();
+        let base = serve(Arc::new(RwLock::new(s)), prices).await;
+        let client = reqwest::Client::new();
+
+        // The buyer's view stays scoped to the buyer.
+        let buyer = client
+            .get(format!("{base}/v1/orders"))
+            .header("x-session-id", "U1")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(buyer.status(), 200);
+        let buyer_body: serde_json::Value = buyer.json().await.unwrap();
+        assert_eq!(
+            buyer_body["items"].as_array().unwrap().len(),
+            1,
+            "a buyer sees only their own orders"
+        );
+
+        // Saying you are the operator is not being the operator.
+        let refused = client
+            .get(format!("{base}/v1/operator/orders"))
+            .header("x-session-id", "admin-console")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), 403, "no credential, no operator's view");
+
+        let wrong = client
+            .get(format!("{base}/v1/operator/orders"))
+            .header("x-session-id", "admin-console")
+            .header("x-service-token", "not-the-credential")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(wrong.status(), 403, "a wrong credential is not a credential");
+
+        // With the credential, the operator sees every customer's orders.
+        let operator = client
+            .get(format!("{base}/v1/operator/orders"))
+            .header("x-session-id", "admin-console")
+            .header("x-service-token", credential)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(operator.status(), 200);
+        let body: serde_json::Value = operator.json().await.unwrap();
+        assert_eq!(
+            body["items"].as_array().unwrap().len(),
+            2,
+            "the operator sees both customers' orders"
+        );
+    }
+
+    /// The operator can read an order that is not theirs.
+    ///
+    /// The buyer-scoped route answers 403 for somebody else's order, which is
+    /// right for a customer and useless for the operator, whose job is to
+    /// read exactly those orders.
+    #[tokio::test]
+    async fn the_operator_reads_an_order_across_customer_sessions() {
+        let credential = service_credential();
+        let catalog = mock_catalog(
+            r#"{"items":[{"sku":"sku-a","price":{"amountMinor":100,"currency":"JPY"}}]}"#
+                .to_string(),
+        )
+        .await;
+        let prices: Arc<dyn PriceSource> = Arc::new(PriceAuthority::new(catalog.base_url.clone()));
+
+        let mut s = store();
+        let (checkout_id, _, _) = s
+            .submit("U1", vec![line("sku-a", 1, 100)], "k1", PaymentOutcome::Authorized)
+            .unwrap();
+        let order_id = s.checkouts[&checkout_id].clone();
+        let base = serve(Arc::new(RwLock::new(s)), prices).await;
+        let client = reqwest::Client::new();
+
+        let buyer = client
+            .get(format!("{base}/v1/orders/{order_id}"))
+            .header("x-session-id", "U2")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(buyer.status(), 403, "a customer may not read another's order");
+
+        let operator = client
+            .get(format!("{base}/v1/operator/orders/{order_id}"))
+            .header("x-session-id", "admin-console")
+            .header("x-service-token", credential)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(operator.status(), 200);
+    }
+
+    /// A line is rendered in the contract's shape: `unitPrice` as a Money.
+    ///
+    /// The service used to emit a flat `unit_amount_minor`, which no client
+    /// reads: the Dart client looks for `unitAmount`, `unit_amount`,
+    /// `unitPrice` or `unit_price`, and the admin console's order detail
+    /// threw while parsing the line.
+    #[tokio::test]
+    async fn a_line_is_rendered_as_the_contract_spells_it() {
+        let credential = service_credential();
+        let catalog = mock_catalog(
+            r#"{"items":[{"sku":"sku-a","price":{"amountMinor":8900,"currency":"JPY"}}]}"#
+                .to_string(),
+        )
+        .await;
+        let prices: Arc<dyn PriceSource> = Arc::new(PriceAuthority::new(catalog.base_url.clone()));
+
+        let mut s = store();
+        let (checkout_id, _, _) = s
+            .submit("U1", vec![line("sku-a", 1, 100)], "k1", PaymentOutcome::Authorized)
+            .unwrap();
+        let order_id = s.checkouts[&checkout_id].clone();
+        let base = serve(Arc::new(RwLock::new(s)), prices).await;
+
+        let response = reqwest::Client::new()
+            .get(format!("{base}/v1/operator/orders/{order_id}"))
+            .header("x-session-id", "admin-console")
+            .header("x-service-token", credential)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = response.json().await.unwrap();
+        let line = &body["lines"][0];
+        assert_eq!(line["sku"], "sku-a");
+        assert_eq!(line["quantity"], 1);
+        assert_eq!(
+            line["unitPrice"]["amountMinor"], 100,
+            "the line's price must be the Money object the client reads"
+        );
+        assert_eq!(line["unitPrice"]["currency"], "JPY");
+        assert!(
+            line.get("unit_amount_minor").is_none(),
+            "the flat spelling is what no client reads"
+        );
+    }
+
+    /// A checkout that sends the contract's line as written is accepted.
+    ///
+    /// The contract's `OrderLineInput` requires `sku` and `quantity`; the
+    /// price is optional and ignored for billing. The service used to
+    /// require the price anyway, so a contract-conforming client was
+    /// rejected with 422 before the order was ever priced — even though the
+    /// price was about to be discarded.
+    #[tokio::test]
+    async fn a_contract_conforming_checkout_is_accepted() {
+        let catalog = mock_catalog(
+            r#"{"items":[{"sku":"sku-a","price":{"amountMinor":8900,"currency":"JPY"}}]}"#
+                .to_string(),
+        )
+        .await;
+        let prices: Arc<dyn PriceSource> = Arc::new(PriceAuthority::new(catalog.base_url.clone()));
+        let base = serve(Arc::new(RwLock::new(store())), prices).await;
+
+        let response = reqwest::Client::new()
+            .post(format!("{base}/v1/checkouts"))
+            .header("x-session-id", "U1")
+            .header("idempotency-key", "k-1")
+            .header("content-type", "application/json")
+            .body(r#"{"lines":[{"sku":"sku-a","quantity":1}],"paymentMethodRef":"pm-token"}"#)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            201,
+            "the contract's line carries no price, and the server prices it anyway"
+        );
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(body["status"], "confirmed");
+        assert!(
+            body["orderId"].is_string(),
+            "the response carries the order id the client navigates to"
+        );
     }
 }

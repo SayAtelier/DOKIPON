@@ -43,6 +43,54 @@ pub const DEV_LINE_CHANNEL_ID: &str = "dev-channel";
 /// The development PSP webhook secret.
 pub const DEV_PSP_WEBHOOK_SECRET: &str = "dev-only-secret";
 
+/// The environment variable that holds the service-to-service credential.
+///
+/// It is the credential one service presents to another when it asks for
+/// something a customer may not have — the operator's view of the orders,
+/// for instance. It lives in the deployment's environment and never reaches
+/// a browser.
+pub const SERVICE_TOKEN: &str = "SERVICE_TOKEN";
+
+/// The development service-to-service credential.
+pub const DEV_SERVICE_TOKEN: &str = "dev-only-service-token";
+
+/// The service-to-service credential, when the deployment has a real one.
+///
+/// `None` when the variable is unset, empty, or still at its development
+/// value. The routes that need it are then **refused**, not served to
+/// anyone who guesses the header name: an absent credential has to mean
+/// "nobody", never "everybody".
+pub fn service_token() -> Option<String> {
+    match std::env::var(SERVICE_TOKEN) {
+        Ok(value) if !value.trim().is_empty() => {
+            if value == DEV_SERVICE_TOKEN && !dev_allowed() {
+                None
+            } else {
+                Some(value)
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Compare two secrets without leaking their contents through timing.
+///
+/// The length check comes first, so the comparison is not length-independent
+/// in the strict sense; what it does guarantee is that a matching prefix
+/// does not make the comparison finish earlier.
+pub fn secret_matches(expected: &str, supplied: &str) -> bool {
+    let expected = expected.as_bytes();
+    let supplied = supplied.as_bytes();
+    if expected.len() != supplied.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in expected.iter().zip(supplied.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Read a credential that a deployment must provide.
 ///
 /// The value is returned, so the caller uses the very value it checked.
