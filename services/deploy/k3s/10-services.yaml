@@ -403,6 +403,14 @@ spec:
         env:
         - name: PORT
           value: '8085'
+        # The credential the admin facade presents to ask for the operator's
+        # view of the orders. The order service serves that view only to a
+        # caller that holds it, so a customer cannot reach it by asking.
+        - name: SERVICE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: commerce-service-credentials
+              key: SERVICE_TOKEN
         ports:
         - name: http
           containerPort: 8085
@@ -554,6 +562,13 @@ spec:
         env:
         - name: PORT
           value: '8087'
+        # The credential the facade presents to the order service for the
+        # operator's view of the orders.
+        - name: SERVICE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: commerce-service-credentials
+              key: SERVICE_TOKEN
         - name: ADMIN_USER
           valueFrom:
             secretKeyRef:
@@ -635,6 +650,78 @@ spec:
   - name: http
     port: 8087
     targetPort: 8087
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commerce-content
+  namespace: commerce
+  labels:
+    app: commerce-content
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commerce-content
+  template:
+    metadata:
+      labels:
+        app: commerce-content
+    spec:
+      containers:
+      - name: commerce-content
+        image: docker.io/dokipon/commerce-content:0.1.0
+        imagePullPolicy: Never
+        envFrom:
+        - configMapRef:
+            name: commerce-config
+        env:
+        - name: PORT
+          value: '8096'
+        ports:
+        - name: http
+          containerPort: 8096
+        readinessProbe:
+          tcpSocket:
+            port: 8096
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: 8096
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commerce-content
+  namespace: commerce
+  labels:
+    app: commerce-content
+spec:
+  type: ClusterIP
+  selector:
+    app: commerce-content
+  ports:
+  - name: http
+    port: 8096
+    targetPort: 8096
 
 ---
 apiVersion: apps/v1

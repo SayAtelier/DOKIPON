@@ -34,6 +34,12 @@ DOKIPON 的 commerce 产品线有**两套**部署目标。它们跑的是同一�
 | `LINE_ID_TOKEN_KEY` | 谁签发的 LINE id 令牌算数 | 任何人都能伪造任意 LINE 用户登录，读那个人的购物车、下那个人的单 |
 | `LINE_CHANNEL_ID` | id 令牌的受众 | 同上，且令牌不绑定渠道 |
 | `PSP_WEBHOOK_SECRET` | 哪个 PSP 的回调算数 | 任何人都能伪造支付成功回调 |
+| `SERVICE_TOKEN` | 服务之间怎么证明「这是内部调用」 | 后台读不到跨会话的订单（只有后台受影响，门店照常） |
+
+前四项决定**这个部署信任谁**；第五项决定**服务之间怎么互相证明**——
+admin 门面拿它去向订单服务要「跨会话的订单视图」（契约里 `GET /admin/v1/orders`
+写的是 "across customer sessions"），而订单服务只认带这个值的调用方，
+所以浏览器伪造不出来。
 
 开发默认值（`dev-only-admin` / `dev-only-key` / `dev-only-secret`）就写在仓库里。
 **服务在启动前会检查这些值**：没设、为空、或者还是开发默认值，服务**直接拒绝启动**。

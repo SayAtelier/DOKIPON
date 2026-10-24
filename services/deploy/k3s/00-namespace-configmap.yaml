@@ -1,4 +1,4 @@
-# k3s manifests — DOKIPON commerce line (8 Axum services)
+# k3s manifests — DOKIPON commerce line (9 Axum services)
 # Namespace + per-service Deployment/Service. Images are built from the VM-local
 # release binaries via a shared distroless-free base: we ship the static-ish
 # glibc-linked binaries on ubuntu:26.04 runtime (built on the same VM, so the
@@ -26,6 +26,7 @@ data:
   INVENTORY_URL: "http://commerce-inventory:8084"
   ORDER_URL: "http://commerce-order:8085"
   PAYMENT_ADAPTER_URL: "http://commerce-payment-adapter:8086"
+  CONTENT_URL: "http://commerce-content:8096"
 ---
 # The credentials the services verify with.
 #
@@ -36,6 +37,13 @@ data:
 # who has read this repository — anyone can sign a LINE id token, and anyone
 # can confirm a payment.
 #
+# `SERVICE_TOKEN` is the fourth one, and it is not a credential a customer
+# ever presents: it is the credential one service presents to another when
+# it asks for something a customer may not have. The admin facade uses it to
+# ask the order service for the operator's view of the orders — the one that
+# crosses the buyer boundary. The order service serves that view only to a
+# caller that holds this value, so a browser can never reach it.
+#
 # The Secret is committed with empty values, and the services refuse to
 # start while a value is empty, so the deployment does not come up until
 # these are filled in. Fill them in with:
@@ -44,6 +52,7 @@ data:
 #     --from-literal=LINE_CHANNEL_ID=<the channel id> \
 #     --from-literal=LINE_ID_TOKEN_KEY=<a random secret> \
 #     --from-literal=PSP_WEBHOOK_SECRET=<a random secret> \
+#     --from-literal=SERVICE_TOKEN=<a random secret> \
 #     --dry-run=client -o yaml | kubectl apply -f -
 #
 # (or edit the Secret in place with `kubectl -n commerce edit secret
@@ -58,6 +67,7 @@ stringData:
   LINE_CHANNEL_ID: ""
   LINE_ID_TOKEN_KEY: ""
   PSP_WEBHOOK_SECRET: ""
+  SERVICE_TOKEN: ""
 ---
 apiVersion: v1
 kind: Secret

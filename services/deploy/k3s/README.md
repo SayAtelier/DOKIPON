@@ -8,15 +8,17 @@ Envoy Gateway。与 `services/deploy/vercel/`（函数版，每个服务一个 V
 
 | Deployment | 端口 | 归属路径 |
 |---|---|---|
-| `commerce-bff` | | 路径前缀分发 |
+| `commerce-bff` | 8080 | 路径前缀分发 |
+| `commerce-identity` | 8081 | `/v1/sessions` |
 | `commerce-catalog` | 8082 | `/v1/products` |
 | `commerce-cart` | 8083 | `/v1/carts` |
-| `commerce-order` | 8085 | `/v1/checkouts`、`/v1/orders` |
-| `commerce-identity` | 8081 | `/v1/sessions` |
 | `commerce-inventory` | 8084 | `/v1/inventory` |
+| `commerce-order` | 8085 | `/v1/checkouts`、`/v1/orders` |
 | `commerce-payment-adapter` | 8086 | `/v1/payments` |
+| `commerce-admin` | 8087 | `/admin/v1` |
 | `commerce-content` | 8096 | `/v1/content` |
-| `commerce-admin` | 8090 | `/admin/v1` |
+| `shop-web` | 8080 | 门店静态包（Envoy 的兜底后端） |
+| `admin-web` | 8080 | 运营后台静态包（Envoy 的兜底后端） |
 
 Envoy 终止 TLS 并按路径前缀转发到各 Pod —— 它就是集群版的网关。
 
@@ -35,6 +37,7 @@ Envoy 终止 TLS 并按路径前缀转发到各 Pod —— 它就是集群版的
 | Secret | 键 | 不填会怎样 |
 |---|---|---|
 | `commerce-service-credentials` | `LINE_CHANNEL_ID`、`LINE_ID_TOKEN_KEY`、`PSP_WEBHOOK_SECRET` | identity 与 payment 容器拒绝启动 |
+| `commerce-service-credentials` | `SERVICE_TOKEN` | 后台读不到跨会话的订单（只有后台受影响，门店照常） |
 | `commerce-admin-credentials` | `ADMIN_PASSWORD`（`ADMIN_USER` 已有） | 运营后台对整个互联网开放 |
 
 清单里这些值是**空的**，不是开发默认值——因为提交进仓库的值就是公开的值。
@@ -48,6 +51,7 @@ kubectl -n commerce create secret generic commerce-service-credentials \
   --from-literal=LINE_CHANNEL_ID=<channel id> \
   --from-literal=LINE_ID_TOKEN_KEY=<随机密钥> \
   --from-literal=PSP_WEBHOOK_SECRET=<随机密钥> \
+  --from-literal=SERVICE_TOKEN=<随机密钥> \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl -n commerce create secret generic commerce-admin-credentials \

@@ -83,6 +83,7 @@ services/deploy/vercel/
 | `LINE_ID_TOKEN_KEY` | 谁签发的 LINE id 令牌算数 | 任何人都能伪造任意 LINE 用户登录 |
 | `LINE_CHANNEL_ID` | id 令牌的受众 | 同上，且令牌不绑定渠道 |
 | `PSP_WEBHOOK_SECRET` | 哪个 PSP 的回调算数 | 任何人都能伪造支付成功回调 |
+| `SERVICE_TOKEN` | 服务之间怎么证明「这是内部调用」 | 后台读不到跨会话的订单 |
 
 原因很直接：这几个开发默认值（`dev-only-admin` / `dev-only-key` /
 `dev-only-secret`）就写在仓库里。一个没设这些变量的部署**不会报错**——它会照常

@@ -16,7 +16,7 @@
 # need to exist in this node's containerd. Re-run this script after every
 # `cargo build --release`.
 #
-# Usage:  bash build-images.sh            # build + import all 8
+# Usage:  bash build-images.sh            # build + import all 9
 #         bash build-images.sh commerce-bff   # one service
 set -euo pipefail
 
@@ -33,6 +33,7 @@ ALL_SERVICES=(
   commerce-order
   commerce-payment-adapter
   commerce-admin
+  commerce-content
 )
 
 SERVICES=("$@")
