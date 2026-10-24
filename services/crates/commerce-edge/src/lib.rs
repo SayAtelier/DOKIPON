@@ -89,6 +89,9 @@ use axum::{
 use commerce_core::price_authority::PriceSource;
 use tower::ServiceExt;
 
+pub mod msa;
+pub mod stores;
+
 /// The catalogue prices, served in-process.
 ///
 /// Every other service needs the catalogue's price for a SKU before it can do
@@ -172,40 +175,17 @@ impl EdgeServices {
 /// The `admin` state is passed in rather than read from the environment so a
 /// test can mount the same edge with a mock upstream.
 pub fn build(admin: commerce_admin::AdminState) -> (Router, EdgeServices) {
-    let catalog = Arc::new(commerce_catalog::CatalogStore::seed_demo());
-    let cart = Arc::new(std::sync::RwLock::new(commerce_cart::CartStore::new()));
-    let order = Arc::new(std::sync::RwLock::new(commerce_order::OrderStore::new(
-        commerce_core::idempotency::now_ms(),
-    )));
-    let inventory = Arc::new(std::sync::RwLock::new(
-        commerce_inventory::InventoryStore::new(&[
-            // These SKUs must match the catalogue's seed: the checkout path
-            // looks stock up by sku, and a sku that exists in one service but
-            // not the other makes a purchasable product fail at the last step.
-            //
-            // Only the `Reserved` skus are here. `Unbounded` and
-            // `MadeToOrder` need no stock (`StockPolicy::needs_inventory`),
-            // which is why `sku-cami-01` is absent.
-            ("sku-bra-01", 42),
-            ("sku-brief-01", 7),
-            ("sku-set-01", 0),
-            ("sku-night-01", 28),
-            ("sku-adult-01", 3),
-            ("sku-swim-01", 12),
-            ("sku-sale-01", 5),
-        ]),
-    ));
-    let identity = Arc::new(std::sync::RwLock::new(
-        commerce_identity::IdentityStore::new(commerce_core::idempotency::now_ms()),
-    ));
-    let payment = Arc::new(std::sync::RwLock::new(
-        commerce_payment_adapter::PaymentAdapter::new(
-            std::env::var("PSP_WEBHOOK_SECRET").unwrap_or_else(|_| "dev-only-secret".into()),
-        ),
-    ));
-    let content = Arc::new(std::sync::RwLock::new(commerce_content::ContentStore::new(
-        std::env::var("CONTENT_PATH").ok().map(std::path::PathBuf::from),
-    )));
+    // The stores are built by `stores`, so the in-process edge and the
+    // function topology (`msa`) seed them the same way. The inventory
+    // ledger's seed in particular has to match the catalogue's, or a
+    // purchasable product fails at the last step of the checkout.
+    let catalog = stores::catalog();
+    let cart = stores::cart();
+    let order = stores::order();
+    let inventory = stores::inventory();
+    let identity = stores::identity();
+    let payment = stores::payment();
+    let content = stores::content();
 
     let prices: Arc<dyn PriceSource> = Arc::new(InProcessPrices {
         catalog: catalog.clone(),
@@ -222,16 +202,7 @@ pub fn build(admin: commerce_admin::AdminState) -> (Router, EdgeServices) {
         cart: commerce_cart::router(cart, prices.clone()),
         order: commerce_order::router(order, prices),
         content: commerce_content::router(content),
-        identity: commerce_identity::router(
-            identity,
-            Arc::new(commerce_identity::TokenVerifier {
-                expected_audience: std::env::var("LINE_CHANNEL_ID")
-                    .unwrap_or_else(|_| "dev-channel".into()),
-                expected_issuer: "https://access.line.me".to_string(),
-                signing_key: std::env::var("LINE_ID_TOKEN_KEY")
-                    .unwrap_or_else(|_| "dev-only-key".into()),
-            }),
-        ),
+        identity: commerce_identity::router(identity, stores::identity_verifier()),
         inventory: commerce_inventory::router(inventory),
         payment: commerce_payment_adapter::router(payment),
         admin: commerce_admin::router(admin),

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.85"
-description = "The DOKIPON commerce edge, packaged for the Vercel Rust runtime."
+description = "The DOKIPON commerce deployment for Vercel: one Function per commerce service, with a gateway in front."
 
 [dependencies]
 commerce-edge = { path = "services/crates/commerce-edge" }
@@ -13,12 +13,72 @@ commerce-admin = { path = "services/crates/commerce-admin" }
 vercel_runtime = { version = "2.4", features = ["axum"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"
+# The version has to be the one `services/crates/**` uses: the Functions
+# serve routers that those crates built.
+axum = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# One Function per commerce service, plus the gateway, plus the
+# single-function fallback.
+#
+# Each `[[bin]]` is one Vercel Function. The Function's route is the entry
+# point's path with the `.rs` dropped, so `api/svc/catalog.rs` answers at
+# `/api/svc/catalog` and `api/gateway.rs` answers at `/api/gateway`. The
+# names have to be unique — the official Rust template says exactly that.
+#
+# The entry points are thin: they include the implementation, which lives
+# with the deployment it belongs to, in `services/deploy/vercel/src/`.
+
+# The single-function fallback: the whole contract in one Function.
 [[bin]]
 name = "dokipon-edge"
 path = "api/index.rs"
+
+# The gateway: it routes a public path to the service that owns it.
+[[bin]]
+name = "dokipon-gateway"
+path = "api/gateway.rs"
+
+# The catalogue.
+[[bin]]
+name = "dokipon-svc-catalog"
+path = "api/svc/catalog.rs"
+
+# The cart.
+[[bin]]
+name = "dokipon-svc-cart"
+path = "api/svc/cart.rs"
+
+# The order.
+[[bin]]
+name = "dokipon-svc-order"
+path = "api/svc/order.rs"
+
+# The content document.
+[[bin]]
+name = "dokipon-svc-content"
+path = "api/svc/content.rs"
+
+# The sessions.
+[[bin]]
+name = "dokipon-svc-identity"
+path = "api/svc/identity.rs"
+
+# The stock ledger.
+[[bin]]
+name = "dokipon-svc-inventory"
+path = "api/svc/inventory.rs"
+
+# The payment adapter.
+[[bin]]
+name = "dokipon-svc-payment"
+path = "api/svc/payment.rs"
+
+# The operator console's facade.
+[[bin]]
+name = "dokipon-svc-admin"
+path = "api/svc/admin.rs"
 
 [profile.release]
 codegen-units = 1

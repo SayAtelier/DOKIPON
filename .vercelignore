@@ -47,10 +47,15 @@ nul
 # The k3s deployment manifests and the container build context. They describe
 # a different deployment (a cluster behind Envoy) and the merged edge
 # supersedes them for this one.
+#
+# `services/deploy/` is NOT excluded: the function version lives there, and
+# the functions' entry points under `api/` include their implementation from
+# `services/deploy/vercel/src/`. Excluding it would leave the build without
+# the code it compiles. The cluster version's own directory is excluded by
+# the `k3s/` pattern below.
 k3s-deploy/
 docker/
 k3s/
-deploy/
 
 # The game-server images. They build the RGS player-service and admin-service
 # containers for the k3s/Envoy deployment, which this deployment replaces.

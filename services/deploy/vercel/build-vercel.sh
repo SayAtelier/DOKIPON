@@ -24,7 +24,11 @@
 
 set -euo pipefail
 
-REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+# The repository root. This script lives in `services/deploy/vercel/`, so the
+# root is three levels up: `vercel` → `deploy` → `services` → the root. One
+# level too few lands on `services/`, where there is no `apps/` and no
+# `public/`, and the build stops on the first `cd`.
+REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 PUBLIC="$REPO/public"
 
 # The Flutter SDK. On a developer machine it is already installed; on the

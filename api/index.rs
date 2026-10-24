@@ -1,50 +1,16 @@
-//! The DOKIPON commerce edge as a Vercel function.
+//! Vercel function entry point: the single-function fallback.
 //!
-//! The Vercel Rust runtime bridges a function to a tower service. This binary
-//! wraps the same edge router the standalone binary serves, so the deployed
-//! function and the local process answer exactly the same requests.
-//!
-//! ## What the deployment is
-//!
-//! A **preview and demonstration** deployment. The commerce services keep
-//! their state in memory, and Vercel may run several instances of the same
-//! function at once. A cart created on one instance is invisible to another,
-//! so a shopper's cart can appear to empty itself. The catalogue, the
-//! content document and the admin console are unaffected — they are either
-//! static or idempotent reads.
-//!
-//! Making this a production deployment means moving the mutable stores
-//! (cart, order, inventory) into a shared database. That is a change to the
-//! stores themselves; the edge does not have to change.
+//! Vercel requires the entry under `api/` at the deployment root, and the
+//! deployment root has to be the repository root because the function
+//! compiles the Rust workspace in `services/crates/`. The implementation
+//! lives in `services/deploy/vercel/src/`.
 
-use commerce_edge::build;
-use tower::ServiceBuilder;
-use vercel_runtime::Error;
-use vercel_runtime::axum::VercelLayer;
+#[path = "../services/deploy/vercel/src/index.rs"]
+mod index;
 
-#[tokio::main]
-async fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
-        )
-        .init();
-
-    // The admin facade reads its credentials and its upstream URLs from the
-    // environment. On Vercel those are the project's environment variables.
-    //
-    // `vercel_runtime::Error` is `Box<dyn std::error::Error + Send + Sync>`,
-    // so a configuration failure is a plain boxed error.
-    let admin = commerce_admin::AdminState::from_env().map_err(|message| {
-        Box::<dyn std::error::Error + Send + Sync>::from(message)
-    })?;
-
-    let (edge, _services) = build(admin);
-
-    let app = ServiceBuilder::new()
-        .layer(VercelLayer::new())
-        .service(edge);
-
-    vercel_runtime::run(app).await
+fn main() {
+    if let Err(error) = index::run() {
+        eprintln!("dokipon edge function: {error}");
+        std::process::exit(1);
+    }
 }
