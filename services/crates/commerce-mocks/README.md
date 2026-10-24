@@ -23,8 +23,10 @@ the rule, not the behaviour of the real system.
 ## The design rules
 
 1. **Deterministic by default.** No randomness in a response path unless the
-   caller explicitly asks for it. A test that cannot be reproduced is not a
-   test.
+   caller explicitly asks for it, and no *hidden* clock — where a mock has to
+   read the time it reads the real one, and the test that wants a frozen one
+   moves it (see the issuer's clock below). A test that cannot be reproduced
+   is not a test.
 2. **Fault injection is an API, not a config file.** A test drives
    [`fault::FaultController`](src/fault.rs) over HTTP, so a failure can be
    injected *mid-test* without restarting anything.

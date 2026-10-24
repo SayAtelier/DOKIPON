@@ -25,8 +25,12 @@
 //! # Design rules
 //!
 //! 1. **Deterministic by default.** No randomness in a response path unless the
-//!    caller explicitly asks for it. A test that cannot be reproduced is not a
-//!    test.
+//!    caller explicitly asks for it, and no *hidden* clock. A mock that
+//!    issues a token against a frozen past hands out something every running
+//!    service refuses — the token is born expired — so a mock that has to
+//!    read the time reads the real time, and the test that wants a frozen
+//!    one moves it. The determinism lives in the test's hands, not in the
+//!    issuer's. A test that cannot be reproduced is not a test.
 //! 2. **Fault injection is an API, not a config file.** Tests drive
 //!    [`fault::FaultController`] over HTTP so a failure can be injected *mid
 //!    test* without restarting anything.
