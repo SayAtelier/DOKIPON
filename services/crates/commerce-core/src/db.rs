@@ -76,12 +76,49 @@ pub async fn connect(url: &str) -> Result<PgPool, String> {
 /// Idempotent: every statement in the schema is `IF NOT EXISTS`, so this
 /// can run on every boot, and a second service applying it changes
 /// nothing.
+///
+/// ## One migration at a time
+///
+/// `CREATE TABLE IF NOT EXISTS` is **not** safe to run twice at the same
+/// moment: the second one collides with the first in the catalog, and the
+/// error is `duplicate key value violates unique constraint
+/// "pg_type_typname_nsp_index"`. A deployment has several Function
+/// instances, and they boot at the same time on a cold start — so they all
+/// apply the schema at the same moment, and one of them dies.
+///
+/// The schema is therefore applied under an **advisory lock**, and the lock
+/// is held for the whole transaction: the first instance applies the schema
+/// and the others wait for it and then find everything already there.
 pub async fn migrate(pool: &PgPool) -> Result<(), String> {
-    pool.execute(SCHEMA)
+    let mut tx = pool
+        .begin()
         .await
-        .map(|_| ())
-        .map_err(|error| format!("could not apply the schema: {error}"))
+        .map_err(|error| format!("could not start the migration: {error}"))?;
+
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(SCHEMA_LOCK)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("could not take the schema lock: {error}"))?;
+
+    // The schema is a script of many statements, so it goes through the
+    // simple protocol: a prepared statement carries exactly one command.
+    tx.execute(SCHEMA)
+        .await
+        .map_err(|error| format!("could not apply the schema: {error}"))?;
+
+    tx.commit()
+        .await
+        .map_err(|error| format!("could not commit the migration: {error}"))?;
+    Ok(())
 }
+
+/// The lock the schema is applied under.
+///
+/// Any constant will do, as long as every instance of the deployment uses
+/// the same one. It is "DOKIPON" in ASCII, plus a byte, so that it cannot
+/// collide with a lock another program on the same database took.
+const SCHEMA_LOCK: i64 = 0x444F_4B49_504F_4E01;
 
 /// The database the deployment has, if it has one.
 ///
