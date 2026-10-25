@@ -22,6 +22,7 @@ class CartDrawer extends StatelessWidget {
     this.onClose,
     this.isMutating = false,
     this.error,
+    this.canCheckout = true,
   });
 
   final CartController cart;
@@ -31,6 +32,15 @@ class CartDrawer extends StatelessWidget {
   final VoidCallback? onClose;
   final bool isMutating;
   final ApiProblem? error;
+
+  /// Whether this session may place an order.
+  ///
+  /// It is false in one place only: the degraded state inside the LINE
+  /// app, where the shopper is a LINE user who has not granted account
+  /// access. The button is then dead **and says why** — a live button that
+  /// the app knows will fail is the defect this package exists to avoid,
+  /// and so is a dead button that does not say why.
+  final bool canCheckout;
 
   @override
   Widget build(BuildContext context) {
@@ -81,9 +91,13 @@ class CartDrawer extends StatelessWidget {
                 child: SizedBox(
                   width: double.infinity,
                   child: FilledButton(
-                    onPressed: isMutating ? null : onCheckout,
+                    onPressed: isMutating || !canCheckout ? null : onCheckout,
                     child: Text(
-                      isMutating ? '処理中…' : 'レジに進む / Checkout',
+                      !canCheckout
+                          ? '購入にはログインが必要です / Sign in to check out'
+                          : isMutating
+                              ? '処理中…'
+                              : 'レジに進む / Checkout',
                     ),
                   ),
                 ),

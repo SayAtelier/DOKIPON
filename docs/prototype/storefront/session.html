@@ -92,8 +92,14 @@
 
       <h4>游客能不能结算</h4>
       <p class="muted">
-        不能。<span class="mono">Session.canCheckout</span> 只对 <span class="mono">line_user</span> 为真，
-        服务端也会拒（401）。UI 不应给出明知会失败的结算按钮。
+        分渠道。<span class="mono">Session.canCheckout</span> 对
+        <span class="mono">line_user</span> 恒为真；对
+        <span class="mono">guest</span> 则看渠道：
+        <b>LINE 渠道</b>的降级游客（未登录、SDK 不可用）不能结算，
+        结算按钮是死的并说明原因；<b>Web / App 渠道</b>的游客可以结算 ——
+        网页店是物贩店，不是商品目录。
+        代价是：Web 游客买完之后无法再被识别（订单挂在 session 上，
+        而 session 只活在这个页面的生命周期里）。
       </p>
     </div>
   </div>

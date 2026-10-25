@@ -29,8 +29,8 @@ import {
 
 export const guestBrowse = journey({
   id: 'guest-browse',
-  title: 'A guest browses the catalogue, filters it, and fills a cart',
-  async run({ t, page, fixture, api }) {
+  title: 'A guest browses the catalogue, filters it, fills a cart, and buys',
+  async run({ t, page, fixture }) {
     await openSurface(page, '/');
     await bootFlutter(page);
     await enableSemantics(page);
@@ -163,7 +163,9 @@ export const guestBrowse = journey({
       'the drawer carries the note about the server-side amount',
     );
 
-    // 8. And the guest is told what a guest may do.
+    // 8. And the guest is told what a guest may do — on the web, that is
+    //    buy. The rule is narrowed to the degraded state inside the LINE
+    //    app; a shopper on the web who never signs in still buys.
     await clickControl(page, 'button', '閉じる / Close');
     await page.waitForTimeout(600);
     await clickControl(page, 'button', 'アカウント / Account');
@@ -175,34 +177,30 @@ export const guestBrowse = journey({
       guest !== null,
       guest ? guest.label : 'the session line never appeared',
     );
-    t.note(
-      'The account sheet says a guest can browse only, and the cart drawer offers a live ' +
-        'Checkout button. Whether a guest may check out is stated in three places ' +
-        '(docs/ecommerce/04-detailed/セキュリティ設計.md SEC-17, the client model, and the ' +
-        'prototype) and enforced in none: the order service takes any x-session-id it is ' +
-        'given. This journey stops at the cart, so it asserts neither.',
+    t.check(
+      'the console tells a guest on the web that it may buy',
+      findLabel(accountLabels, '購入できます / You can check out.') !== null,
+      'the account sheet carries the "you can check out" line',
     );
 
-    // The evidence, taken: what the server actually answers a guest session.
-    const guestSessionResponse = await api.fetch('/v1/sessions/guest', {
-      method: 'POST',
-      body: { channel: 'web' },
-    });
-    const guestSession = guestSessionResponse.json?.sessionId;
-    if (guestSession) {
-      const checkout = await api.fetch('/v1/checkouts', {
-        method: 'POST',
-        headers: { 'x-session-id': guestSession, 'idempotency-key': `uat-guest-${Date.now()}` },
-        body: {
-          lines: [{ sku: fixture.journeys.buy.sku, quantity: 1 }],
-          paymentMethodRef: 'tok_uat_guest',
-        },
-      });
-      t.note(
-        `A guest session's checkout answered **${checkout.status}** ` +
-          `(${checkout.json?.orderId ? `order ${checkout.json.orderId}` : checkout.json?.code || 'no order'}). ` +
-          'SEC-17 says the server must refuse this with 401; it does not.',
-      );
-    }
+    // 9. And the guest buys, on the web.
+    await clickControl(page, 'button', '閉じる / Close');
+    await page.waitForTimeout(600);
+    await clickMatching(page, 'button', /カート \/ Cart/);
+    await page.waitForTimeout(1000);
+    await clickControl(page, 'button', 'レジに進む / Checkout');
+    const confirmed = await waitForLabel(page, 'ご注文を完了しました / Order confirmed.', { timeout: 45_000 });
+    t.check(
+      'a guest on the web can check out',
+      confirmed !== null,
+      confirmed ? confirmed.label : 'the status bar never confirmed the order',
+    );
+    t.note(
+      'A web guest\'s order is keyed by the session, and the session lives only as long as ' +
+        'the page does — reload the storefront and the order is unreachable to the shopper ' +
+        '(the operator still sees it). Making the session outlive the page is the ' +
+        'follow-up this decision opens; it needs a way to validate a stored session, ' +
+        'which the deployment\'s per-Function in-memory session store does not yet allow.',
+    );
   },
 });

@@ -102,16 +102,34 @@ class Session {
 
   bool get isGuest => kind == SessionKind.guest;
 
-  /// A guest may browse but not check out — the server enforces this too, and
-  /// the UI must not offer a checkout button it knows will fail.
-  bool get canCheckout => kind == SessionKind.lineUser;
+  /// Whether this session may place an order.
+  ///
+  /// A **LINE user** always may. A **guest on the LINE channel** may not:
+  /// that is the degraded state inside the LINE app — the SDK is not
+  /// configured, it could not be loaded, or the user has not granted
+  /// account access — and it is the one state the app tells the shopper
+  /// about ("ログインすると購入できます").
+  ///
+  /// A guest on the **web** or the **app** channel is an ordinary shopper
+  /// and may buy: the web storefront is a shop, not a catalogue, and the
+  /// channel matrix records the web checkout as observed. What such a
+  /// guest cannot do is be *identified* afterwards — the order is keyed by
+  /// the session, and the session lives only as long as the page does.
+  bool get canCheckout =>
+      kind == SessionKind.lineUser || channel != 'line';
 
   bool isValidAt(int nowMs) => !isGuest && expiresAtMs > nowMs;
 
-  factory Session.guest(String sessionId) => Session(
+  /// A guest session.
+  ///
+  /// The channel matters: a guest on the LINE channel is the degraded
+  /// state inside the LINE app and may not check out, while a guest on the
+  /// web is an ordinary shopper and may.
+  factory Session.guest(String sessionId, {String channel = 'line'}) => Session(
         sessionId: sessionId,
         kind: SessionKind.guest,
         expiresAtMs: 0,
+        channel: channel,
       );
 
   factory Session.fromJson(Map<String, dynamic> json) => Session(

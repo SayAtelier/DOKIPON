@@ -355,6 +355,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
         cart: widget.cart,
         isMutating: widget.cart.isMutating,
         error: widget.cart.error,
+        canCheckout: widget.session.canCheckout,
         onClose: _closeCart,
         onQuantityChanged: (sku, quantity) =>
             widget.cart.setQuantity(sku: sku, quantity: quantity),
@@ -460,8 +461,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
               Text(
                 session.canCheckout
                     ? '購入できます / You can check out.'
-                    : 'ゲストは閲覧のみ。購入にはログインが必要です / '
-                        'Guests can browse only; checking out needs a sign-in.',
+                    : 'LINE の中ではログインが必要です / '
+                        'Inside LINE, sign in to check out.',
                 style: theme.textTheme.bodyMedium,
               ),
               if (session.notice != null) ...[
@@ -484,6 +485,11 @@ class _CatalogScreenState extends State<CatalogScreen> {
   Future<void> _checkout() async {
     final cart = widget.cart;
     if (cart.isEmpty) return;
+    // The one state in which this session may not order: the degraded state
+    // inside the LINE app. The button is already dead there; this is the
+    // same rule on the path itself, so a caller that is not the button
+    // cannot slip past it.
+    if (!widget.session.canCheckout) return;
     final lines = cart.lines;
     final payload = CommerceApiClient.buildCheckoutPayload(
       lines: lines,

@@ -205,6 +205,12 @@
       "subject": "U_uat_line_user",
       "nonce": "uat-nonce-1",
       "note": "The mock's issuer mints against the wall clock, so the token is valid for an hour from the moment it is minted. The mock runs inside the local stack; a deployment whose LINE_ID_TOKEN_KEY is a platform secret cannot be given a token by a test, because the key cannot be read back."
+    },
+    "guest": {
+      "$comment": "What a guest may do. The rule is narrowed to the degraded state inside the LINE app: a guest on the web or the app channel is an ordinary shopper and may buy (the web storefront is a shop, not a catalogue), while a guest in the LINE app is told to sign in first.",
+      "webGuestMayCheckOut": true,
+      "lineGuestMayCheckOut": false,
+      "note": "The server does not distinguish the two guest kinds — it accepts a guest checkout and keys the order by the session. A web guest's order is therefore reachable only while the page lives; the UAT's guest-browse journey records that as a finding."
     }
   }
 }

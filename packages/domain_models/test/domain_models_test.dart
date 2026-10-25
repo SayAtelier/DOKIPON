@@ -135,11 +135,21 @@ void main() {
   });
 
   group('Session', () {
-    test('a guest can browse but not check out', () {
-      final g = Session.guest('guest-1');
+    test('a guest in the line app cannot check out', () {
+      // The degraded state inside the LINE app: the shopper is a LINE user
+      // who has not granted access, and the app tells them to sign in.
+      final g = Session.guest('guest-1', channel: 'line');
       expect(g.isGuest, isTrue);
       expect(g.canCheckout, isFalse);
       expect(g.isValidAt(DateTime.now().millisecondsSinceEpoch), isFalse);
+    });
+
+    test('a guest on the web can check out', () {
+      // The web storefront is a shop, not a catalogue. A shopper who never
+      // signs in still buys.
+      final g = Session.guest('guest-2', channel: 'web');
+      expect(g.isGuest, isTrue);
+      expect(g.canCheckout, isTrue);
     });
 
     test('a line user session is valid inside its window', () {

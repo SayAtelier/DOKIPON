@@ -45,7 +45,7 @@ passing quietly.
 
 | journey | what it is | needs |
 |---|---|---|
-| `guest-browse` | a guest browses the catalogue, narrows it with the category strip, opens a product, and fills the cart | — |
+| `guest-browse` | a guest browses the catalogue, narrows it with the category strip, opens a product, fills the cart, and buys | — |
 | `stock-states` | what the catalogue says about stock, and whether the buttons agree | — |
 | `payment-refused` | a refused payment does not become a confirmed order | — |
 | `line-purchase` | a LINE user signs in, buys a product, and the order exists | the mock |
@@ -90,16 +90,22 @@ journey has to name a product, its price and its stock state — and a price
 that quietly changes must not quietly change what the UAT expects too. A
 fixture that disagrees with the catalogue is a finding in itself.
 
-## What a journey does not assert
+## The rule about guests, and what is left of it
 
-A journey asserts what the product **does**, and reports what the product
-**says about itself** when the two disagree. It does not pick a side.
+A guest may buy on the **web** and on the **app**: the web storefront is a
+shop, not a catalogue. A guest in the **LINE app** — the degraded state
+where the SDK is not configured, could not be loaded, or the user has not
+granted account access — may not: the checkout button is dead and says
+why.
 
-The clearest case is the guest checkout. The account sheet tells a guest
-that buying needs a sign-in, `Session.canCheckout` is false for a guest,
-and `docs/ecommerce/04-detailed/セキュリティ設計.md` SEC-17 says the server
-must refuse a guest checkout too. The order service takes any
-`x-session-id` it is given, and answers `201`. The `guest-browse` journey
-therefore stops at the cart: it asserts the journey a guest can actually
-take, and it says in a note that the rule is stated in three places and
-enforced in none.
+That rule is in the client model (`Session.canCheckout`, Dart and Rust),
+in the account sheet's wording, and in the cart drawer's button. The
+server does not distinguish the two guest kinds: it accepts a guest
+checkout and keys the order by the session.
+
+**What that leaves open**: a web guest's order is reachable only while the
+page lives. Reload the storefront and the session is gone, so the shopper
+cannot find the order they just placed — the operator still can. Making
+the session outlive the page needs a way to validate a stored session,
+which the deployment's per-Function in-memory session store does not yet
+allow. The `guest-browse` journey records that as a finding, every run.

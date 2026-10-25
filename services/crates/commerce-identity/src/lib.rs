@@ -51,8 +51,9 @@ pub enum Channel {
 pub enum SessionKind {
     /// LINE id_token verified server-side.
     LineUser,
-    /// Anonymous, external-browser or LINE-not-logged-in. Read-only public
-    /// catalog; checkout requires promoting to a real session.
+    /// Anonymous. A guest on the LINE channel is the degraded state inside
+    /// the LINE app and may not check out; a guest on the web or the app
+    /// channel is an ordinary shopper and may.
     Guest,
 }
 
@@ -89,8 +90,15 @@ impl Session {
         self.kind == SessionKind::LineUser && self.subject.as_deref() == Some(order_owner)
     }
 
+    /// Whether this session may place an order.
+    ///
+    /// A LINE user always may. A guest on the **LINE** channel may not:
+    /// that is the degraded state inside the LINE app, and it is the one
+    /// the shopper is told about. A guest on the web or the app channel is
+    /// an ordinary shopper and may buy — the web storefront is a shop,
+    /// not a catalogue.
     pub fn can_checkout(&self) -> bool {
-        self.kind == SessionKind::LineUser
+        self.kind == SessionKind::LineUser || self.channel != Channel::LineMiniApp
     }
 }
 
@@ -235,8 +243,10 @@ impl IdentityStore {
         format!("sess-{:06}", self.sequence)
     }
 
-    /// `identity.guest` — the LIFF-004 external-browser path. Always succeeds;
-    /// the resulting session simply cannot check out.
+    /// `identity.guest` — the LIFF-004 external-browser path. Always
+    /// succeeds. A guest on the **LINE** channel is the degraded state
+    /// inside the LINE app and cannot check out; a guest on the web or the
+    /// app channel is an ordinary shopper and can.
     pub fn issue_guest(&mut self, channel: Channel) -> Session {
         let id = self.next_session_id();
         let s = Session {
@@ -601,7 +611,10 @@ mod tests {
     }
 
     #[test]
-    fn guest_session_can_browse_but_not_check_out() {
+    fn a_guest_in_the_line_app_may_browse_but_not_check_out() {
+        // The rule is narrowed to the degraded state inside the LINE app.
+        // A guest *there* is a LINE user who has not granted access, and
+        // the app tells them to sign in before buying.
         let mut s = IdentityStore::new(1_000);
         let guest = s.issue_guest(Channel::LineMiniApp);
         assert_eq!(guest.kind, SessionKind::Guest);
@@ -609,6 +622,17 @@ mod tests {
         assert!(!guest.can_view_order("U1"));
         assert!(!guest.is_valid(1_000 + SESSION_TTL_MS));
         assert!(guest.is_valid(1_000));
+    }
+
+    #[test]
+    fn a_guest_on_the_web_may_check_out() {
+        // The web storefront is a shop, not a catalogue: a shopper who
+        // never signs in still buys. What such a guest cannot do is be
+        // identified afterwards — the order is keyed by the session.
+        let mut s = IdentityStore::new(1_000);
+        let guest = s.issue_guest(Channel::Web);
+        assert_eq!(guest.kind, SessionKind::Guest);
+        assert!(guest.can_checkout());
     }
 
     #[test]
