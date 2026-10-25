@@ -5,8 +5,6 @@
 //! same router alongside the others. This binary is the local and k3s
 //! deployment: it binds a port and serves the router on its own.
 
-use commerce_core;
-use commerce_core::idempotency;
 use commerce_identity::*;
 use std::sync::Arc;
 use std::sync::RwLock;

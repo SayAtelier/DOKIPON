@@ -186,9 +186,9 @@ impl CartStore {
         let unit_minor = unit_price.amount_minor;
         let currency = unit_price.currency;
 
-        if let Some(item) = cart.items.iter_mut().find(|i| &i.sku == sku) {
+        if let Some(item) = cart.items.iter_mut().find(|i| i.sku == sku) {
             if new_quantity == 0 {
-                cart.items.retain(|i| &i.sku != sku);
+                cart.items.retain(|i| i.sku != sku);
             } else {
                 item.quantity = new_quantity;
                 item.unit_amount_snapshot = unit_minor;
@@ -347,14 +347,17 @@ async fn update_item(
     //
     // A SKU the catalogue does not know cannot be priced, so the mutation is
     // rejected rather than stored at some default.
-    let catalogue = prices.fetch_prices(&[p.sku.clone()]).await.map_err(|e| {
-        tracing::error!(error = %e, "cart could not be priced from the catalogue");
-        status::service_unavailable(
-            "cart.pricing_unavailable",
-            "pricing is temporarily unavailable",
-            TRACE,
-        )
-    })?;
+    let catalogue = prices
+        .fetch_prices(std::slice::from_ref(&p.sku))
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "cart could not be priced from the catalogue");
+            status::service_unavailable(
+                "cart.pricing_unavailable",
+                "pricing is temporarily unavailable",
+                TRACE,
+            )
+        })?;
     let unit_price = catalogue
         .iter()
         .find(|(sku, _)| sku == &p.sku)

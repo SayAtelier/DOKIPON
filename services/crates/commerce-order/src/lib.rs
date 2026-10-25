@@ -25,8 +25,7 @@ use commerce_core::JsonBody;
 use commerce_core::{
     error::{status, AppError},
     idempotency::{self, IdempotencyDecision, IdempotencyRecord, IdempotencyState},
-    CheckoutState, Currency, DomainEvent, Money, OrderEvent, PriceAuthority, PriceSource,
-    TransitionRefusal,
+    CheckoutState, Currency, DomainEvent, Money, OrderEvent, PriceSource, TransitionRefusal,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -1083,6 +1082,9 @@ fn order_json(order: &Order) -> serde_json::Value {
 mod tests {
     use super::*;
     use axum::{routing::any, Router};
+    // The lib itself does not price anything — the catalogue does — so the
+    // price authority is only needed here.
+    use commerce_core::PriceAuthority;
     use std::{net::SocketAddr, sync::Mutex};
 
     fn line(sku: &str, qty: u32, amount: i64) -> OrderLine {
@@ -1128,7 +1130,6 @@ mod tests {
     // service emits.
     struct MockCatalog {
         base_url: String,
-        body: Arc<Mutex<String>>,
     }
 
     async fn mock_catalog(items_json: String) -> MockCatalog {
@@ -1152,7 +1153,6 @@ mod tests {
         });
         MockCatalog {
             base_url: format!("http://{address}"),
-            body,
         }
     }
 

@@ -123,8 +123,8 @@ async fn correlation(mut req: Request, next: Next) -> axum::response::Response {
     resp
 }
 
-/// Rate limiting lives in `enforce_rate_limit` below, wired through a closure
-/// so the middleware does not need its own router state.
+// Rate limiting lives in `enforce_rate_limit` below, wired through a closure
+// so the middleware does not need its own router state.
 
 /// Session binding. An authenticated route requires `x-session-id`; the BFF
 /// never trusts a body/param claim of identity.
@@ -338,10 +338,7 @@ async fn enforce_rate_limit(
     // guards are not `Send`, and `PoisonError<Guard>` would keep the guard
     // alive in the error type. Collapse to `()` and scope the guard tightly.
     let allowed = match limiter.write().map_err(|_| ()) {
-        Ok(mut guard) => {
-            let v = guard.allow(&key);
-            v
-        }
+        Ok(mut guard) => guard.allow(&key),
         // A poisoned lock must fail closed rather than silently disabling the limit.
         Err(()) => {
             return status::service_unavailable(

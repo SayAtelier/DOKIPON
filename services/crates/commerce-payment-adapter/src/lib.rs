@@ -238,7 +238,7 @@ impl PaymentAdapter {
             // one per attempt.
             currency: amount.currency,
             status,
-            authorized_at_ms: (status == AuthorizationOutcome::Authorized).then(|| self.now_ms),
+            authorized_at_ms: (status == AuthorizationOutcome::Authorized).then_some(self.now_ms),
             reconciliation_required: script == ProviderScript::CaptureThenOrderDbFails,
         };
         if status == AuthorizationOutcome::Unknown {

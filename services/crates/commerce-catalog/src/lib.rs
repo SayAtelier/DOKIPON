@@ -163,17 +163,21 @@ impl CatalogStore {
         // of the entries lead to an empty shelf would make the filter look
         // broken, so every category the strip offers has at least one
         // product here. The ids are the ones the strip sends.
-        let demo: [(
-            &str,
-            &str,
-            &str,
-            &str,
+        // One row of the demo catalogue: product id, sku, name, category,
+        // price, currency, stock policy, stock on hand, and the channels that
+        // may buy it. The row has enough fields to need a name.
+        type DemoProduct = (
+            &'static str,
+            &'static str,
+            &'static str,
+            &'static str,
             i64,
             Currency,
             StockPolicy,
             i64,
             ChannelEligibility,
-        ); 10] = [
+        );
+        let demo: [DemoProduct; 10] = [
             (
                 "p-bra-01",
                 "sku-bra-01",

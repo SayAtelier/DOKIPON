@@ -1012,6 +1012,20 @@ fn encode_segment(segment: &str) -> String {
     urlencoding::encode(segment).into_owned()
 }
 
+/// One call to an upstream service.
+///
+/// The request is a struct rather than a list of parameters because the two
+/// callers differ in one respect — whether they ask for the operator's view —
+/// and a flag in the middle of a parameter list is easy to read wrong.
+struct UpstreamCall<'a> {
+    base_url: &'a str,
+    path: &'a str,
+    method: Method,
+    query: Option<String>,
+    body: Option<Value>,
+    operator: bool,
+}
+
 async fn request_upstream(
     state: &AdminState,
     base_url: &str,
@@ -1023,13 +1037,15 @@ async fn request_upstream(
 ) -> Result<Response, AppError> {
     request_upstream_with(
         state,
-        base_url,
-        path,
-        method,
-        query,
-        body,
         correlation,
-        false,
+        UpstreamCall {
+            base_url,
+            path,
+            method,
+            query,
+            body,
+            operator: false,
+        },
     )
     .await
 }
@@ -1050,34 +1066,36 @@ async fn request_upstream_as_operator(
 ) -> Result<Response, AppError> {
     request_upstream_with(
         state,
-        base_url,
-        path,
-        method,
-        query,
-        body,
         correlation,
-        true,
+        UpstreamCall {
+            base_url,
+            path,
+            method,
+            query,
+            body,
+            operator: true,
+        },
     )
     .await
 }
 
 async fn request_upstream_with(
     state: &AdminState,
-    base_url: &str,
-    path: &str,
-    method: Method,
-    query: Option<String>,
-    body: Option<Value>,
     correlation: &CorrelationId,
-    operator: bool,
+    call: UpstreamCall<'_>,
 ) -> Result<Response, AppError> {
-    let url = match query {
-        Some(query) => format!("{}{}?{}", base_url.trim_end_matches('/'), path, query),
-        None => format!("{}{}", base_url.trim_end_matches('/'), path),
+    let url = match call.query {
+        Some(query) => format!(
+            "{}{}?{}",
+            call.base_url.trim_end_matches('/'),
+            call.path,
+            query
+        ),
+        None => format!("{}{}", call.base_url.trim_end_matches('/'), call.path),
     };
     let request = state
         .client
-        .request(method, url)
+        .request(call.method, url)
         .header("x-correlation-id", correlation.0.as_str())
         // The order service scopes reads by buyer and rejects a request with no
         // session (`identity.missing_session`, 401). The admin facade acts on
@@ -1088,7 +1106,7 @@ async fn request_upstream_with(
     // only serves it to a caller that holds the service-to-service
     // credential. Without one the answer is "not available", never "every
     // order".
-    let request = if operator {
+    let request = if call.operator {
         match state.service_token.as_deref() {
             Some(token) => request.header("x-service-token", token),
             None => {
@@ -1103,7 +1121,7 @@ async fn request_upstream_with(
     } else {
         request
     };
-    let request = match body {
+    let request = match call.body {
         Some(body) => request.json(&body),
         None => request,
     };
@@ -1148,9 +1166,9 @@ async fn request_upstream_with(
 fn upstream_problem(status: StatusCode, body: &[u8], trace_id: &str) -> AppError {
     if let Ok(mut problem) = serde_json::from_slice::<ProblemDetails>(body) {
         problem.status = status.as_u16();
-        return AppError::Problem(problem);
+        return AppError::problem(problem);
     }
-    AppError::Problem(ProblemDetails::new(
+    AppError::problem(ProblemDetails::new(
         "https://api.gemarc.example/problems/upstream",
         status.canonical_reason().unwrap_or("Upstream Error"),
         status,
@@ -1170,7 +1188,7 @@ fn upstream_unavailable(trace_id: &str) -> AppError {
 }
 
 fn upstream_too_large(trace_id: &str) -> AppError {
-    AppError::Problem(ProblemDetails::new(
+    AppError::problem(ProblemDetails::new(
         "https://api.gemarc.example/problems/upstream",
         "Bad Gateway",
         StatusCode::BAD_GATEWAY,
@@ -1271,13 +1289,19 @@ fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
-async fn shutdown_signal() {
+/// Wait for the process to be asked to stop.
+///
+/// The binary serves with a graceful shutdown, so a deployment that is being
+/// replaced lets the request in flight finish instead of cutting it off.
+pub async fn shutdown_signal() {
     if tokio::signal::ctrl_c().await.is_ok() {
         tracing::info!("shutdown signal received");
     }
 }
 
-fn init_tracing() {
+/// The logs are the only way to see what the service did, so they are always
+/// on.
+pub fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     tracing_subscriber::fmt()
