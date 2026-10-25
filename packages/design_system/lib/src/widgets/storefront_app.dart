@@ -449,7 +449,25 @@ class _CatalogScreenState extends State<CatalogScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('アカウント / Account', style: theme.textTheme.titleLarge),
+              // The sheet has to be dismissible by a control, not only by
+              // tapping the barrier. A shopper who cannot tap the
+              // background — with a keyboard, or with a screen reader — had
+              // no way out of this sheet. The cart drawer's close button is
+              // the pattern, and the same label, so the two sheets are
+              // closed the same way.
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('アカウント / Account', style: theme.textTheme.titleLarge),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close, size: 20),
+                    color: DokColors.ink,
+                    tooltip: '閉じる / Close',
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
               Text(
                 session.isGuest
