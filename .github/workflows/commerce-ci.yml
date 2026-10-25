@@ -35,13 +35,6 @@ name: commerce-ci
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: short
-  # The database the services' repository tests run against.
-  #
-  # The tests that need a database skip themselves when there is no
-  # `DATABASE_URL` — and without this they skipped in every CI run, so the
-  # database paths were never actually checked. The schema, the id sequences
-  # and the cross-instance visibility are checked here.
-  DATABASE_URL: postgres://dokipon:dokipon_test_pw@localhost:5432/dokipon_commerce
 
 jobs:
   # -------------------------------------------------------------------------
@@ -52,6 +45,19 @@ jobs:
     name: rust fmt + clippy + test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # The database the services' repository tests run against.
+    #
+    # The tests that need a database skip themselves when there is no
+    # `DATABASE_URL` — and without this they skipped in every CI run, so the
+    # database paths were never actually checked. The schema, the id sequences
+    # and the cross-instance visibility are checked here.
+    #
+    # It is **this job's** variable, not the workflow's: the e2e job has no
+    # database, and a service that is given a `DATABASE_URL` and cannot reach
+    # it refuses to start (fail closed) — so a workflow-wide `DATABASE_URL`
+    # would stop the order service from booting there.
+    env:
+      DATABASE_URL: postgres://dokipon:dokipon_test_pw@localhost:5432/dokipon_commerce
     services:
       postgres:
         image: postgres:16-alpine

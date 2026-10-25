@@ -74,7 +74,7 @@ void main() {
       expect(requested.path, '/admin/v1/orders');
     });
 
-    test('the path is absolute, so the browser cannot resolve it against ' +
+    test('the path is absolute, so the browser cannot resolve it against '
         'the console\'s own URL', () async {
       await client().orderDetail('ord-000001');
       expect(requested.path.startsWith('/'), isTrue,
