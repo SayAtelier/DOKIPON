@@ -238,6 +238,27 @@ export async function clickMatching(page, role, pattern, { timeout = 20_000 } = 
 }
 
 /**
+ * Wait until the catalogue is on the page, and return the first product of
+ * it that is.
+ *
+ * A journey that reads the tree the moment the app has mounted reads it
+ * too early: the bundle is still booting, the catalogue has not been laid
+ * out, and the tree is empty. On a fast local stack that race is lost
+ * silently; on a slow link it is a failed check that says nothing about
+ * the app.
+ */
+export async function waitForCatalogue(page, products, { timeout = 60_000 } = {}) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const labels = await semanticsLabels(page);
+    const hit = products.find((product) => findLabel(labels, product.title, 'button'));
+    if (hit) return hit;
+    if (Date.now() >= deadline) return null;
+    await page.waitForTimeout(500);
+  }
+}
+
+/**
  * Scroll the page to the end.
  *
  * Flutter renders into a canvas, so the semantics tree is built lazily: the

@@ -23,6 +23,7 @@ import {
   scrollToEnd,
   scrollToTop,
   semanticsLabels,
+  waitForCatalogue,
   waitForLabel,
 } from '../lib.mjs';
 
@@ -33,6 +34,17 @@ export const guestBrowse = journey({
     await openSurface(page, '/');
     await bootFlutter(page);
     await enableSemantics(page);
+
+    // 0. The catalogue has to be on the page before anything is judged.
+    //    The app is still booting when the tree is first read, and an empty
+    //    tree says nothing about the app.
+    const ready = await waitForCatalogue(page, fixture.catalogue.products);
+    t.check(
+      'the catalogue is on the page',
+      ready !== null,
+      ready ? ready.title : 'the catalogue never appeared',
+    );
+    if (!ready) return;
 
     // 1. "SHOP COLLECTION" is dead while no category is chosen, and live
     //    once one is. A button that is dead for a reason is fine; a button
