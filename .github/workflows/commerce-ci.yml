@@ -193,12 +193,39 @@ jobs:
           cache-on-failure: true
           workspaces: 'services -> target'
 
-      - name: cargo build -p commerce-order (release)
+      - name: cargo build -p commerce-catalog -p commerce-order (release)
         working-directory: services
-        run: cargo build --release -p commerce-order
+        run: cargo build --release -p commerce-catalog -p commerce-order
+
+      # The order service re-prices every line from the catalogue before it
+      # charges anything — the client's own number is a display hint. So the
+      # checkout script needs the catalogue service too, not just the order
+      # service: without it every checkout is refused with
+      # `checkout.pricing_unavailable`, and the script would be asserting
+      # against refusals instead of against the Saga.
+      - name: Start commerce-catalog in background
+        working-directory: services
+        run: |
+          PORT=8082 ./target/release/commerce-catalog &
+          echo "$!" > /tmp/catalog.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8082/healthz >/dev/null; then
+              echo "catalog is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "catalog did not become ready" >&2
+          cat /tmp/catalog.pid >&2
+          exit 1
 
       - name: Start commerce-order in background
         working-directory: services
+        env:
+          # The binary binds an ephemeral port without this, and the script
+          # talks to 8085.
+          PORT: 8085
+          CATALOG_URL: http://127.0.0.1:8082
         run: |
           ./target/release/commerce-order &
           echo "$!" > /tmp/order.pid
@@ -216,9 +243,12 @@ jobs:
       - name: bash tools/e2e_checkout.sh
         run: bash tools/e2e_checkout.sh
 
-      - name: Stop commerce-order
+      - name: Stop the services
         if: always()
         run: |
           if [ -f /tmp/order.pid ]; then
             kill "$(cat /tmp/order.pid)" || true
+          fi
+          if [ -f /tmp/catalog.pid ]; then
+            kill "$(cat /tmp/catalog.pid)" || true
           fi
