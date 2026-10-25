@@ -29,6 +29,10 @@ use std::{
 
 pub type SharedPayment = Arc<RwLock<PaymentAdapter>>;
 
+pub mod repo;
+
+pub use repo::{DbPaymentRepository, MemoryPaymentRepository, PaymentRepository};
+
 /// Outcome of an authorize attempt. `Unknown` is a first-class state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -459,7 +463,7 @@ impl ListPaymentsQuery {
     }
 }
 
-pub fn router(state: SharedPayment) -> Router {
+pub fn router(state: Arc<dyn PaymentRepository>) -> Router {
     Router::new()
         .route("/v1/payments/authorize", post(authorize))
         .route("/v1/payments/reconcile", post(reconcile))
@@ -476,21 +480,17 @@ async fn health() -> StatusCode {
 }
 
 async fn authorize(
-    State(store): State<SharedPayment>,
+    State(store): State<Arc<dyn PaymentRepository>>,
     JsonBody(body): JsonBody<AuthorizeBody>,
 ) -> Result<Json<PaymentAttempt>, AppError> {
-    let mut guard = store
-        .write()
-        .map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
     let amount = Money::new(body.amount_minor, body.currency).map_err(|_| {
         status::unprocessable("payment.bad_amount", "invalid amount", "payment.authorize")
     })?;
-    guard.tick();
-    Ok(Json(guard.authorize(
-        &body.order_id,
-        &body.payment_method_ref,
-        amount,
-    )?))
+    Ok(Json(
+        store
+            .authorize(&body.order_id, &body.payment_method_ref, amount)
+            .await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -501,29 +501,24 @@ pub struct ReconcileBody {
 }
 
 async fn reconcile(
-    State(store): State<SharedPayment>,
+    State(store): State<Arc<dyn PaymentRepository>>,
     JsonBody(body): JsonBody<ReconcileBody>,
 ) -> Result<Json<PaymentAttempt>, AppError> {
-    let mut guard = store
-        .write()
-        .map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
-    guard.tick();
     Ok(Json(
-        guard.reconcile(&body.provider_ref, body.provider_answer)?,
+        store
+            .reconcile(&body.provider_ref, body.provider_answer)
+            .await?,
     ))
 }
 
 async fn webhook(
-    State(store): State<SharedPayment>,
+    State(store): State<Arc<dyn PaymentRepository>>,
     JsonBody(event): JsonBody<WebhookEvent>,
 ) -> Result<Json<PaymentAttempt>, AppError> {
-    let mut guard = store
-        .write()
-        .map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
     // The freshness window is measured against the clock as it is now, not
     // against the time the process started.
-    let now = guard.tick();
-    Ok(Json(guard.verify_and_accept(event, now)?))
+    let now = commerce_core::idempotency::now_ms();
+    Ok(Json(store.verify_and_accept(event, now).await?))
 }
 
 /// `payment.list` — the operator console's page of payment attempts.
@@ -532,20 +527,21 @@ async fn webhook(
 /// existed the adapter had no read route at all, so the facade had no
 /// upstream to call and answered 404.
 async fn list_payments(
-    State(store): State<SharedPayment>,
+    State(store): State<Arc<dyn PaymentRepository>>,
     Query(query): Query<ListPaymentsQuery>,
 ) -> Result<Json<PaymentPage>, AppError> {
     // A listing does not mutate the store, so it takes the read lock: the
     // write routes (authorize / reconcile / webhook) keep running while the
     // console pages through the history.
-    let guard = store
-        .read()
-        .map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
-    Ok(Json(guard.list(
-        query.order_id.as_deref(),
-        query.cursor.as_deref(),
-        query.effective_limit(),
-    )))
+    Ok(Json(
+        store
+            .list(
+                query.order_id.as_deref(),
+                query.cursor.as_deref(),
+                query.effective_limit(),
+            )
+            .await?,
+    ))
 }
 
 #[cfg(test)]
@@ -582,7 +578,9 @@ mod tests {
 
     /// `GET /v1/payments` with the given query string, as JSON.
     async fn list(uri: &str) -> serde_json::Value {
-        let app = router(Arc::new(RwLock::new(seeded())));
+        let app = router(Arc::new(MemoryPaymentRepository::new(Arc::new(
+            RwLock::new(seeded()),
+        ))));
         let response = app
             .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
             .await

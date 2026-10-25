@@ -87,11 +87,28 @@ CREATE TABLE IF NOT EXISTS inventory_reservation (
     state          text   NOT NULL CHECK (
         state IN ('pending', 'reserved', 'committed', 'released', 'expired')
     ),
-    expires_at_ms  bigint NOT NULL,
-    -- A second reservation of the same SKU for the same order is
-    -- structurally impossible, not merely unlikely.
-    UNIQUE (order_id, sku_id)
+    expires_at_ms  bigint NOT NULL
 );
+
+-- Only one **active** reservation of the same SKU for the same order.
+--
+-- The table used to carry `UNIQUE (order_id, sku_id)`, which said that an
+-- order could never reserve the same SKU twice — not even after the first
+-- reservation was released. The state machine says otherwise: a released
+-- reservation is history, and the order may reserve the same SKU again. The
+-- constraint was the table-level one, so it is dropped; the rule that is
+-- actually true is the partial index below, and it is exactly the rule the
+-- state machine applies.
+ALTER TABLE inventory_reservation
+    DROP CONSTRAINT IF EXISTS inventory_reservation_order_id_sku_id_key;
+
+CREATE UNIQUE INDEX IF NOT EXISTS inventory_reservation_active
+    ON inventory_reservation (order_id, sku_id)
+    WHERE state IN ('pending', 'reserved');
+
+-- The id counter for the reservations, so two instances cannot mint the same
+-- one.
+CREATE SEQUENCE IF NOT EXISTS inventory_reservation_seq;
 
 -- ---------------------------------------------------------------------------
 -- order service
@@ -194,5 +211,25 @@ CREATE TABLE IF NOT EXISTS payment_attempt (
     state         text NOT NULL,
     created_at_ms bigint NOT NULL
 );
+
+-- The columns the adapter keeps besides the money: when the provider
+-- authorized, and whether the attempt is waiting for a verdict.
+ALTER TABLE payment_attempt ADD COLUMN IF NOT EXISTS authorized_at_ms bigint;
+ALTER TABLE payment_attempt ADD COLUMN IF NOT EXISTS reconciliation_required boolean NOT NULL DEFAULT false;
+
+-- The provider reference is the handle the adapter answers by, so it has to
+-- be unique: two attempts with the same handle would be one attempt.
+CREATE UNIQUE INDEX IF NOT EXISTS payment_attempt_provider_ref
+    ON payment_attempt (provider_ref);
+
+-- The provider events already taken: a webhook must not be accepted twice,
+-- and two instances must not accept the same one.
+CREATE TABLE IF NOT EXISTS payment_webhook_seen (
+    provider_event_id text PRIMARY KEY,
+    seen_at_ms        bigint NOT NULL
+);
+
+-- The id counter for the attempts.
+CREATE SEQUENCE IF NOT EXISTS payment_attempt_seq;
 
 CREATE INDEX IF NOT EXISTS payment_attempt_by_order ON payment_attempt (order_id);

@@ -198,9 +198,10 @@ export const guestBrowse = journey({
     t.note(
       'A web guest\'s order is keyed by the session, and the session lives only as long as ' +
         'the page does — reload the storefront and the order is unreachable to the shopper ' +
-        '(the operator still sees it). Making the session outlive the page is the ' +
-        'follow-up this decision opens; it needs a way to validate a stored session, ' +
-        'which the deployment\'s per-Function in-memory session store does not yet allow.',
+        '(the operator still sees it). The sessions themselves are shared now: they live in ' +
+        'the database, so every instance sees the same one. What is still missing is the ' +
+        'other half — a way to validate a stored session, and a client that keeps the ' +
+        'session id across a reload.',
     );
   },
 });

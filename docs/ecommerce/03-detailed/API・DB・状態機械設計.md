@@ -44,12 +44,21 @@
 
 > **注意**: この schema は実在する — `services/crates/commerce-core/migrations/0001_commerce.sql` が
 > それである。デプロイは `DATABASE_URL` があれば起動時に適用する（冪等、`IF NOT EXISTS` のみ）。
+> **複数の Function インスタンスが同時に適用しても壊れない**ように、適用は
+> advisory lock を保持したトランザクションの中で行う（`CREATE TABLE IF NOT EXISTS` は
+> 同時実行するとカタログで衝突する）。
 > 下の DDL は**設計時の形**であり、ID は `uuid` ではなく実装どおりの `text`
 > （`sku-bra-01` / `ord-000001` / `sess-000001`）、時刻は `timestamptz` ではなく
 > 実装どおりの `bigint`（ミリ秒）である。**記録の正本はマイグレーションファイル**、
 > この節は設計理由と差分を語っているだけ。
-> 現在 DB を使うのは identity だけ — cart / order / inventory / payment はまだ
-> プロセス内メモリであり、共有ストアに移るのは次の段取り（`[Designed]`）。
+> 現在 DB を使うのは **5 つのサービス全部** — identity（セッション）、cart（カート）、
+> order（注文）、inventory（在庫台帳）、payment（支払の試行）。どれも `DATABASE_URL` が
+> あれば **DB が正本**、なければプロセス内メモリ（ローカル実行とプロセス内 edge は
+> あえてメモリ）。**DB がある**のに繋がらないときは**起動しない**（fail closed）：
+> 繋がらないのにプロセス内メモリへこっそり逃がすと、表向きは健康に見えて注文は消える。
+> セッションの id・注文の id・在庫の予約の id は **DB の sequence** から来る
+> （`sess-000001` / `ord-000001` / `res-000001`）ので、二つのインスタンスが同じ
+> id を出すことはない —— 同じ id は**別の客人が共有している**ことになる。
 
 ```mermaid
 erDiagram

@@ -88,19 +88,36 @@ pub fn identity(pool: Option<commerce_core::db::Pool>) -> Router {
 }
 
 /// The inventory Function. It serves `/v1/inventory`.
-pub fn inventory() -> Router {
-    mount(
-        ServiceId::Inventory,
-        commerce_inventory::router(stores::inventory()),
-    )
+///
+/// The pool is the database the ledger lives in, when the deployment has one.
+/// Without one the ledger lives in this process's memory, which is what the
+/// local run and the in-process edge do on purpose.
+pub fn inventory(pool: Option<commerce_core::db::Pool>) -> Router {
+    let repo: Arc<dyn commerce_inventory::InventoryRepository> = match pool {
+        Some(pool) => Arc::new(commerce_inventory::DbInventoryRepository::new(pool)),
+        None => Arc::new(commerce_inventory::MemoryInventoryRepository::new(
+            stores::inventory(),
+        )),
+    };
+    mount(ServiceId::Inventory, commerce_inventory::router(repo))
 }
 
 /// The payment adapter Function. It serves `/v1/payments`.
-pub fn payment() -> Router {
-    mount(
-        ServiceId::Payment,
-        commerce_payment_adapter::router(stores::payment()),
-    )
+///
+/// The pool is the database the attempts live in, when the deployment has one.
+/// Without one the attempts live in this process's memory, which is what the
+/// local run and the in-process edge do on purpose.
+pub fn payment(pool: Option<commerce_core::db::Pool>) -> Router {
+    let secret = std::env::var("PSP_WEBHOOK_SECRET").unwrap_or_else(|_| "dev-only-secret".into());
+    let repo: Arc<dyn commerce_payment_adapter::PaymentRepository> = match pool {
+        Some(pool) => Arc::new(commerce_payment_adapter::DbPaymentRepository::new(
+            pool, secret,
+        )),
+        None => Arc::new(commerce_payment_adapter::MemoryPaymentRepository::new(
+            stores::payment(),
+        )),
+    };
+    mount(ServiceId::Payment, commerce_payment_adapter::router(repo))
 }
 
 /// The admin facade Function. It serves `/admin/v1`.

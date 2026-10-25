@@ -26,6 +26,10 @@ use std::{
 
 pub type SharedInventory = Arc<RwLock<InventoryStore>>;
 
+pub mod repo;
+
+pub use repo::{DbInventoryRepository, InventoryRepository, MemoryInventoryRepository};
+
 pub const RESERVATION_TTL_MS: i64 = 15 * 60 * 1000; // 15 minutes
 
 /// The demo stock levels the service starts with.
@@ -313,7 +317,7 @@ pub struct StockPage {
     pub next_cursor: Option<String>,
 }
 
-pub fn router(state: SharedInventory) -> Router {
+pub fn router(state: Arc<dyn InventoryRepository>) -> Router {
     Router::new()
         .route("/v1/inventory", get(list_inventory))
         .route("/v1/inventory/reservations", post(reserve))
@@ -344,7 +348,7 @@ async fn health() -> StatusCode {
 /// queue, and nothing schedules it here — so a read must not change the
 /// ledger it reports on.
 async fn list_inventory(
-    State(store): State<SharedInventory>,
+    State(store): State<Arc<dyn InventoryRepository>>,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<StockPage>, AppError> {
     let limit = q.limit.unwrap_or(20).clamp(1, 100) as usize;
@@ -354,69 +358,32 @@ async fn list_inventory(
         .and_then(|c| c.parse::<usize>().ok())
         .unwrap_or(0);
 
-    let guard = store
-        .read()
-        .map_err(|_| AppError::Internal("inventory lock poisoned".into()))?;
-
-    // Sorted by SKU so a page is stable: the same cursor returns the same
-    // rows as long as the store does not change underneath it.
-    let mut sorted: Vec<(&str, &StockLevel)> = guard
-        .stock
-        .iter()
-        .map(|(sku, level)| (sku.as_str(), level))
-        .collect();
-    sorted.sort_by(|a, b| a.0.cmp(b.0));
-
-    let total = sorted.len();
-    let items: Vec<StockLevelRow> = sorted
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .map(|(sku, level)| StockLevelRow {
-            sku: sku.to_string(),
-            on_hand: level.on_hand,
-            reserved: level.reserved,
-            available: level.available(),
-        })
-        .collect();
-
-    let next_cursor = (offset + items.len() < total).then(|| (offset + items.len()).to_string());
-
-    Ok(Json(StockPage { items, next_cursor }))
+    Ok(Json(store.list(offset, limit).await?))
 }
 
 async fn reserve(
-    State(store): State<SharedInventory>,
+    State(store): State<Arc<dyn InventoryRepository>>,
     JsonBody(body): JsonBody<ReserveBody>,
 ) -> Result<Json<Reservation>, AppError> {
-    let mut guard = store
-        .write()
-        .map_err(|_| AppError::Internal("inventory lock poisoned".into()))?;
-    Ok(Json(guard.reserve(
-        &body.sku,
-        &body.order_id,
-        body.quantity,
-    )?))
+    Ok(Json(
+        store
+            .reserve(&body.sku, &body.order_id, body.quantity)
+            .await?,
+    ))
 }
 
 async fn commit(
-    State(store): State<SharedInventory>,
+    State(store): State<Arc<dyn InventoryRepository>>,
     axum::extract::Path(p): axum::extract::Path<ReservationPath>,
 ) -> Result<Json<Reservation>, AppError> {
-    let mut guard = store
-        .write()
-        .map_err(|_| AppError::Internal("inventory lock poisoned".into()))?;
-    Ok(Json(guard.commit(&p.reservation_id)?))
+    Ok(Json(store.commit(&p.reservation_id).await?))
 }
 
 async fn release(
-    State(store): State<SharedInventory>,
+    State(store): State<Arc<dyn InventoryRepository>>,
     axum::extract::Path(p): axum::extract::Path<ReservationPath>,
 ) -> Result<Json<Reservation>, AppError> {
-    let mut guard = store
-        .write()
-        .map_err(|_| AppError::Internal("inventory lock poisoned".into()))?;
-    Ok(Json(guard.release(&p.reservation_id)?))
+    Ok(Json(store.release(&p.reservation_id).await?))
 }
 
 #[cfg(test)]
@@ -448,7 +415,7 @@ mod tests {
     #[tokio::test]
     async fn the_list_route_serves_the_stock_levels() {
         let store: SharedInventory = Arc::new(RwLock::new(InventoryStore::new(DEMO_STOCK_SEED)));
-        let app = router(store);
+        let app = router(Arc::new(MemoryInventoryRepository::new(store)));
 
         let json = get_json(&app, "/v1/inventory").await;
 
@@ -474,7 +441,7 @@ mod tests {
             let mut guard = store.write().unwrap();
             guard.reserve("sku-a", "order-1", 3).unwrap();
         }
-        let app = router(store);
+        let app = router(Arc::new(MemoryInventoryRepository::new(store)));
 
         let json = get_json(&app, "/v1/inventory").await;
 
@@ -492,7 +459,7 @@ mod tests {
             ("sku-b", 2),
             ("sku-c", 3),
         ])));
-        let app = router(store);
+        let app = router(Arc::new(MemoryInventoryRepository::new(store)));
 
         let first = get_json(&app, "/v1/inventory?limit=1").await;
         assert_eq!(first["items"].as_array().unwrap().len(), 1);

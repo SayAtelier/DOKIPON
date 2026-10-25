@@ -104,8 +104,13 @@ server does not distinguish the two guest kinds: it accepts a guest
 checkout and keys the order by the session.
 
 **What that leaves open**: a web guest's order is reachable only while the
-page lives. Reload the storefront and the session is gone, so the shopper
-cannot find the order they just placed — the operator still can. Making
-the session outlive the page needs a way to validate a stored session,
-which the deployment's per-Function in-memory session store does not yet
-allow. The `guest-browse` journey records that as a finding, every run.
+page lives. Reload the storefront and the session is gone — the client asks
+for a new one — so the shopper cannot find the order they just placed (the
+operator still can).
+
+The sessions themselves **are** shared now: they live in the database, so
+every instance of the identity Function sees the same one, and two instances
+cannot mint the same session id. What is missing is the other half — a way
+to **validate a stored session** (the identity service has no "who am I"
+route), and a client that keeps the session id across a reload. Until both
+exist, the session cannot outlive the page.

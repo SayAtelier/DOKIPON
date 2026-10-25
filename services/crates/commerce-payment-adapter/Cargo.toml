@@ -16,4 +16,6 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 sha2 = "0.10"
+# The attempts live in the database when the deployment has one.
+sqlx = { workspace = true }
 commerce-core = { path = "../commerce-core" }

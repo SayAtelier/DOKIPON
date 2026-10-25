@@ -222,8 +222,12 @@ pub fn build(admin: commerce_admin::AdminState) -> (Router, EdgeServices) {
         ),
         content: commerce_content::router(content),
         identity: commerce_identity::router(identity, stores::identity_verifier(), None),
-        inventory: commerce_inventory::router(inventory),
-        payment: commerce_payment_adapter::router(payment),
+        inventory: commerce_inventory::router(Arc::new(
+            commerce_inventory::MemoryInventoryRepository::new(inventory),
+        )),
+        payment: commerce_payment_adapter::router(Arc::new(
+            commerce_payment_adapter::MemoryPaymentRepository::new(payment),
+        )),
         admin: commerce_admin::router(admin),
     };
 

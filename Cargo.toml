@@ -9,6 +9,9 @@ description = "The DOKIPON commerce deployment for Vercel: one Function per comm
 [dependencies]
 commerce-edge = { path = "services/crates/commerce-edge" }
 commerce-admin = { path = "services/crates/commerce-admin" }
+# The inventory Function seeds the demo stock levels into the database when it
+# starts, so it needs the crate that owns the seed and the repository.
+commerce-inventory = { path = "services/crates/commerce-inventory" }
 
 vercel_runtime = { version = "2.4", features = ["axum"] }
 tokio = { version = "1", features = ["full"] }
