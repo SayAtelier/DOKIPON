@@ -135,7 +135,11 @@ pub fn require_session(headers: &HeaderMap) -> Result<String, AppError> {
         .filter(|v| !v.is_empty())
         .map(str::to_string)
         .ok_or_else(|| {
-            status::unauthorized("identity.missing_session", "x-session-id header is required", "bff.auth")
+            status::unauthorized(
+                "identity.missing_session",
+                "x-session-id header is required",
+                "bff.auth",
+            )
         })
 }
 
@@ -203,7 +207,13 @@ async fn submit_checkout(
     let _session = require_session(&headers)?;
     let _key = require_idempotency_key(&headers)?;
     Ok(upstreams
-        .forward(&client, axum::http::Method::POST, "/v1/checkouts", &headers, body)
+        .forward(
+            &client,
+            axum::http::Method::POST,
+            "/v1/checkouts",
+            &headers,
+            body,
+        )
         .await)
 }
 
@@ -256,7 +266,9 @@ async fn forward_unowned(
         }
     };
 
-    upstreams.forward(&client, method, &target, &headers, body).await
+    upstreams
+        .forward(&client, method, &target, &headers, body)
+        .await
 }
 
 /// The largest request body the BFF forwards upstream.
@@ -342,7 +354,8 @@ async fn enforce_rate_limit(
     };
 
     if !allowed {
-        return status::too_many_requests("rate limit exceeded for this window", &key).into_response();
+        return status::too_many_requests("rate limit exceeded for this window", &key)
+            .into_response();
     }
     next.run(req).await
 }
@@ -365,7 +378,10 @@ mod tests {
 
     #[test]
     fn rate_limiter_blocks_after_the_budget() {
-        let mut rl = RateLimiter { limit: 3, ..Default::default() };
+        let mut rl = RateLimiter {
+            limit: 3,
+            ..Default::default()
+        };
         assert!(rl.allow("a"));
         assert!(rl.allow("a"));
         assert!(rl.allow("a"));
@@ -375,7 +391,10 @@ mod tests {
 
     #[test]
     fn rate_limiter_window_resets() {
-        let mut rl = RateLimiter { limit: 1, ..Default::default() };
+        let mut rl = RateLimiter {
+            limit: 1,
+            ..Default::default()
+        };
         assert!(rl.allow("a"));
         assert!(!rl.allow("a"));
         rl.window_started = Instant::now() - std::time::Duration::from_secs(61);

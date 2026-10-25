@@ -11,7 +11,10 @@ use std::sync::RwLock;
 
 #[tokio::main]
 async fn main() {
-    let port: u16 = std::env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     // The webhook secret is a credential, not configuration: a deployment
     // that keeps the development value accepts a webhook signed by anyone.
     // The service refuses to start without a real one.
@@ -24,6 +27,11 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port)))
         .await
         .expect("bind payment");
-    tracing::info!("payment adapter listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, router(store)).await.expect("serve payment");
+    tracing::info!(
+        "payment adapter listening on {}",
+        listener.local_addr().unwrap()
+    );
+    axum::serve(listener, router(store))
+        .await
+        .expect("serve payment");
 }

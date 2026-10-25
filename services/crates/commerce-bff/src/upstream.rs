@@ -78,11 +78,7 @@ const FORWARDED_REQUEST_HEADERS: [&str; 5] = [
 ];
 
 /// The response headers the BFF passes back to the client.
-const FORWARDED_RESPONSE_HEADERS: [&str; 3] = [
-    "content-type",
-    "x-correlation-id",
-    "retry-after",
-];
+const FORWARDED_RESPONSE_HEADERS: [&str; 3] = ["content-type", "x-correlation-id", "retry-after"];
 
 impl Upstreams {
     pub fn from_env() -> Self {
@@ -92,7 +88,10 @@ impl Upstreams {
             order_base_url: base_url("ORDER_URL", "http://commerce-order:8085"),
             identity_base_url: base_url("IDENTITY_URL", "http://commerce-identity:8081"),
             inventory_base_url: base_url("INVENTORY_URL", "http://commerce-inventory:8084"),
-            payment_base_url: base_url("PAYMENT_ADAPTER_URL", "http://commerce-payment-adapter:8086"),
+            payment_base_url: base_url(
+                "PAYMENT_ADAPTER_URL",
+                "http://commerce-payment-adapter:8086",
+            ),
             content_base_url: base_url("CONTENT_URL", "http://commerce-content:8096"),
         }
     }
@@ -223,8 +222,13 @@ impl Upstreams {
                 }
             }
         }
-        out.body(axum::body::Body::from(bytes))
-            .unwrap_or_else(|_| problem(StatusCode::BAD_GATEWAY, "gateway.upstream_invalid", "bad upstream response"))
+        out.body(axum::body::Body::from(bytes)).unwrap_or_else(|_| {
+            problem(
+                StatusCode::BAD_GATEWAY,
+                "gateway.upstream_invalid",
+                "bad upstream response",
+            )
+        })
     }
 }
 
@@ -317,13 +321,22 @@ mod tests {
         assert_eq!(u.base_url_for("/v1/products"), Some("http://catalog"));
         assert_eq!(u.base_url_for("/v1/products/p-1"), Some("http://catalog"));
         assert_eq!(u.base_url_for("/v1/carts/c-1"), Some("http://cart"));
-        assert_eq!(u.base_url_for("/v1/carts/c-1/items/sku-1"), Some("http://cart"));
+        assert_eq!(
+            u.base_url_for("/v1/carts/c-1/items/sku-1"),
+            Some("http://cart")
+        );
         assert_eq!(u.base_url_for("/v1/checkouts"), Some("http://order"));
         assert_eq!(u.base_url_for("/v1/checkouts/chk-1"), Some("http://order"));
         assert_eq!(u.base_url_for("/v1/orders"), Some("http://order"));
-        assert_eq!(u.base_url_for("/v1/orders/ord-1/reconcile"), Some("http://order"));
+        assert_eq!(
+            u.base_url_for("/v1/orders/ord-1/reconcile"),
+            Some("http://order")
+        );
         assert_eq!(u.base_url_for("/v1/sessions/line"), Some("http://identity"));
-        assert_eq!(u.base_url_for("/v1/sessions/guest"), Some("http://identity"));
+        assert_eq!(
+            u.base_url_for("/v1/sessions/guest"),
+            Some("http://identity")
+        );
     }
 
     #[test]

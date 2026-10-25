@@ -187,7 +187,9 @@ impl DbMock {
             } else {
                 format!("{:05}", f.http_status.max(40000))
             };
-            return Err(ConstraintError::new(&code, "connection", "database unreachable").to_problem());
+            return Err(
+                ConstraintError::new(&code, "connection", "database unreachable").to_problem(),
+            );
         }
         if let Err(e) = row.check() {
             return Err(e.to_problem());
@@ -216,7 +218,9 @@ impl DbMock {
             } else {
                 sqlstate::INSUFFICIENT_RESOURCES
             };
-            return Err(ConstraintError::new(code, "connection", "database unreachable").to_problem());
+            return Err(
+                ConstraintError::new(code, "connection", "database unreachable").to_problem(),
+            );
         }
         if quantity <= 0 {
             return Err(ConstraintError::new(
@@ -372,7 +376,9 @@ impl DbMock {
                 state: state.to_string(),
             },
         );
-        Ok(Json(serde_json::json!({ "scopedKey": scoped_key, "replayed": false })))
+        Ok(Json(
+            serde_json::json!({ "scopedKey": scoped_key, "replayed": false }),
+        ))
     }
 
     /// Cart item write with the DDL's `quantity > 0` and `amount >= 0`.
@@ -514,7 +520,14 @@ pub fn router(db: DbMock) -> Router {
                 let d = d.clone();
                 move |Json(b): Json<StockBody>| {
                     let d = d.clone();
-                    async move { d.upsert_stock(StockRow { sku_id: b.sku_id, on_hand: b.on_hand, reserved: b.reserved }).await }
+                    async move {
+                        d.upsert_stock(StockRow {
+                            sku_id: b.sku_id,
+                            on_hand: b.on_hand,
+                            reserved: b.reserved,
+                        })
+                        .await
+                    }
                 }
             }),
         )
@@ -544,7 +557,10 @@ pub fn router(db: DbMock) -> Router {
                 let d = d.clone();
                 move |Json(b): Json<IdemBody>| {
                     let d = d.clone();
-                    async move { d.put_idempotency(&b.scoped_key, &b.fingerprint, &b.state).await }
+                    async move {
+                        d.put_idempotency(&b.scoped_key, &b.fingerprint, &b.state)
+                            .await
+                    }
                 }
             }),
         )
@@ -667,7 +683,10 @@ mod tests {
         let snap = d.snapshot().await;
         assert_eq!(snap.0["stock"][0]["available"], 7);
 
-        let _ = d.settle_reservation("ord-1", "sku-a", "committed").await.unwrap();
+        let _ = d
+            .settle_reservation("ord-1", "sku-a", "committed")
+            .await
+            .unwrap();
         let snap = d.snapshot().await;
         assert_eq!(snap.0["stock"][0]["on_hand"], 7);
         assert_eq!(snap.0["stock"][0]["reserved"], 0);
@@ -679,7 +698,10 @@ mod tests {
         let d = DbMock::new();
         let _ = d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
         let _ = d.reserve("ord-1", "sku-a", 4).await.unwrap();
-        let _ = d.settle_reservation("ord-1", "sku-a", "released").await.unwrap();
+        let _ = d
+            .settle_reservation("ord-1", "sku-a", "released")
+            .await
+            .unwrap();
         let snap = d.snapshot().await;
         assert_eq!(snap.0["stock"][0]["on_hand"], 10);
         assert_eq!(snap.0["stock"][0]["reserved"], 0);
@@ -691,8 +713,14 @@ mod tests {
         let d = DbMock::new();
         let _ = d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
         let _ = d.reserve("ord-1", "sku-a", 1).await.unwrap();
-        let _ = d.settle_reservation("ord-1", "sku-a", "released").await.unwrap();
-        let (_, body) = d.settle_reservation("ord-1", "sku-a", "committed").await.unwrap_err();
+        let _ = d
+            .settle_reservation("ord-1", "sku-a", "released")
+            .await
+            .unwrap();
+        let (_, body) = d
+            .settle_reservation("ord-1", "sku-a", "committed")
+            .await
+            .unwrap_err();
         assert_eq!(body["constraint"], "reservation_terminal");
     }
 
@@ -716,7 +744,10 @@ mod tests {
         let d = DbMock::new();
         let _ = d.upsert_stock(row("sku-a", 10, 0)).await.unwrap();
         let _ = d.reserve("ord-1", "sku-a", 1).await.unwrap();
-        let (_, body) = d.settle_reservation("ord-1", "sku-a", "bogus").await.unwrap_err();
+        let (_, body) = d
+            .settle_reservation("ord-1", "sku-a", "bogus")
+            .await
+            .unwrap_err();
         assert_eq!(body["constraint"], "reservation_state_enum");
     }
 
@@ -733,7 +764,10 @@ mod tests {
     async fn idempotency_same_key_different_fingerprint_is_a_unique_violation() {
         let d = DbMock::new();
         let _ = d.put_idempotency("k", "fp-a", "completed").await.unwrap();
-        let (status, body) = d.put_idempotency("k", "fp-b", "completed").await.unwrap_err();
+        let (status, body) = d
+            .put_idempotency("k", "fp-b", "completed")
+            .await
+            .unwrap_err();
         assert_eq!(status, StatusCode::CONFLICT);
         assert_eq!(body["constraint"], "idempotency_scoped_key_fingerprint");
     }

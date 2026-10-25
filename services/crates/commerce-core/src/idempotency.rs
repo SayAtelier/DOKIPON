@@ -13,7 +13,10 @@ use std::time::{Duration, SystemTime};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IdempotencyState {
     InProgress,
-    Completed { status_code: u16, response_body: serde_json::Value },
+    Completed {
+        status_code: u16,
+        response_body: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +36,10 @@ pub enum IdempotencyDecision {
     /// Same key, same payload, still in flight → 409 (do NOT re-execute).
     InFlightConflict,
     /// Same key, same payload, completed → replay the stored response.
-    Replay { status_code: u16, body: serde_json::Value },
+    Replay {
+        status_code: u16,
+        body: serde_json::Value,
+    },
     /// Same key, different payload → 409 idempotency-key reuse.
     KeyReuseConflict,
     /// Record expired → caller may execute fresh.
@@ -80,7 +86,10 @@ pub fn decide(
     // The stored `expires_at_ms` is authoritative (written when the record was
     // created); `ttl` is kept in the signature so callers can express an
     // explicit policy window and is asserted as a sanity bound below.
-    debug_assert!(ttl.as_millis() as i64 > 0, "idempotency ttl must be positive");
+    debug_assert!(
+        ttl.as_millis() as i64 > 0,
+        "idempotency ttl must be positive"
+    );
     match existing {
         None => IdempotencyDecision::Execute,
         Some(rec) => {
@@ -92,12 +101,13 @@ pub fn decide(
             }
             match &rec.state {
                 IdempotencyState::InProgress => IdempotencyDecision::InFlightConflict,
-                IdempotencyState::Completed { status_code, response_body } => {
-                    IdempotencyDecision::Replay {
-                        status_code: *status_code,
-                        body: response_body.clone(),
-                    }
-                }
+                IdempotencyState::Completed {
+                    status_code,
+                    response_body,
+                } => IdempotencyDecision::Replay {
+                    status_code: *status_code,
+                    body: response_body.clone(),
+                },
             }
         }
     }
@@ -131,7 +141,10 @@ mod tests {
 
     #[test]
     fn no_record_executes() {
-        assert_eq!(decide(None, "fp", 1000, DEFAULT_TTL), IdempotencyDecision::Execute);
+        assert_eq!(
+            decide(None, "fp", 1000, DEFAULT_TTL),
+            IdempotencyDecision::Execute
+        );
     }
 
     #[test]
@@ -155,17 +168,30 @@ mod tests {
     #[test]
     fn completed_replays_stored_response() {
         let body = serde_json::json!({"checkoutId": "c1"});
-        let r = rec("fp", IdempotencyState::Completed { status_code: 201, response_body: body.clone() }, 10_000);
+        let r = rec(
+            "fp",
+            IdempotencyState::Completed {
+                status_code: 201,
+                response_body: body.clone(),
+            },
+            10_000,
+        );
         assert_eq!(
             decide(Some(&r), "fp", 1000, DEFAULT_TTL),
-            IdempotencyDecision::Replay { status_code: 201, body }
+            IdempotencyDecision::Replay {
+                status_code: 201,
+                body
+            }
         );
     }
 
     #[test]
     fn expired_record_executes_again() {
         let r = rec("fp", IdempotencyState::InProgress, 500);
-        assert_eq!(decide(Some(&r), "fp", 1000, DEFAULT_TTL), IdempotencyDecision::Expired);
+        assert_eq!(
+            decide(Some(&r), "fp", 1000, DEFAULT_TTL),
+            IdempotencyDecision::Expired
+        );
     }
 
     #[test]

@@ -18,9 +18,7 @@ async fn main() {
     // Where the document is persisted. Unset means memory only, which is
     // fine for a container that is recreated on every deploy with the
     // document supplied as a ConfigMap.
-    let path = std::env::var("CONTENT_PATH")
-        .ok()
-        .map(PathBuf::from);
+    let path = std::env::var("CONTENT_PATH").ok().map(PathBuf::from);
     let store: SharedContent = Arc::new(RwLock::new(ContentStore::new(path.clone())));
     let app = router(store);
     let listener = tokio::net::TcpListener::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port)))

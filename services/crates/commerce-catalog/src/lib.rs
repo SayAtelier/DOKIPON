@@ -58,7 +58,11 @@ pub struct ChannelEligibility {
 
 impl Default for ChannelEligibility {
     fn default() -> Self {
-        Self { web: true, app: true, line_mini_app: true }
+        Self {
+            web: true,
+            app: true,
+            line_mini_app: true,
+        }
     }
 }
 
@@ -159,21 +163,175 @@ impl CatalogStore {
         // of the entries lead to an empty shelf would make the filter look
         // broken, so every category the strip offers has at least one
         // product here. The ids are the ones the strip sends.
-        let demo: [(&str, &str, &str, &str, i64, Currency, StockPolicy, i64, ChannelEligibility); 10] = [
-            ("p-bra-01", "sku-bra-01", "DOKIPON Triple ノ-wire ブラ / Triple Wireless Bra", "cat-bra-sets", 8900, Currency::Jpy, StockPolicy::Reserved, 42, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-brief-01", "sku-brief-01", "DOKIPON 百合 ショーツ / Lily Brief", "cat-lingerie", 3900, Currency::Jpy, StockPolicy::Reserved, 7, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-set-01", "sku-set-01", "DOKIPON 黒蝶 ブラ＆ショーツセット / Black Butterfly Set", "cat-bra-sets", 12900, Currency::Jpy, StockPolicy::Reserved, 0, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-night-01", "sku-night-01", "DOKIPON 月光 ナイトブラ / Moonlight Night Bra", "cat-nightwear", 4900, Currency::Jpy, StockPolicy::Reserved, 28, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-cami-01", "sku-cami-01", "DOKIPON 霞 キャミソール / Haze Camisole", "cat-lingerie", 6900, Currency::Jpy, StockPolicy::MadeToOrder, -1, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-adult-01", "sku-adult-01", "DOKIPON 深紅 ストッキング / Crimson Stockings", "cat-lingerie", 5800, Currency::Jpy, StockPolicy::Reserved, 3, ChannelEligibility { web: true, app: false, line_mini_app: false }),
-            ("p-swim-01", "sku-swim-01", "DOKIPON 潮騒 スイムビーフ / Shiosai Swim Brief", "cat-swim", 5900, Currency::Jpy, StockPolicy::Reserved, 12, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-beauty-01", "sku-beauty-01", "DOKIPON 雪輪 ボディケアセット / Yukiwa Body Care Set", "cat-beauty", 2400, Currency::Jpy, StockPolicy::Unbounded, -1, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-goods-01", "sku-goods-01", "DOKIPON 星屑 ヘアピン / Hoshikuzu Hair Pin", "cat-goods", 1800, Currency::Jpy, StockPolicy::Unbounded, -1, ChannelEligibility { web: true, app: true, line_mini_app: true }),
-            ("p-sale-01", "sku-sale-01", "DOKIPON 薄暮 セール セット / Twilight Sale Set", "cat-sale", 3900, Currency::Jpy, StockPolicy::Reserved, 5, ChannelEligibility { web: true, app: true, line_mini_app: true }),
+        let demo: [(
+            &str,
+            &str,
+            &str,
+            &str,
+            i64,
+            Currency,
+            StockPolicy,
+            i64,
+            ChannelEligibility,
+        ); 10] = [
+            (
+                "p-bra-01",
+                "sku-bra-01",
+                "DOKIPON Triple ノ-wire ブラ / Triple Wireless Bra",
+                "cat-bra-sets",
+                8900,
+                Currency::Jpy,
+                StockPolicy::Reserved,
+                42,
+                ChannelEligibility {
+                    web: true,
+                    app: true,
+                    line_mini_app: true,
+                },
+            ),
+            (
+                "p-brief-01",
+                "sku-brief-01",
+                "DOKIPON 百合 ショーツ / Lily Brief",
+                "cat-lingerie",
+                3900,
+                Currency::Jpy,
+                StockPolicy::Reserved,
+                7,
+                ChannelEligibility {
+                    web: true,
+                    app: true,
+                    line_mini_app: true,
+                },
+            ),
+            (
+                "p-set-01",
+                "sku-set-01",
+                "DOKIPON 黒蝶 ブラ＆ショーツセット / Black Butterfly Set",
+                "cat-bra-sets",
+                12900,
+                Currency::Jpy,
+                StockPolicy::Reserved,
+                0,
+                ChannelEligibility {
+                    web: true,
+                    app: true,
+                    line_mini_app: true,
+                },
+            ),
+            (
+                "p-night-01",
+                "sku-night-01",
+                "DOKIPON 月光 ナイトブラ / Moonlight Night Bra",
+                "cat-nightwear",
+                4900,
+                Currency::Jpy,
+                StockPolicy::Reserved,
+                28,
+                ChannelEligibility {
+                    web: true,
+                    app: true,
+                    line_mini_app: true,
+                },
+            ),
+            (
+                "p-cami-01",
+                "sku-cami-01",
+                "DOKIPON 霞 キャミソール / Haze Camisole",
+                "cat-lingerie",
+                6900,
+                Currency::Jpy,
+                StockPolicy::MadeToOrder,
+                -1,
+                ChannelEligibility {
+                    web: true,
+                    app: true,
+                    line_mini_app: true,
+                },
+            ),
+            (
+                "p-adult-01",
+                "sku-adult-01",
+                "DOKIPON 深紅 ストッキング / Crimson Stockings",
+                "cat-lingerie",
+                5800,
+                Currency::Jpy,
+                StockPolicy::Reserved,
+                3,
+                ChannelEligibility {
+                    web: true,
+                    app: false,
+                    line_mini_app: false,
+                },
+            ),
+            (
+                "p-swim-01",
+                "sku-swim-01",
+                "DOKIPON 潮騒 スイムビーフ / Shiosai Swim Brief",
+                "cat-swim",
+                5900,
+                Currency::Jpy,
+                StockPolicy::Reserved,
+                12,
+                ChannelEligibility {
+                    web: true,
+                    app: true,
+                    line_mini_app: true,
+                },
+            ),
+            (
+                "p-beauty-01",
+                "sku-beauty-01",
+                "DOKIPON 雪輪 ボディケアセット / Yukiwa Body Care Set",
+                "cat-beauty",
+                2400,
+                Currency::Jpy,
+                StockPolicy::Unbounded,
+                -1,
+                ChannelEligibility {
+                    web: true,
+                    app: true,
+                    line_mini_app: true,
+                },
+            ),
+            (
+                "p-goods-01",
+                "sku-goods-01",
+                "DOKIPON 星屑 ヘアピン / Hoshikuzu Hair Pin",
+                "cat-goods",
+                1800,
+                Currency::Jpy,
+                StockPolicy::Unbounded,
+                -1,
+                ChannelEligibility {
+                    web: true,
+                    app: true,
+                    line_mini_app: true,
+                },
+            ),
+            (
+                "p-sale-01",
+                "sku-sale-01",
+                "DOKIPON 薄暮 セール セット / Twilight Sale Set",
+                "cat-sale",
+                3900,
+                Currency::Jpy,
+                StockPolicy::Reserved,
+                5,
+                ChannelEligibility {
+                    web: true,
+                    app: true,
+                    line_mini_app: true,
+                },
+            ),
         ];
 
         for (pid, skuid, title, category, amount, cur, policy, qty, channels) in demo {
-            let (ja, en) = title.split_once(" / ").map_or((title.to_string(), title.to_string()), |(j, e)| (j.to_string(), e.to_string()));
+            let (ja, en) = title
+                .split_once(" / ")
+                .map_or((title.to_string(), title.to_string()), |(j, e)| {
+                    (j.to_string(), e.to_string())
+                });
             products.insert(
                 pid.to_string(),
                 Product {
@@ -188,7 +346,14 @@ impl CatalogStore {
             );
             skus.insert(
                 skuid.to_string(),
-                Sku { sku_id: skuid.to_string(), product_id: pid.to_string(), amount_minor: amount, currency: cur, version: 1, stock_policy: policy },
+                Sku {
+                    sku_id: skuid.to_string(),
+                    product_id: pid.to_string(),
+                    amount_minor: amount,
+                    currency: cur,
+                    version: 1,
+                    stock_policy: policy,
+                },
             );
             // Only a `Reserved` SKU has a stock level. `Unbounded` and
             // `MadeToOrder` take no part in the inventory step
@@ -202,7 +367,11 @@ impl CatalogStore {
                 stock.insert(skuid.to_string(), qty);
             }
         }
-        Self { products, skus, stock }
+        Self {
+            products,
+            skus,
+            stock,
+        }
     }
 
     fn availability(&self, sku: &Sku) -> Availability {
@@ -316,7 +485,10 @@ async fn list_products(
 
     let next_cursor = has_more.then(|| (offset + limit).to_string());
 
-    Ok(Json(CursorPage { items: page, next_cursor }))
+    Ok(Json(CursorPage {
+        items: page,
+        next_cursor,
+    }))
 }
 
 /// `catalog.detail` — authoritative price + version, used by cart and checkout.
@@ -325,14 +497,15 @@ async fn get_product(
     Path(p): Path<DetailPath>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let trace = "catalog.detail";
-    let product = store
-        .products
-        .get(&p.product_id)
-        .ok_or_else(|| status::not_found("catalog.product_not_found", "product not found", trace))?;
-    let sku = store
-        .skus
-        .get(&product.sku)
-        .ok_or_else(|| AppError::Internal(format!("catalog invariant violated: sku {} missing", product.sku)))?;
+    let product = store.products.get(&p.product_id).ok_or_else(|| {
+        status::not_found("catalog.product_not_found", "product not found", trace)
+    })?;
+    let sku = store.skus.get(&product.sku).ok_or_else(|| {
+        AppError::Internal(format!(
+            "catalog invariant violated: sku {} missing",
+            product.sku
+        ))
+    })?;
 
     let price = Money::new(sku.amount_minor, sku.currency)
         .map_err(|e| AppError::Internal(format!("stored price invalid: {e}")))?;
@@ -426,11 +599,26 @@ mod tests {
     #[test]
     fn availability_reflects_stock() {
         let s = CatalogStore::seed_demo();
-        assert_eq!(s.availability(s.skus.get("sku-bra-01").unwrap()), Availability::InStock);
-        assert_eq!(s.availability(s.skus.get("sku-brief-01").unwrap()), Availability::LowStock);
-        assert_eq!(s.availability(s.skus.get("sku-set-01").unwrap()), Availability::OutOfStock);
-        assert_eq!(s.availability(s.skus.get("sku-cami-01").unwrap()), Availability::MadeToOrder);
-        assert_eq!(s.availability(s.skus.get("sku-night-01").unwrap()), Availability::InStock);
+        assert_eq!(
+            s.availability(s.skus.get("sku-bra-01").unwrap()),
+            Availability::InStock
+        );
+        assert_eq!(
+            s.availability(s.skus.get("sku-brief-01").unwrap()),
+            Availability::LowStock
+        );
+        assert_eq!(
+            s.availability(s.skus.get("sku-set-01").unwrap()),
+            Availability::OutOfStock
+        );
+        assert_eq!(
+            s.availability(s.skus.get("sku-cami-01").unwrap()),
+            Availability::MadeToOrder
+        );
+        assert_eq!(
+            s.availability(s.skus.get("sku-night-01").unwrap()),
+            Availability::InStock
+        );
     }
 
     #[test]

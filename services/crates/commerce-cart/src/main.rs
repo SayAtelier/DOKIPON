@@ -19,12 +19,14 @@ async fn main() {
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
     // Where the authoritative prices come from. Without it the cart cannot
     // price a line and refuses the mutation rather than trusting the client.
-    let catalog_url = std::env::var("CATALOG_URL")
-        .unwrap_or_else(|_| "http://commerce-catalog:8082".to_string());
+    let catalog_url =
+        std::env::var("CATALOG_URL").unwrap_or_else(|_| "http://commerce-catalog:8082".to_string());
     let store: SharedCart = Arc::new(RwLock::new(CartStore::new()));
     let prices = Arc::new(PriceAuthority::new(catalog_url.clone()));
     let app = router(store, prices);
-    let listener = tokio::net::TcpListener::bind(addr).await.expect("bind cart");
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("bind cart");
     tracing::info!(
         "cart service listening on {}, pricing from {}",
         listener.local_addr().unwrap(),

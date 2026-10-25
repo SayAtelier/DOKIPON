@@ -96,10 +96,7 @@ pub trait PriceSource: Send + Sync + 'static {
 
 #[async_trait::async_trait]
 impl PriceSource for PriceAuthority {
-    async fn fetch_prices(
-        &self,
-        skus: &[String],
-    ) -> Result<Vec<(String, Money)>, String> {
+    async fn fetch_prices(&self, skus: &[String]) -> Result<Vec<(String, Money)>, String> {
         self.fetch_prices_over_http(skus).await
     }
 }
@@ -133,7 +130,10 @@ impl PriceAuthority {
         // One request for the whole catalogue page. The limit is the
         // catalogue's own maximum; a basket with more lines than that is not
         // a real basket, and the caller's per-line lookup below covers it.
-        let url = format!("{}/v1/products?locale=ja&channel=web&limit=100", self.catalog_base_url);
+        let url = format!(
+            "{}/v1/products?locale=ja&channel=web&limit=100",
+            self.catalog_base_url
+        );
         let response = self
             .client
             .get(&url)
@@ -175,19 +175,24 @@ mod tests {
         // This is the exact JSON commerce-catalog emits. The nested `price`
         // object with `amountMinor` is the contract's shape; the alias exists
         // so a future snake_case regression does not silently zero the price.
-        let json = r#"{"items":[{"sku":"sku-bra-01","price":{"amountMinor":8900,"currency":"JPY"}}]}"#;
+        let json =
+            r#"{"items":[{"sku":"sku-bra-01","price":{"amountMinor":8900,"currency":"JPY"}}]}"#;
         let page: CatalogPage = serde_json::from_str(json).expect("parse");
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items[0].sku, "sku-bra-01");
         assert_eq!(page.items[0].price.amount_minor, 8900);
-        assert_eq!(Currency::parse(&page.items[0].price.currency), Some(Currency::Jpy));
+        assert_eq!(
+            Currency::parse(&page.items[0].price.currency),
+            Some(Currency::Jpy)
+        );
     }
 
     #[test]
     fn catalog_price_still_parses_a_flat_snake_case_amount() {
         // Defensive: if the catalogue ever regresses to the flat shape, the
         // price must not silently become zero.
-        let json = r#"{"items":[{"sku":"sku-bra-01","price":{"amount_minor":8900,"currency":"JPY"}}]}"#;
+        let json =
+            r#"{"items":[{"sku":"sku-bra-01","price":{"amount_minor":8900,"currency":"JPY"}}]}"#;
         let page: CatalogPage = serde_json::from_str(json).expect("parse");
         assert_eq!(page.items[0].price.amount_minor, 8900);
     }

@@ -141,9 +141,7 @@ impl FaultController {
     }
 
     pub fn is_firing(&self, target: &str) -> bool {
-        self.peek(target)
-            .map(|f| f.remaining > 0)
-            .unwrap_or(false)
+        self.peek(target).map(|f| f.remaining > 0).unwrap_or(false)
     }
 }
 

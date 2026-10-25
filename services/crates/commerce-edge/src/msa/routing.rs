@@ -92,7 +92,10 @@ mod tests {
         for (id, prefix) in SERVICE_PREFIXES {
             assert!(!seen.contains(prefix), "{prefix} is used twice");
             seen.push(prefix);
-            assert!(prefix.starts_with("/api/svc/"), "{prefix} is not under /api/svc/");
+            assert!(
+                prefix.starts_with("/api/svc/"),
+                "{prefix} is not under /api/svc/"
+            );
             assert_eq!(service_prefix(*id), *prefix);
         }
     }
@@ -115,14 +118,29 @@ mod tests {
 
     #[test]
     fn every_other_service_path_is_forwarded_to_its_owner() {
-        assert_eq!(route_for("/v1/products"), Route::Forward(ServiceId::Catalog));
+        assert_eq!(
+            route_for("/v1/products"),
+            Route::Forward(ServiceId::Catalog)
+        );
         assert_eq!(route_for("/v1/carts/c-1"), Route::Forward(ServiceId::Cart));
         assert_eq!(route_for("/v1/orders"), Route::Forward(ServiceId::Order));
         assert_eq!(route_for("/v1/content"), Route::Forward(ServiceId::Content));
-        assert_eq!(route_for("/v1/sessions/guest"), Route::Forward(ServiceId::Identity));
-        assert_eq!(route_for("/v1/inventory"), Route::Forward(ServiceId::Inventory));
-        assert_eq!(route_for("/v1/payments/authorize"), Route::Forward(ServiceId::Payment));
-        assert_eq!(route_for("/admin/v1/orders"), Route::Forward(ServiceId::Admin));
+        assert_eq!(
+            route_for("/v1/sessions/guest"),
+            Route::Forward(ServiceId::Identity)
+        );
+        assert_eq!(
+            route_for("/v1/inventory"),
+            Route::Forward(ServiceId::Inventory)
+        );
+        assert_eq!(
+            route_for("/v1/payments/authorize"),
+            Route::Forward(ServiceId::Payment)
+        );
+        assert_eq!(
+            route_for("/admin/v1/orders"),
+            Route::Forward(ServiceId::Admin)
+        );
     }
 
     #[test]

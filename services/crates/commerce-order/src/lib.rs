@@ -21,13 +21,13 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use commerce_core::JsonBody;
 use commerce_core::{
-    PriceSource,
     error::{status, AppError},
     idempotency::{self, IdempotencyDecision, IdempotencyRecord, IdempotencyState},
-    CheckoutState, Currency, DomainEvent, Money, OrderEvent, PriceAuthority, TransitionRefusal,
+    CheckoutState, Currency, DomainEvent, Money, OrderEvent, PriceAuthority, PriceSource,
+    TransitionRefusal,
 };
-use commerce_core::JsonBody;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -186,7 +186,10 @@ pub struct OrderStore {
 
 impl OrderStore {
     pub fn new(now_ms: i64) -> Self {
-        Self { now_ms, ..Default::default() }
+        Self {
+            now_ms,
+            ..Default::default()
+        }
     }
 
     fn next_id(&mut self, prefix: &str) -> String {
@@ -194,11 +197,7 @@ impl OrderStore {
         format!("{prefix}-{:06}", self.sequence)
     }
 
-    fn apply(
-        &mut self,
-        order: &mut Order,
-        event: OrderEvent,
-    ) -> Result<CheckoutState, AppError> {
+    fn apply(&mut self, order: &mut Order, event: OrderEvent) -> Result<CheckoutState, AppError> {
         let from = order.state;
         let to = commerce_core::transition(from, event, order.transitions_used).map_err(
             |refusal: TransitionRefusal| match refusal {
@@ -249,23 +248,41 @@ impl OrderStore {
         const TRACE: &str = "checkout.submit";
 
         if lines.is_empty() {
-            return Err(status::unprocessable("order.empty_cart", "cart is empty", TRACE));
+            return Err(status::unprocessable(
+                "order.empty_cart",
+                "cart is empty",
+                TRACE,
+            ));
         }
         let total = Self::total_of(&lines)?;
 
         // --- Idempotency gate -------------------------------------------------
         let scoped = idempotency::hash_key(buyer_id, "checkout.submit", idempotency_key);
-        let fp = idempotency::fingerprint(&[&total.amount_minor.to_string(), total.currency.as_str()]);
+        let fp =
+            idempotency::fingerprint(&[&total.amount_minor.to_string(), total.currency.as_str()]);
         let existing = self.idempotency.get(&scoped).cloned();
-        match idempotency::decide(existing.as_ref(), &fp, self.now_ms, std::time::Duration::from_secs(86400)) {
+        match idempotency::decide(
+            existing.as_ref(),
+            &fp,
+            self.now_ms,
+            std::time::Duration::from_secs(86400),
+        ) {
             IdempotencyDecision::Replay { status_code, body } => {
                 let checkout_id = body
                     .get("checkoutId")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string();
-                let order_id = self.checkouts.get(&checkout_id).cloned().unwrap_or_default();
-                let state = self.orders.get(&order_id).map(|o| o.state).unwrap_or(CheckoutState::Confirmed);
+                let order_id = self
+                    .checkouts
+                    .get(&checkout_id)
+                    .cloned()
+                    .unwrap_or_default();
+                let state = self
+                    .orders
+                    .get(&order_id)
+                    .map(|o| o.state)
+                    .unwrap_or(CheckoutState::Confirmed);
                 let _ = status_code;
                 return Ok((checkout_id, state, payment_outcome));
             }
@@ -301,10 +318,13 @@ impl OrderStore {
         };
         self.apply(&mut order, OrderEvent::Requested)
             .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
-        self.record(&mut order, DomainEvent::OrderRequested {
-            order_id: order_id.clone(),
-            cart_id: format!("cart-{order_id}"),
-        });
+        self.record(
+            &mut order,
+            DomainEvent::OrderRequested {
+                order_id: order_id.clone(),
+                cart_id: format!("cart-{order_id}"),
+            },
+        );
 
         // --- Step 1: reserve stock -------------------------------------------
         // Inventory is called by the BFF in the deployed topology; here the
@@ -316,10 +336,13 @@ impl OrderStore {
         order.reservation_id = Some(reservation_id.clone());
         self.apply(&mut order, OrderEvent::StockReserved)
             .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
-        self.record(&mut order, DomainEvent::StockReserved {
-            order_id: order_id.clone(),
-            reservation_id: reservation_id.clone(),
-        });
+        self.record(
+            &mut order,
+            DomainEvent::StockReserved {
+                order_id: order_id.clone(),
+                reservation_id: reservation_id.clone(),
+            },
+        );
 
         // --- Step 2: request payment ------------------------------------------
         self.apply(&mut order, OrderEvent::RequestPayment)
@@ -332,14 +355,20 @@ impl OrderStore {
                 self.apply(&mut order, OrderEvent::PaymentDeclined)
                     .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
                 order.provider_ref = Some(provider_ref.clone());
-                self.record(&mut order, DomainEvent::PaymentDeclined {
-                    order_id: order_id.clone(),
-                    reason: "provider declined".into(),
-                });
-                self.record(&mut order, DomainEvent::CompensationRequested {
-                    order_id: order_id.clone(),
-                    target: reservation_id.clone(),
-                });
+                self.record(
+                    &mut order,
+                    DomainEvent::PaymentDeclined {
+                        order_id: order_id.clone(),
+                        reason: "provider declined".into(),
+                    },
+                );
+                self.record(
+                    &mut order,
+                    DomainEvent::CompensationRequested {
+                        order_id: order_id.clone(),
+                        target: reservation_id.clone(),
+                    },
+                );
             }
             PaymentOutcome::Unknown => {
                 // NOT a failure and NOT a success. No re-charge path exists here.
@@ -347,22 +376,33 @@ impl OrderStore {
                     .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
                 order.provider_ref = Some(provider_ref.clone());
                 order.awaiting_reconciliation = true;
-                self.record(&mut order, DomainEvent::PaymentUnknown {
-                    order_id: order_id.clone(),
-                    provider_ref: provider_ref.clone(),
-                });
+                self.record(
+                    &mut order,
+                    DomainEvent::PaymentUnknown {
+                        order_id: order_id.clone(),
+                        provider_ref: provider_ref.clone(),
+                    },
+                );
             }
             PaymentOutcome::Authorized => {
                 order.provider_ref = Some(provider_ref.clone());
                 self.apply(&mut order, OrderEvent::PaymentAuthorized)
                     .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
-                self.record(&mut order, DomainEvent::PaymentAuthorized {
-                    order_id: order_id.clone(),
-                    provider_ref: provider_ref.clone(),
-                });
+                self.record(
+                    &mut order,
+                    DomainEvent::PaymentAuthorized {
+                        order_id: order_id.clone(),
+                        provider_ref: provider_ref.clone(),
+                    },
+                );
                 self.apply(&mut order, OrderEvent::Confirmed)
                     .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
-                self.record(&mut order, DomainEvent::OrderConfirmed { order_id: order_id.clone() });
+                self.record(
+                    &mut order,
+                    DomainEvent::OrderConfirmed {
+                        order_id: order_id.clone(),
+                    },
+                );
             }
             PaymentOutcome::AuthorizedButOrderWriteFailed => {
                 // The capture succeeded. We MUST NOT report success.
@@ -372,18 +412,27 @@ impl OrderStore {
                     .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
                 order.provider_ref = Some(provider_ref.clone());
                 order.awaiting_reconciliation = true;
-                self.record(&mut order, DomainEvent::PaymentAuthorized {
-                    order_id: order_id.clone(),
-                    provider_ref: provider_ref.clone(),
-                });
-                self.record(&mut order, DomainEvent::CompensationRequested {
-                    order_id: order_id.clone(),
-                    target: reservation_id.clone(),
-                });
-                self.record(&mut order, DomainEvent::ReconciliationCompleted {
-                    order_id: order_id.clone(),
-                    outcome: "refund_required".into(),
-                });
+                self.record(
+                    &mut order,
+                    DomainEvent::PaymentAuthorized {
+                        order_id: order_id.clone(),
+                        provider_ref: provider_ref.clone(),
+                    },
+                );
+                self.record(
+                    &mut order,
+                    DomainEvent::CompensationRequested {
+                        order_id: order_id.clone(),
+                        target: reservation_id.clone(),
+                    },
+                );
+                self.record(
+                    &mut order,
+                    DomainEvent::ReconciliationCompleted {
+                        order_id: order_id.clone(),
+                        outcome: "refund_required".into(),
+                    },
+                );
             }
         }
 
@@ -393,7 +442,11 @@ impl OrderStore {
         // Persist the completed idempotency record with the response body.
         let mut rec = IdempotencyRecord::in_progress(scoped.clone(), fp, self.now_ms);
         rec.state = IdempotencyState::Completed {
-            status_code: if state.is_terminal() && state == CheckoutState::Confirmed { 201 } else { 202 },
+            status_code: if state.is_terminal() && state == CheckoutState::Confirmed {
+                201
+            } else {
+                202
+            },
             response_body: serde_json::json!({
                 "checkoutId": checkout_id,
                 "orderId": order_id,
@@ -423,16 +476,20 @@ impl OrderStore {
                     TRACE,
                 ));
             }
-            let unit = Money::new(line.unit_amount_minor, line.currency)
-                .map_err(|_| status::unprocessable("order.bad_price", "invalid unit price", TRACE))?;
-            let line_total = unit.checked_mul_rounded(line.quantity).map_err(|e| {
-                AppError::Internal(format!("order total overflow: {e}"))
+            let unit = Money::new(line.unit_amount_minor, line.currency).map_err(|_| {
+                status::unprocessable("order.bad_price", "invalid unit price", TRACE)
             })?;
-            acc = acc.checked_add(line_total).map_err(|e| {
-                AppError::Internal(format!("order total overflow: {e}"))
-            })?;
+            let line_total = unit
+                .checked_mul_rounded(line.quantity)
+                .map_err(|e| AppError::Internal(format!("order total overflow: {e}")))?;
+            acc = acc
+                .checked_add(line_total)
+                .map_err(|e| AppError::Internal(format!("order total overflow: {e}")))?;
         }
-        Ok(OrderTotal { amount_minor: acc.amount_minor, currency })
+        Ok(OrderTotal {
+            amount_minor: acc.amount_minor,
+            currency,
+        })
     }
 
     /// `checkout.reconcile` — the ONLY way out of `PaymentUnknown`.
@@ -453,7 +510,11 @@ impl OrderStore {
                 TRACE,
             ));
         }
-        let event = if authorized { OrderEvent::ReconciliationAuthorized } else { OrderEvent::ReconciliationDeclined };
+        let event = if authorized {
+            OrderEvent::ReconciliationAuthorized
+        } else {
+            OrderEvent::ReconciliationDeclined
+        };
         let to = commerce_core::transition(order.state, event, order.transitions_used)
             .map_err(|r| status::conflict("order.illegal_transition", r.to_string(), TRACE))?;
         let from = order.state;
@@ -470,8 +531,11 @@ impl OrderStore {
         if to == CheckoutState::Confirming {
             // Reconciliation confirmed the charge; now (and only now) can the
             // order be confirmed.
-            let confirmed = commerce_core::transition(to, OrderEvent::Confirmed, order.transitions_used)
-                .map_err(|r| status::conflict("order.illegal_transition", r.to_string(), TRACE))?;
+            let confirmed =
+                commerce_core::transition(to, OrderEvent::Confirmed, order.transitions_used)
+                    .map_err(|r| {
+                        status::conflict("order.illegal_transition", r.to_string(), TRACE)
+                    })?;
             order.state = confirmed;
             order.transitions_used += 1;
             order.trail.push(TrailEntry {
@@ -495,22 +559,32 @@ impl OrderStore {
     }
 
     pub fn by_checkout(&self, checkout_id: &str) -> Result<&Order, AppError> {
-        let order_id = self
-            .checkouts
-            .get(checkout_id)
-            .ok_or_else(|| status::not_found("checkout.not_found", "checkout not found", "checkout.status"))?;
+        let order_id = self.checkouts.get(checkout_id).ok_or_else(|| {
+            status::not_found(
+                "checkout.not_found",
+                "checkout not found",
+                "checkout.status",
+            )
+        })?;
         self.get(order_id)
     }
 
     pub fn list_for(&self, buyer_id: &str) -> Vec<&Order> {
-        let mut v: Vec<&Order> = self.orders.values().filter(|o| o.buyer_id == buyer_id).collect();
+        let mut v: Vec<&Order> = self
+            .orders
+            .values()
+            .filter(|o| o.buyer_id == buyer_id)
+            .collect();
         v.sort_by(|a, b| a.order_id.cmp(&b.order_id));
         v
     }
 
     /// Orders that need operator attention. The DLQ of the commerce world.
     pub fn awaiting_reconciliation(&self) -> Vec<&Order> {
-        self.orders.values().filter(|o| o.awaiting_reconciliation).collect()
+        self.orders
+            .values()
+            .filter(|o| o.awaiting_reconciliation)
+            .collect()
     }
 }
 
@@ -574,7 +648,13 @@ fn actor(headers: &HeaderMap) -> Result<String, AppError> {
         .get("x-session-id")
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
-        .ok_or_else(|| status::unauthorized("identity.missing_session", "x-session-id required", "checkout.submit"))
+        .ok_or_else(|| {
+            status::unauthorized(
+                "identity.missing_session",
+                "x-session-id required",
+                "checkout.submit",
+            )
+        })
 }
 
 /// Replace every line's client-supplied price with the catalogue's price.
@@ -670,7 +750,11 @@ async fn submit_checkout(
         .get("idempotency-key")
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| {
-            status::bad_request("checkout.missing_idempotency_key", "Idempotency-Key header is required", "checkout.submit")
+            status::bad_request(
+                "checkout.missing_idempotency_key",
+                "Idempotency-Key header is required",
+                "checkout.submit",
+            )
         })?
         .to_string();
 
@@ -682,7 +766,9 @@ async fn submit_checkout(
     // `unit_amount_minor: 1` and buy an 8900-yen item for one cent.
     let lines = reprice(&body.lines, &prices).await?;
 
-    let mut guard = store.write().map_err(|_| AppError::Internal("order lock poisoned".into()))?;
+    let mut guard = store
+        .write()
+        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
     // In production this comes from the payment adapter; the BFF supplies the
     // observed outcome. `Unknown` is the safe default for an unresolved call.
     let outcome = header_outcome(&headers);
@@ -725,7 +811,10 @@ async fn submit_checkout(
 }
 
 fn header_outcome(headers: &HeaderMap) -> PaymentOutcome {
-    match headers.get("x-simulated-payment").and_then(|v| v.to_str().ok()) {
+    match headers
+        .get("x-simulated-payment")
+        .and_then(|v| v.to_str().ok())
+    {
         Some("declined") => PaymentOutcome::Declined,
         Some("unknown") => PaymentOutcome::Unknown,
         Some("authorized_but_write_fails") => PaymentOutcome::AuthorizedButOrderWriteFailed,
@@ -739,11 +828,17 @@ async fn checkout_status(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let session = actor(&headers)?;
-    let guard = store.read().map_err(|_| AppError::Internal("order lock poisoned".into()))?;
+    let guard = store
+        .read()
+        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
     let order = guard.by_checkout(&checkout_id)?;
     // Owner check happens BEFORE returning any order data.
     if order.buyer_id != session {
-        return Err(status::forbidden("order.forbidden", "order belongs to another session", "checkout.status"));
+        return Err(status::forbidden(
+            "order.forbidden",
+            "order belongs to another session",
+            "checkout.status",
+        ));
     }
     Ok(Json(serde_json::json!({
         "checkoutId": checkout_id,
@@ -761,10 +856,16 @@ async fn order_detail(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let session = actor(&headers)?;
-    let guard = store.read().map_err(|_| AppError::Internal("order lock poisoned".into()))?;
+    let guard = store
+        .read()
+        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
     let order = guard.get(&order_id)?;
     if order.buyer_id != session {
-        return Err(status::forbidden("order.forbidden", "order belongs to another session", "orders.detail"));
+        return Err(status::forbidden(
+            "order.forbidden",
+            "order belongs to another session",
+            "orders.detail",
+        ));
     }
     Ok(Json(order_json(order)))
 }
@@ -809,7 +910,9 @@ async fn list_orders(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let session = actor(&headers)?;
-    let guard = store.read().map_err(|_| AppError::Internal("order lock poisoned".into()))?;
+    let guard = store
+        .read()
+        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
     let orders = guard.list_for(&session);
     Ok(Json(serde_json::json!({
         "items": orders
@@ -876,7 +979,9 @@ async fn operator_list_orders(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_operator(&headers)?;
-    let guard = store.read().map_err(|_| AppError::Internal("order lock poisoned".into()))?;
+    let guard = store
+        .read()
+        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
 
     let mut orders: Vec<&Order> = guard.orders.values().collect();
     // Newest first. The order ids are zero-padded sequences, so sorting by
@@ -927,7 +1032,9 @@ async fn operator_order_detail(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_operator(&headers)?;
-    let guard = store.read().map_err(|_| AppError::Internal("order lock poisoned".into()))?;
+    let guard = store
+        .read()
+        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
     let order = guard.get(&order_id)?;
     Ok(Json(order_json(order)))
 }
@@ -979,7 +1086,12 @@ mod tests {
     use std::{net::SocketAddr, sync::Mutex};
 
     fn line(sku: &str, qty: u32, amount: i64) -> OrderLine {
-        OrderLine { sku: sku.into(), quantity: qty, unit_amount_minor: amount, currency: Currency::Jpy }
+        OrderLine {
+            sku: sku.into(),
+            quantity: qty,
+            unit_amount_minor: amount,
+            currency: Currency::Jpy,
+        }
     }
 
     /// A line as a client sends it. `amount` is the client's *claim* about
@@ -997,7 +1109,6 @@ mod tests {
     fn store() -> OrderStore {
         OrderStore::new(1_000_000)
     }
-
 
     /// The HTTP status an `AppError` will be rendered as.
     ///
@@ -1025,18 +1136,17 @@ mod tests {
         let address: SocketAddr = listener.local_addr().unwrap();
         let body = Arc::new(Mutex::new(items_json));
         let state = body.clone();
-        let app = Router::new()
-            .fallback(any(move || {
-                let state = state.clone();
-                async move {
-                    let payload = state.lock().unwrap().clone();
-                    (
-                        axum::http::StatusCode::OK,
-                        [("content-type", "application/json")],
-                        payload,
-                    )
-                }
-            }));
+        let app = Router::new().fallback(any(move || {
+            let state = state.clone();
+            async move {
+                let payload = state.lock().unwrap().clone();
+                (
+                    axum::http::StatusCode::OK,
+                    [("content-type", "application/json")],
+                    payload,
+                )
+            }
+        }));
         tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
@@ -1094,7 +1204,8 @@ mod tests {
     #[tokio::test]
     async fn an_unreachable_catalogue_fails_closed() {
         // Port 1 on loopback refuses connections.
-        let prices: Arc<dyn PriceSource> = Arc::new(PriceAuthority::new("http://127.0.0.1:1".to_string()));
+        let prices: Arc<dyn PriceSource> =
+            Arc::new(PriceAuthority::new("http://127.0.0.1:1".to_string()));
         let lines = vec![input("sku-bra-01", 1, Some(1))];
         let err = reprice(&lines, &prices).await.expect_err("must reject");
         assert_eq!(problem_status(&err), 503);
@@ -1126,7 +1237,12 @@ mod tests {
     fn happy_path_confirms() {
         let mut s = store();
         let (checkout_id, state, _) = s
-            .submit("U1", vec![line("sku-tee-01", 2, 4800)], "key-1", PaymentOutcome::Authorized)
+            .submit(
+                "U1",
+                vec![line("sku-tee-01", 2, 4800)],
+                "key-1",
+                PaymentOutcome::Authorized,
+            )
             .unwrap();
         assert_eq!(state, CheckoutState::Confirmed);
         let o = s.by_checkout(&checkout_id).unwrap();
@@ -1139,19 +1255,35 @@ mod tests {
     fn payment_declined_rejects_and_requests_compensation() {
         let mut s = store();
         let (cid, state, _) = s
-            .submit("U1", vec![line("sku-tee-01", 1, 4800)], "k", PaymentOutcome::Declined)
+            .submit(
+                "U1",
+                vec![line("sku-tee-01", 1, 4800)],
+                "k",
+                PaymentOutcome::Declined,
+            )
             .unwrap();
         assert_eq!(state, CheckoutState::Rejected);
         let o = s.by_checkout(&cid).unwrap();
-        assert!(o.outbox.iter().any(|e| matches!(e, DomainEvent::CompensationRequested { .. })));
-        assert!(o.outbox.iter().any(|e| matches!(e, DomainEvent::PaymentDeclined { .. })));
+        assert!(o
+            .outbox
+            .iter()
+            .any(|e| matches!(e, DomainEvent::CompensationRequested { .. })));
+        assert!(o
+            .outbox
+            .iter()
+            .any(|e| matches!(e, DomainEvent::PaymentDeclined { .. })));
     }
 
     #[test]
     fn payment_timeout_yields_unknown_and_is_not_terminal() {
         let mut s = store();
         let (cid, state, _) = s
-            .submit("U1", vec![line("sku-tee-01", 1, 4800)], "k", PaymentOutcome::Unknown)
+            .submit(
+                "U1",
+                vec![line("sku-tee-01", 1, 4800)],
+                "k",
+                PaymentOutcome::Unknown,
+            )
             .unwrap();
         assert_eq!(state, CheckoutState::PaymentUnknown);
         assert!(!state.is_terminal());
@@ -1163,7 +1295,12 @@ mod tests {
     fn reconcile_is_the_only_exit_from_unknown_and_confirms() {
         let mut s = store();
         let (cid, _, _) = s
-            .submit("U1", vec![line("sku-tee-01", 1, 4800)], "k", PaymentOutcome::Unknown)
+            .submit(
+                "U1",
+                vec![line("sku-tee-01", 1, 4800)],
+                "k",
+                PaymentOutcome::Unknown,
+            )
             .unwrap();
         let order_id = s.checkouts[&cid].clone();
         let final_state = s.reconcile(&order_id, true).unwrap();
@@ -1175,17 +1312,30 @@ mod tests {
     fn reconcile_decline_rejects_the_order() {
         let mut s = store();
         let (cid, _, _) = s
-            .submit("U1", vec![line("sku-tee-01", 1, 4800)], "k", PaymentOutcome::Unknown)
+            .submit(
+                "U1",
+                vec![line("sku-tee-01", 1, 4800)],
+                "k",
+                PaymentOutcome::Unknown,
+            )
             .unwrap();
         let order_id = s.checkouts[&cid].clone();
-        assert_eq!(s.reconcile(&order_id, false).unwrap(), CheckoutState::Rejected);
+        assert_eq!(
+            s.reconcile(&order_id, false).unwrap(),
+            CheckoutState::Rejected
+        );
     }
 
     #[test]
     fn reconcile_on_a_non_unknown_order_is_refused() {
         let mut s = store();
         let (cid, _, _) = s
-            .submit("U1", vec![line("sku-tee-01", 1, 4800)], "k", PaymentOutcome::Authorized)
+            .submit(
+                "U1",
+                vec![line("sku-tee-01", 1, 4800)],
+                "k",
+                PaymentOutcome::Authorized,
+            )
             .unwrap();
         let order_id = s.checkouts[&cid].clone();
         assert!(s.reconcile(&order_id, true).is_err());
@@ -1204,16 +1354,39 @@ mod tests {
             .unwrap();
         assert_eq!(state, CheckoutState::Rejected, "must not be Confirmed");
         let o = s.by_checkout(&cid).unwrap();
-        assert!(o.outbox.iter().any(|e| matches!(e, DomainEvent::CompensationRequested { .. })));
-        assert!(o.awaiting_reconciliation, "must still need a refund/reconcile");
+        assert!(o
+            .outbox
+            .iter()
+            .any(|e| matches!(e, DomainEvent::CompensationRequested { .. })));
+        assert!(
+            o.awaiting_reconciliation,
+            "must still need a refund/reconcile"
+        );
     }
 
     #[test]
     fn duplicate_idempotency_key_same_payload_replays() {
         let mut s = store();
-        let (c1, s1, _) = s.submit("U1", vec![line("sku-tee-01", 1, 4800)], "same", PaymentOutcome::Authorized).unwrap();
-        let (c2, s2, _) = s.submit("U1", vec![line("sku-tee-01", 1, 4800)], "same", PaymentOutcome::Authorized).unwrap();
-        assert_eq!(c1, c2, "same key + same payload must return the same checkout");
+        let (c1, s1, _) = s
+            .submit(
+                "U1",
+                vec![line("sku-tee-01", 1, 4800)],
+                "same",
+                PaymentOutcome::Authorized,
+            )
+            .unwrap();
+        let (c2, s2, _) = s
+            .submit(
+                "U1",
+                vec![line("sku-tee-01", 1, 4800)],
+                "same",
+                PaymentOutcome::Authorized,
+            )
+            .unwrap();
+        assert_eq!(
+            c1, c2,
+            "same key + same payload must return the same checkout"
+        );
         assert_eq!(s1, s2);
         assert_eq!(s.orders.len(), 1, "must not create a second order");
     }
@@ -1221,9 +1394,20 @@ mod tests {
     #[test]
     fn duplicate_idempotency_key_different_payload_is_409() {
         let mut s = store();
-        s.submit("U1", vec![line("sku-tee-01", 1, 4800)], "same", PaymentOutcome::Authorized).unwrap();
+        s.submit(
+            "U1",
+            vec![line("sku-tee-01", 1, 4800)],
+            "same",
+            PaymentOutcome::Authorized,
+        )
+        .unwrap();
         let err = s
-            .submit("U1", vec![line("sku-tee-01", 9, 4800)], "same", PaymentOutcome::Authorized)
+            .submit(
+                "U1",
+                vec![line("sku-tee-01", 9, 4800)],
+                "same",
+                PaymentOutcome::Authorized,
+            )
             .unwrap_err();
         assert!(matches!(err, AppError::Problem(p) if p.code == "checkout.idempotency_conflict"));
         assert_eq!(s.orders.len(), 1);
@@ -1232,8 +1416,22 @@ mod tests {
     #[test]
     fn idempotency_keys_are_scoped_per_buyer() {
         let mut s = store();
-        let (c1, _, _) = s.submit("U1", vec![line("sku-a", 1, 100)], "shared", PaymentOutcome::Authorized).unwrap();
-        let (c2, _, _) = s.submit("U2", vec![line("sku-a", 1, 100)], "shared", PaymentOutcome::Authorized).unwrap();
+        let (c1, _, _) = s
+            .submit(
+                "U1",
+                vec![line("sku-a", 1, 100)],
+                "shared",
+                PaymentOutcome::Authorized,
+            )
+            .unwrap();
+        let (c2, _, _) = s
+            .submit(
+                "U2",
+                vec![line("sku-a", 1, 100)],
+                "shared",
+                PaymentOutcome::Authorized,
+            )
+            .unwrap();
         assert_ne!(c1, c2);
         assert_eq!(s.orders.len(), 2);
     }
@@ -1241,9 +1439,19 @@ mod tests {
     #[test]
     fn mixed_currency_order_is_rejected() {
         let mut s = store();
-        let bad = OrderLine { sku: "x".into(), quantity: 1, unit_amount_minor: 100, currency: Currency::Usd };
+        let bad = OrderLine {
+            sku: "x".into(),
+            quantity: 1,
+            unit_amount_minor: 100,
+            currency: Currency::Usd,
+        };
         let err = s
-            .submit("U1", vec![line("sku-a", 1, 100), bad], "k", PaymentOutcome::Authorized)
+            .submit(
+                "U1",
+                vec![line("sku-a", 1, 100), bad],
+                "k",
+                PaymentOutcome::Authorized,
+            )
             .unwrap_err();
         assert!(matches!(err, AppError::Problem(p) if p.code == "order.mixed_currency"));
     }
@@ -1251,14 +1459,21 @@ mod tests {
     #[test]
     fn empty_cart_is_rejected() {
         let mut s = store();
-        assert!(s.submit("U1", vec![], "k", PaymentOutcome::Authorized).is_err());
+        assert!(s
+            .submit("U1", vec![], "k", PaymentOutcome::Authorized)
+            .is_err());
     }
 
     #[test]
     fn totals_use_authoritative_prices_and_multiplication() {
         let mut s = store();
         let (cid, _, _) = s
-            .submit("U1", vec![line("sku-tee-01", 3, 4800)], "k", PaymentOutcome::Authorized)
+            .submit(
+                "U1",
+                vec![line("sku-tee-01", 3, 4800)],
+                "k",
+                PaymentOutcome::Authorized,
+            )
             .unwrap();
         assert_eq!(s.by_checkout(&cid).unwrap().total.amount_minor, 14400);
     }
@@ -1266,8 +1481,20 @@ mod tests {
     #[test]
     fn order_listing_is_scoped_to_the_buyer() {
         let mut s = store();
-        s.submit("U1", vec![line("sku-a", 1, 100)], "k1", PaymentOutcome::Authorized).unwrap();
-        s.submit("U2", vec![line("sku-a", 1, 100)], "k2", PaymentOutcome::Authorized).unwrap();
+        s.submit(
+            "U1",
+            vec![line("sku-a", 1, 100)],
+            "k1",
+            PaymentOutcome::Authorized,
+        )
+        .unwrap();
+        s.submit(
+            "U2",
+            vec![line("sku-a", 1, 100)],
+            "k2",
+            PaymentOutcome::Authorized,
+        )
+        .unwrap();
         assert_eq!(s.list_for("U1").len(), 1);
         assert_eq!(s.list_for("U2").len(), 1);
         assert_eq!(s.list_for("U3").len(), 0);
@@ -1277,8 +1504,22 @@ mod tests {
     fn saga_is_replayable_and_produces_an_identical_trail() {
         let mut a = store();
         let mut b = store();
-        let (_, _, _) = a.submit("U1", vec![line("sku-a", 1, 100)], "k", PaymentOutcome::Authorized).unwrap();
-        let (_, _, _) = b.submit("U1", vec![line("sku-a", 1, 100)], "k", PaymentOutcome::Authorized).unwrap();
+        let (_, _, _) = a
+            .submit(
+                "U1",
+                vec![line("sku-a", 1, 100)],
+                "k",
+                PaymentOutcome::Authorized,
+            )
+            .unwrap();
+        let (_, _, _) = b
+            .submit(
+                "U1",
+                vec![line("sku-a", 1, 100)],
+                "k",
+                PaymentOutcome::Authorized,
+            )
+            .unwrap();
         let ta = &a.orders.values().next().unwrap().trail;
         let tb = &b.orders.values().next().unwrap().trail;
         assert_eq!(ta.len(), tb.len());
@@ -1333,10 +1574,20 @@ mod tests {
         let prices: Arc<dyn PriceSource> = Arc::new(PriceAuthority::new(catalog.base_url.clone()));
 
         let mut s = store();
-        s.submit("U1", vec![line("sku-a", 1, 100)], "k1", PaymentOutcome::Authorized)
-            .unwrap();
-        s.submit("U2", vec![line("sku-a", 1, 100)], "k2", PaymentOutcome::Authorized)
-            .unwrap();
+        s.submit(
+            "U1",
+            vec![line("sku-a", 1, 100)],
+            "k1",
+            PaymentOutcome::Authorized,
+        )
+        .unwrap();
+        s.submit(
+            "U2",
+            vec![line("sku-a", 1, 100)],
+            "k2",
+            PaymentOutcome::Authorized,
+        )
+        .unwrap();
         let base = serve(Arc::new(RwLock::new(s)), prices).await;
         let client = reqwest::Client::new();
 
@@ -1371,7 +1622,11 @@ mod tests {
             .send()
             .await
             .unwrap();
-        assert_eq!(wrong.status(), 403, "a wrong credential is not a credential");
+        assert_eq!(
+            wrong.status(),
+            403,
+            "a wrong credential is not a credential"
+        );
 
         // With the credential, the operator sees every customer's orders.
         let operator = client
@@ -1407,7 +1662,12 @@ mod tests {
 
         let mut s = store();
         let (checkout_id, _, _) = s
-            .submit("U1", vec![line("sku-a", 1, 100)], "k1", PaymentOutcome::Authorized)
+            .submit(
+                "U1",
+                vec![line("sku-a", 1, 100)],
+                "k1",
+                PaymentOutcome::Authorized,
+            )
             .unwrap();
         let order_id = s.checkouts[&checkout_id].clone();
         let base = serve(Arc::new(RwLock::new(s)), prices).await;
@@ -1419,7 +1679,11 @@ mod tests {
             .send()
             .await
             .unwrap();
-        assert_eq!(buyer.status(), 403, "a customer may not read another's order");
+        assert_eq!(
+            buyer.status(),
+            403,
+            "a customer may not read another's order"
+        );
 
         let operator = client
             .get(format!("{base}/v1/operator/orders/{order_id}"))
@@ -1449,7 +1713,12 @@ mod tests {
 
         let mut s = store();
         let (checkout_id, _, _) = s
-            .submit("U1", vec![line("sku-a", 1, 100)], "k1", PaymentOutcome::Authorized)
+            .submit(
+                "U1",
+                vec![line("sku-a", 1, 100)],
+                "k1",
+                PaymentOutcome::Authorized,
+            )
             .unwrap();
         let order_id = s.checkouts[&checkout_id].clone();
         let base = serve(Arc::new(RwLock::new(s)), prices).await;

@@ -120,11 +120,7 @@ pub mod status {
     }
 
     /// 415 — the request's content type is not one this endpoint accepts.
-    pub fn unsupported_media_type(
-        code: &str,
-        detail: impl Into<String>,
-        trace: &str,
-    ) -> AppError {
+    pub fn unsupported_media_type(code: &str, detail: impl Into<String>, trace: &str) -> AppError {
         AppError::Problem(ProblemDetails::new(
             "https://api.gemarc.example/problems/unsupported-media-type",
             "Unsupported Media Type",

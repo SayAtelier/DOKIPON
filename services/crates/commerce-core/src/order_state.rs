@@ -49,7 +49,9 @@ impl CheckoutState {
     pub fn is_pollable(self) -> bool {
         matches!(
             self,
-            CheckoutState::Confirming | CheckoutState::PaymentUnknown | CheckoutState::AwaitingPayment
+            CheckoutState::Confirming
+                | CheckoutState::PaymentUnknown
+                | CheckoutState::AwaitingPayment
         )
     }
 
@@ -109,8 +111,12 @@ pub enum TransitionRefusal {
 impl fmt::Display for TransitionRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TransitionRefusal::AlreadyTerminal => write!(f, "checkout is already in a terminal state"),
-            TransitionRefusal::IllegalEvent => write!(f, "event is not allowed from the current state"),
+            TransitionRefusal::AlreadyTerminal => {
+                write!(f, "checkout is already in a terminal state")
+            }
+            TransitionRefusal::IllegalEvent => {
+                write!(f, "event is not allowed from the current state")
+            }
             TransitionRefusal::BudgetExhausted => write!(f, "transition budget exhausted"),
         }
     }
@@ -214,7 +220,16 @@ mod tests {
 
     #[test]
     fn happy_path_reaches_confirmed() {
-        let final_state = run(S::New, &[E::BeginReserve, E::StockReserved, E::RequestPayment, E::PaymentAuthorized, E::Confirmed]);
+        let final_state = run(
+            S::New,
+            &[
+                E::BeginReserve,
+                E::StockReserved,
+                E::RequestPayment,
+                E::PaymentAuthorized,
+                E::Confirmed,
+            ],
+        );
         assert_eq!(final_state, S::Confirmed);
         assert!(final_state.is_terminal());
     }
@@ -227,13 +242,29 @@ mod tests {
 
     #[test]
     fn payment_declined_releases_reservation() {
-        let final_state = run(S::New, &[E::BeginReserve, E::StockReserved, E::RequestPayment, E::PaymentDeclined]);
+        let final_state = run(
+            S::New,
+            &[
+                E::BeginReserve,
+                E::StockReserved,
+                E::RequestPayment,
+                E::PaymentDeclined,
+            ],
+        );
         assert_eq!(final_state, S::Rejected);
     }
 
     #[test]
     fn payment_timeout_is_unknown_not_failed_and_not_success() {
-        let final_state = run(S::New, &[E::BeginReserve, E::StockReserved, E::RequestPayment, E::PaymentTimedOut]);
+        let final_state = run(
+            S::New,
+            &[
+                E::BeginReserve,
+                E::StockReserved,
+                E::RequestPayment,
+                E::PaymentTimedOut,
+            ],
+        );
         assert_eq!(final_state, S::PaymentUnknown);
         assert!(!final_state.is_terminal(), "unknown must stay pollable");
         assert!(final_state.is_pollable());
@@ -241,7 +272,15 @@ mod tests {
 
     #[test]
     fn unknown_resolves_only_via_reconciliation() {
-        let unknown = run(S::New, &[E::BeginReserve, E::StockReserved, E::RequestPayment, E::PaymentTimedOut]);
+        let unknown = run(
+            S::New,
+            &[
+                E::BeginReserve,
+                E::StockReserved,
+                E::RequestPayment,
+                E::PaymentTimedOut,
+            ],
+        );
         // A blind re-charge event is NOT legal from Unknown.
         assert_eq!(
             transition(unknown, E::PaymentAuthorized, 3),
@@ -259,9 +298,20 @@ mod tests {
 
     #[test]
     fn confirmation_failure_never_yields_confirmed() {
-        let confirming = run(S::New, &[E::BeginReserve, E::StockReserved, E::RequestPayment, E::PaymentAuthorized]);
+        let confirming = run(
+            S::New,
+            &[
+                E::BeginReserve,
+                E::StockReserved,
+                E::RequestPayment,
+                E::PaymentAuthorized,
+            ],
+        );
         assert_eq!(confirming, S::Confirming);
-        assert_eq!(transition(confirming, E::ConfirmationFailed, 4).unwrap(), S::Rejected);
+        assert_eq!(
+            transition(confirming, E::ConfirmationFailed, 4).unwrap(),
+            S::Rejected
+        );
     }
 
     #[test]
@@ -286,16 +336,39 @@ mod tests {
 
     #[test]
     fn fsm_is_deterministic_for_same_inputs() {
-        let a = run(S::New, &[E::BeginReserve, E::StockReserved, E::RequestPayment, E::PaymentTimedOut]);
-        let b = run(S::New, &[E::BeginReserve, E::StockReserved, E::RequestPayment, E::PaymentTimedOut]);
+        let a = run(
+            S::New,
+            &[
+                E::BeginReserve,
+                E::StockReserved,
+                E::RequestPayment,
+                E::PaymentTimedOut,
+            ],
+        );
+        let b = run(
+            S::New,
+            &[
+                E::BeginReserve,
+                E::StockReserved,
+                E::RequestPayment,
+                E::PaymentTimedOut,
+            ],
+        );
         assert_eq!(a, b);
     }
 
     #[test]
     fn every_state_has_a_name_and_terminal_flag_is_consistent() {
         let all = [
-            S::New, S::Reserving, S::StockReserved, S::AwaitingPayment,
-            S::PaymentUnknown, S::Confirming, S::Confirmed, S::Rejected, S::Cancelled,
+            S::New,
+            S::Reserving,
+            S::StockReserved,
+            S::AwaitingPayment,
+            S::PaymentUnknown,
+            S::Confirming,
+            S::Confirmed,
+            S::Rejected,
+            S::Cancelled,
         ];
         for s in all {
             assert!(!s.as_str().is_empty());

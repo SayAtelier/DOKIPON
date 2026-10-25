@@ -7,12 +7,17 @@
 //! - Compensating a confirmed order releases the reservation; a rejected or
 //!   cancelled order releases too. Only a confirmed order commits.
 
-use axum::{extract::{Query, State}, http::StatusCode, routing::{get, post}, Json, Router};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
+use commerce_core::JsonBody;
 use commerce_core::{
     error::{status, AppError},
     ReservationState,
 };
-use commerce_core::JsonBody;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -91,7 +96,15 @@ impl InventoryStore {
         Self {
             stock: levels
                 .iter()
-                .map(|(sku, n)| (sku.to_string(), StockLevel { on_hand: *n, reserved: 0 }))
+                .map(|(sku, n)| {
+                    (
+                        sku.to_string(),
+                        StockLevel {
+                            on_hand: *n,
+                            reserved: 0,
+                        },
+                    )
+                })
                 .collect(),
             reservations: HashMap::new(),
             sequence: 0,
@@ -105,13 +118,22 @@ impl InventoryStore {
 
     fn level_mut(&mut self, sku: &str) -> Result<&mut StockLevel, AppError> {
         self.stock.get_mut(sku).ok_or_else(|| {
-            status::not_found("inventory.sku_not_found", format!("unknown sku {sku}"), "inventory.reserve")
+            status::not_found(
+                "inventory.sku_not_found",
+                format!("unknown sku {sku}"),
+                "inventory.reserve",
+            )
         })
     }
 
     /// `inventory.reserve` — idempotent per `order_id`: reserving twice for the
     /// same order returns the SAME reservation instead of double-decrementing.
-    pub fn reserve(&mut self, sku: &str, order_id: &str, quantity: i64) -> Result<Reservation, AppError> {
+    pub fn reserve(
+        &mut self,
+        sku: &str,
+        order_id: &str,
+        quantity: i64,
+    ) -> Result<Reservation, AppError> {
         const TRACE: &str = "inventory.reserve";
         if quantity <= 0 {
             return Err(status::unprocessable(
@@ -148,19 +170,27 @@ impl InventoryStore {
             state: ReservationState::Reserved,
             expires_at_ms: commerce_core::idempotency::now_ms() + RESERVATION_TTL_MS,
         };
-        self.reservations.insert(reservation.reservation_id.clone(), reservation.clone());
+        self.reservations
+            .insert(reservation.reservation_id.clone(), reservation.clone());
         Ok(reservation)
     }
 
     /// Called when the payment succeeds and the order is confirmed.
     pub fn commit(&mut self, reservation_id: &str) -> Result<Reservation, AppError> {
         const TRACE: &str = "inventory.commit";
-        let res = self
-            .reservations
-            .get_mut(reservation_id)
-            .ok_or_else(|| status::not_found("inventory.reservation_not_found", "reservation not found", TRACE))?;
+        let res = self.reservations.get_mut(reservation_id).ok_or_else(|| {
+            status::not_found(
+                "inventory.reservation_not_found",
+                "reservation not found",
+                TRACE,
+            )
+        })?;
         if res.state.is_terminal() {
-            return Err(status::conflict("inventory.reservation_terminal", format!("reservation already {:?}", res.state), TRACE));
+            return Err(status::conflict(
+                "inventory.reservation_terminal",
+                format!("reservation already {:?}", res.state),
+                TRACE,
+            ));
         }
         let sku = res.sku.clone();
         let qty = res.quantity;
@@ -176,12 +206,19 @@ impl InventoryStore {
     /// Compensation: payment declined / order rejected / cancelled / confirmation failed.
     pub fn release(&mut self, reservation_id: &str) -> Result<Reservation, AppError> {
         const TRACE: &str = "inventory.release";
-        let res = self
-            .reservations
-            .get_mut(reservation_id)
-            .ok_or_else(|| status::not_found("inventory.reservation_not_found", "reservation not found", TRACE))?;
+        let res = self.reservations.get_mut(reservation_id).ok_or_else(|| {
+            status::not_found(
+                "inventory.reservation_not_found",
+                "reservation not found",
+                TRACE,
+            )
+        })?;
         if res.state.is_terminal() {
-            return Err(status::conflict("inventory.reservation_terminal", format!("reservation already {:?}", res.state), TRACE));
+            return Err(status::conflict(
+                "inventory.reservation_terminal",
+                format!("reservation already {:?}", res.state),
+                TRACE,
+            ));
         }
         let sku = res.sku.clone();
         let qty = res.quantity;
@@ -216,9 +253,9 @@ impl InventoryStore {
 
     /// Global invariant checker used by tests and by a startup self-check.
     pub fn invariants_hold(&self) -> bool {
-        self.stock.values().all(|l| {
-            l.on_hand >= 0 && l.reserved >= 0 && l.reserved <= l.on_hand
-        })
+        self.stock
+            .values()
+            .all(|l| l.on_hand >= 0 && l.reserved >= 0 && l.reserved <= l.on_hand)
     }
 }
 
@@ -280,8 +317,14 @@ pub fn router(state: SharedInventory) -> Router {
     Router::new()
         .route("/v1/inventory", get(list_inventory))
         .route("/v1/inventory/reservations", post(reserve))
-        .route("/v1/inventory/reservations/{reservation_id}/commit", post(commit))
-        .route("/v1/inventory/reservations/{reservation_id}/release", post(release))
+        .route(
+            "/v1/inventory/reservations/{reservation_id}/commit",
+            post(commit),
+        )
+        .route(
+            "/v1/inventory/reservations/{reservation_id}/release",
+            post(release),
+        )
         .route("/healthz", get(health))
         .with_state(state)
 }
@@ -349,7 +392,11 @@ async fn reserve(
     let mut guard = store
         .write()
         .map_err(|_| AppError::Internal("inventory lock poisoned".into()))?;
-    Ok(Json(guard.reserve(&body.sku, &body.order_id, body.quantity)?))
+    Ok(Json(guard.reserve(
+        &body.sku,
+        &body.order_id,
+        body.quantity,
+    )?))
 }
 
 async fn commit(
@@ -384,12 +431,7 @@ mod tests {
     async fn get_json(app: &Router, uri: &str) -> serde_json::Value {
         let response = app
             .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(uri)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
             .await
             .expect("the route must answer");
         assert_eq!(response.status(), StatusCode::OK, "{uri} must answer 200");
@@ -505,8 +547,7 @@ mod tests {
             "the inventory and the catalogue must know the same SKUs"
         );
         assert_eq!(
-            inventory_levels,
-            catalogue_levels,
+            inventory_levels, catalogue_levels,
             "the inventory and the catalogue must agree on the quantities"
         );
     }
@@ -517,7 +558,11 @@ mod tests {
         let r = s.reserve("sku-a", "order-1", 3).unwrap();
         assert_eq!(s.available("sku-a"), Some(7));
         s.commit(&r.reservation_id).unwrap();
-        assert_eq!(s.available("sku-a"), Some(7), "available unchanged after commit");
+        assert_eq!(
+            s.available("sku-a"),
+            Some(7),
+            "available unchanged after commit"
+        );
         assert_eq!(s.stock["sku-a"].on_hand, 7);
         assert_eq!(s.stock["sku-a"].reserved, 0);
         assert!(s.invariants_hold());
@@ -591,7 +636,11 @@ mod tests {
         let r = s.reserve("sku-a", "order-1", 5).unwrap();
         let now = r.expires_at_ms + 1;
         assert_eq!(s.expire_stale(now).len(), 1);
-        assert_eq!(s.expire_stale(now).len(), 0, "second sweep must find nothing");
+        assert_eq!(
+            s.expire_stale(now).len(),
+            0,
+            "second sweep must find nothing"
+        );
         assert_eq!(s.available("sku-a"), Some(10));
     }
 

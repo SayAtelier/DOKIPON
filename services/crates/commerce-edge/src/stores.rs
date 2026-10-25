@@ -79,13 +79,17 @@ pub fn identity() -> Arc<RwLock<commerce_identity::IdentityStore>> {
 /// window is measured against the current time.
 pub fn payment() -> Arc<RwLock<commerce_payment_adapter::PaymentAdapter>> {
     let secret = std::env::var("PSP_WEBHOOK_SECRET").unwrap_or_else(|_| "dev-only-secret".into());
-    Arc::new(RwLock::new(commerce_payment_adapter::PaymentAdapter::new(secret)))
+    Arc::new(RwLock::new(commerce_payment_adapter::PaymentAdapter::new(
+        secret,
+    )))
 }
 
 /// The content store: the editable content document.
 pub fn content() -> Arc<RwLock<commerce_content::ContentStore>> {
     Arc::new(RwLock::new(commerce_content::ContentStore::new(
-        std::env::var("CONTENT_PATH").ok().map(std::path::PathBuf::from),
+        std::env::var("CONTENT_PATH")
+            .ok()
+            .map(std::path::PathBuf::from),
     )))
 }
 
@@ -101,7 +105,6 @@ pub fn identity_verifier() -> Arc<commerce_identity::TokenVerifier> {
         expected_audience: std::env::var("LINE_CHANNEL_ID")
             .unwrap_or_else(|_| "dev-channel".into()),
         expected_issuer: "https://access.line.me".to_string(),
-        signing_key: std::env::var("LINE_ID_TOKEN_KEY")
-            .unwrap_or_else(|_| "dev-only-key".into()),
+        signing_key: std::env::var("LINE_ID_TOKEN_KEY").unwrap_or_else(|_| "dev-only-key".into()),
     })
 }

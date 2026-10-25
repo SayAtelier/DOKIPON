@@ -102,7 +102,10 @@ const CONTRACT_OWNERS: &[(&str, ServiceId)] = &[
     ("/admin/v1/products/{productId}", ServiceId::Admin),
     ("/admin/v1/inventory", ServiceId::Admin),
     ("/admin/v1/inventory/reservations", ServiceId::Admin),
-    ("/admin/v1/inventory/reservations/{reservationId}/release", ServiceId::Admin),
+    (
+        "/admin/v1/inventory/reservations/{reservationId}/release",
+        ServiceId::Admin,
+    ),
     ("/admin/v1/payments", ServiceId::Admin),
 ];
 
@@ -170,11 +173,7 @@ fn every_contract_path_is_owned_by_the_service_the_contract_names() {
 #[test]
 fn every_service_is_served_by_the_function_it_is_deployed_on() {
     for (id, path) in FUNCTION_PATHS {
-        assert_eq!(
-            service_prefix(*id),
-            *path,
-            "{id:?} is served by {path}"
-        );
+        assert_eq!(service_prefix(*id), *path, "{id:?} is served by {path}");
         assert!(
             path.starts_with("/api/svc/"),
             "{path} is not under /api/svc/"
@@ -188,7 +187,10 @@ fn the_gateway_never_calls_itself() {
     // Function under /api/svc/, so no service's base URL can be the
     // gateway's own path — the gateway cannot forward a request to itself.
     for (id, path) in FUNCTION_PATHS {
-        assert_ne!(*path, GATEWAY_PATH, "{id:?} is served by the gateway itself");
+        assert_ne!(
+            *path, GATEWAY_PATH,
+            "{id:?} is served by the gateway itself"
+        );
         assert!(
             !path.starts_with(GATEWAY_PATH),
             "{id:?} is served under the gateway's own path"

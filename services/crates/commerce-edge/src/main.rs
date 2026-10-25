@@ -11,8 +11,7 @@ use commerce_edge::build;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -34,7 +33,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .expect("bind edge");
 
-    tracing::info!("commerce edge listening on {}", listener.local_addr().unwrap());
+    tracing::info!(
+        "commerce edge listening on {}",
+        listener.local_addr().unwrap()
+    );
 
     let (edge, _services) = build(admin);
     axum::serve(listener, edge).await?;

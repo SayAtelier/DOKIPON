@@ -16,7 +16,12 @@
 //! behaviour, `[Hypothetical]` for anything about real PSP semantics.
 
 use crate::fault::{Fault, FaultController, FaultMode};
-use axum::{extract::State, http::StatusCode, routing::{get, post}, Json, Router};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
 use commerce_core::error::AppError;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -126,10 +131,12 @@ impl PspMock {
         // Send — so "release the lock before you await" is not a style
         // preference here, it is the difference between compiling and not.
         let provider_ref = {
-            let mut g = self
-                .state()
-                .write()
-                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({}))))?;
+            let mut g = self.state().write().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({})),
+                )
+            })?;
 
             g.sequence += 1;
             let provider_ref = format!("pspref_{:012}", g.sequence);
@@ -227,10 +234,12 @@ impl PspMock {
         &self,
         provider_ref: &str,
     ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-        let mut g = self
-            .state()
-            .write()
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({}))))?;
+        let mut g = self.state().write().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({})),
+            )
+        })?;
         let rec = g.charges.get_mut(provider_ref).ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
@@ -238,7 +247,11 @@ impl PspMock {
             )
         })?;
         rec.reconcile_calls += 1;
-        let status = if rec.captured { "authorized" } else { "declined" };
+        let status = if rec.captured {
+            "authorized"
+        } else {
+            "declined"
+        };
         Ok(Json(serde_json::json!({
             "providerRef": provider_ref,
             "status": status,
@@ -251,10 +264,12 @@ impl PspMock {
         &self,
         provider_ref: &str,
     ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-        let mut g = self
-            .state()
-            .write()
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({}))))?;
+        let mut g = self.state().write().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({})),
+            )
+        })?;
         let rec = g.charges.get_mut(provider_ref).ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
@@ -423,7 +438,10 @@ mod tests {
     async fn capture_then_lose_response_leaves_the_money_taken_and_unreported() {
         let m = PspMock::new();
         // The caller gets an error...
-        let err = m.authorize(req(PspOutcome::CaptureThenLoseResponse)).await.unwrap_err();
+        let err = m
+            .authorize(req(PspOutcome::CaptureThenLoseResponse))
+            .await
+            .unwrap_err();
         assert_eq!(err.0, StatusCode::GATEWAY_TIMEOUT);
         // ...but the mock recorded that the charge happened.
         let dump = m.charges_dump().await;
@@ -438,7 +456,10 @@ mod tests {
         let m = PspMock::new();
         let _ = m.authorize(req(PspOutcome::CaptureThenLoseResponse)).await;
         let dump = m.charges_dump().await;
-        let psp_ref = dump.0["charges"][0]["providerRef"].as_str().unwrap().to_string();
+        let psp_ref = dump.0["charges"][0]["providerRef"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         let out = m.reconcile(&psp_ref).await.unwrap();
         assert_eq!(out.0["status"], "authorized");
@@ -477,7 +498,8 @@ mod tests {
     async fn injected_fault_overrides_the_scripted_outcome() {
         // CASE-CHAOS-001: the provider is up, then it goes down mid-scenario.
         let m = PspMock::new();
-        m.faults().inject(fault("psp.authorize", FaultMode::NextN, 1, false));
+        m.faults()
+            .inject(fault("psp.authorize", FaultMode::NextN, 1, false));
 
         let err = m.authorize(req(PspOutcome::Authorize)).await.unwrap_err();
         assert_eq!(err.0, StatusCode::SERVICE_UNAVAILABLE);
@@ -520,6 +542,9 @@ mod tests {
         let m = PspMock::new();
         let _ = m.authorize(req(PspOutcome::Authorize)).await.unwrap();
         m.reset().await;
-        assert!(m.charges_dump().await.0["charges"].as_array().unwrap().is_empty());
+        assert!(m.charges_dump().await.0["charges"]
+            .as_array()
+            .unwrap()
+            .is_empty());
     }
 }

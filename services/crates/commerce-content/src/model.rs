@@ -262,7 +262,11 @@ impl StorefrontContent {
     /// The topics that are published, newest first within their position.
     pub fn published_topics(&self) -> Vec<&Topic> {
         let mut items: Vec<&Topic> = self.topics.iter().filter(|t| t.published).collect();
-        items.sort_by(|a, b| a.position.cmp(&b.position).then(b.published_at_ms.cmp(&a.published_at_ms)));
+        items.sort_by(|a, b| {
+            a.position
+                .cmp(&b.position)
+                .then(b.published_at_ms.cmp(&a.published_at_ms))
+        });
         items
     }
 
@@ -310,10 +314,7 @@ mod tests {
     #[test]
     fn unpublished_collections_are_hidden() {
         let content = StorefrontContent {
-            collections: vec![
-                collection("new", 1, true),
-                collection("hidden", 2, false),
-            ],
+            collections: vec![collection("new", 1, true), collection("hidden", 2, false)],
             ..Default::default()
         };
         let visible = content.published_collections();
@@ -437,7 +438,10 @@ mod tests {
         assert_eq!(back.topics[0].published_at_ms, 1_700_000_000_000);
         assert_eq!(back.pages[0].slug, "shopping-guide");
         assert_eq!(back.faqs[0].category, "返品・交換について");
-        assert_eq!(back.banners[0].link_url.as_deref(), Some("/pages/shopping-guide"));
+        assert_eq!(
+            back.banners[0].link_url.as_deref(),
+            Some("/pages/shopping-guide")
+        );
         assert_eq!(back.size_guides[0].rows[0].size.under_bust_cm, Some(68));
         assert_eq!(back.updated_at_ms, 1_700_000_000_000);
     }

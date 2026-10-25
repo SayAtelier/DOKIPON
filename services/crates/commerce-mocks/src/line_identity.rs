@@ -106,12 +106,7 @@ impl LineIdentityMock {
     }
 
     /// Mint a token for a specific subject.
-    pub fn mint_for(
-        &self,
-        flavour: TokenFlavour,
-        nonce: Option<&str>,
-        sub: &str,
-    ) -> String {
+    pub fn mint_for(&self, flavour: TokenFlavour, nonce: Option<&str>, sub: &str) -> String {
         let now = *self.now_s.read().expect("line lock");
         let mut claims = IdTokenClaims {
             iss: self.expected_issuer.clone(),
@@ -408,7 +403,9 @@ mod tests {
     fn a_freshly_minted_token_is_not_born_expired() {
         let m = mock();
         let token = m.mint(TokenFlavour::Valid, None);
-        let exp = decode_payload(&token)["exp"].as_i64().expect("exp is a number");
+        let exp = decode_payload(&token)["exp"]
+            .as_i64()
+            .expect("exp is a number");
         let now = wall_clock_s();
         assert!(
             exp > now,

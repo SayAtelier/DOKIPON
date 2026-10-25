@@ -19,15 +19,14 @@
 
 use commerce_edge::build;
 use tower::ServiceBuilder;
-use vercel_runtime::Error;
 use vercel_runtime::axum::VercelLayer;
+use vercel_runtime::Error;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -41,9 +40,8 @@ async fn main() -> Result<(), Error> {
     // environment. On Vercel those are the project's environment variables.
     // `vercel_runtime::Error` is `Box<dyn std::error::Error + Send + Sync>`,
     // so a configuration failure is a plain boxed error.
-    let admin = commerce_admin::AdminState::from_env().map_err(|message| {
-        Box::<dyn std::error::Error + Send + Sync>::from(message)
-    })?;
+    let admin = commerce_admin::AdminState::from_env()
+        .map_err(|message| Box::<dyn std::error::Error + Send + Sync>::from(message))?;
 
     let (edge, _services) = build(admin);
 

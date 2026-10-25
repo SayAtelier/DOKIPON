@@ -35,8 +35,7 @@ use commerce_edge::msa::gateway::{router, Gateway};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -47,8 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Every service process binds 0.0.0.0, so the gateway does too: a
     // container that publishes the port needs the listener on all interfaces.
-    let listener =
-        tokio::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], port))).await?;
+    let listener = tokio::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], port))).await?;
     tracing::info!("local gateway listening on {}", listener.local_addr()?);
 
     let app = router(Gateway::from_env());

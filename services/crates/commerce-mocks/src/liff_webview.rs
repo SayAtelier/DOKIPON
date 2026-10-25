@@ -19,7 +19,12 @@
 //! notes that a LINE WebView and an external browser do not expose the same set.
 //! A client that calls a client-only API outside LINE must be detected.
 
-use axum::{extract::Query, http::{HeaderMap, StatusCode}, routing::get, Json, Router};
+use axum::{
+    extract::Query,
+    http::{HeaderMap, StatusCode},
+    routing::get,
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -191,7 +196,10 @@ fn insets_for(profile: HostProfile) -> serde_json::Value {
 fn api_availability(profile: HostProfile) -> HashMap<String, bool> {
     let in_client = matches!(
         profile,
-        HostProfile::LineIos | HostProfile::LineIosLoggedOut | HostProfile::LineAndroid | HostProfile::LineRevoked
+        HostProfile::LineIos
+            | HostProfile::LineIosLoggedOut
+            | HostProfile::LineAndroid
+            | HostProfile::LineRevoked
     );
     let logged_in = matches!(profile, HostProfile::LineIos | HostProfile::LineAndroid);
     HashMap::from([
@@ -220,22 +228,24 @@ pub fn router() -> Router {
     Router::new()
         .route(
             "/__mock/host",
-            get(move |Query(q): Query<ProfileQuery>, headers: HeaderMap| async move {
-                let profile = q.profile.unwrap_or(HostProfile::PlainChrome);
-                let body = HostMatrixResponse {
-                    profile,
-                    user_agent: headers
-                        .get("user-agent")
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or(ua_for(profile))
-                        .to_string(),
-                    viewport: viewport_for(profile),
-                    safe_area_insets: insets_for(profile),
-                    capabilities: capabilities_for(profile),
-                    api_availability: api_availability(profile),
-                };
-                (StatusCode::OK, Json(body))
-            }),
+            get(
+                move |Query(q): Query<ProfileQuery>, headers: HeaderMap| async move {
+                    let profile = q.profile.unwrap_or(HostProfile::PlainChrome);
+                    let body = HostMatrixResponse {
+                        profile,
+                        user_agent: headers
+                            .get("user-agent")
+                            .and_then(|v| v.to_str().ok())
+                            .unwrap_or(ua_for(profile))
+                            .to_string(),
+                        viewport: viewport_for(profile),
+                        safe_area_insets: insets_for(profile),
+                        capabilities: capabilities_for(profile),
+                        api_availability: api_availability(profile),
+                    };
+                    (StatusCode::OK, Json(body))
+                },
+            ),
         )
         .route(
             "/__mock/profiles",
@@ -284,7 +294,10 @@ mod tests {
     fn revoked_consent_behaves_like_logged_out() {
         let revoked = capabilities_for(HostProfile::LineRevoked);
         let logged_out = capabilities_for(HostProfile::LineIosLoggedOut);
-        assert_eq!(revoked.can_request_id_token, logged_out.can_request_id_token);
+        assert_eq!(
+            revoked.can_request_id_token,
+            logged_out.can_request_id_token
+        );
         assert!(revoked.notes.iter().any(|n| n.contains("revoked")));
     }
 
@@ -294,7 +307,10 @@ mod tests {
         // an external-browser visit is a normal, non-degraded state.
         let offline = capabilities_for(HostProfile::SdkOffline);
         assert!(!offline.sdk_ready);
-        assert!(offline.notes.iter().any(|n| n.contains("WITHOUT redirecting")));
+        assert!(offline
+            .notes
+            .iter()
+            .any(|n| n.contains("WITHOUT redirecting")));
     }
 
     #[test]

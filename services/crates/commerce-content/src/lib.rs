@@ -37,8 +37,8 @@ use serde::{Deserialize, Serialize};
 mod model;
 
 pub use model::{
-    Banner, Collection, Faq, InfoPage, Series, SizeGuide, SizeOption, SizeRow, StorefrontContent,
-    Topic, Trend, SectionFill,
+    Banner, Collection, Faq, InfoPage, SectionFill, Series, SizeGuide, SizeOption, SizeRow,
+    StorefrontContent, Topic, Trend,
 };
 
 pub type SharedContent = Arc<RwLock<ContentStore>>;
@@ -133,7 +133,9 @@ impl ContentStore {
     fn persist(&self) {
         let Some(path) = &self.path else { return };
         let doc = self.document();
-        let Ok(json) = serde_json::to_vec_pretty(&doc) else { return };
+        let Ok(json) = serde_json::to_vec_pretty(&doc) else {
+            return;
+        };
         let tmp = path.with_extension("json.tmp");
         if fs::write(&tmp, &json).is_ok() {
             let _ = fs::rename(&tmp, path);
@@ -209,7 +211,9 @@ mod tests {
     fn a_write_bumps_the_revision() {
         let mut store = ContentStore::new(None);
         assert_eq!(store.revision, 0);
-        let doc = store.replace(content_with_one_collection(), 0).expect("write");
+        let doc = store
+            .replace(content_with_one_collection(), 0)
+            .expect("write");
         assert_eq!(doc.revision, 1);
         assert_eq!(doc.content.collections.len(), 1);
     }
@@ -219,7 +223,9 @@ mod tests {
         // Two operators opened the editor. The first one saved. The second
         // one's save must not silently overwrite the first one's work.
         let mut store = ContentStore::new(None);
-        store.replace(content_with_one_collection(), 0).expect("first write");
+        store
+            .replace(content_with_one_collection(), 0)
+            .expect("first write");
         let err = store
             .replace(StorefrontContent::default(), 0)
             .expect_err("stale write must be refused");
@@ -235,8 +241,12 @@ mod tests {
     #[test]
     fn a_write_against_the_current_revision_succeeds() {
         let mut store = ContentStore::new(None);
-        store.replace(content_with_one_collection(), 0).expect("first write");
-        let doc = store.replace(StorefrontContent::default(), 1).expect("second write");
+        store
+            .replace(content_with_one_collection(), 0)
+            .expect("first write");
+        let doc = store
+            .replace(StorefrontContent::default(), 1)
+            .expect("second write");
         assert_eq!(doc.revision, 2);
     }
 
@@ -249,7 +259,9 @@ mod tests {
 
         {
             let mut store = ContentStore::new(Some(path.clone()));
-            store.replace(content_with_one_collection(), 0).expect("write");
+            store
+                .replace(content_with_one_collection(), 0)
+                .expect("write");
         }
 
         let reloaded = ContentStore::new(Some(path.clone()));

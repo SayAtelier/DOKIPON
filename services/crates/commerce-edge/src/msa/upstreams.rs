@@ -53,7 +53,11 @@ impl Upstreams {
             cart: base_url("CART_URL", ServiceId::Cart, "http://localhost:8083"),
             order: base_url("ORDER_URL", ServiceId::Order, "http://localhost:8085"),
             identity: base_url("IDENTITY_URL", ServiceId::Identity, "http://localhost:8081"),
-            inventory: base_url("INVENTORY_URL", ServiceId::Inventory, "http://localhost:8084"),
+            inventory: base_url(
+                "INVENTORY_URL",
+                ServiceId::Inventory,
+                "http://localhost:8084",
+            ),
             payment: base_url(
                 "PAYMENT_ADAPTER_URL",
                 ServiceId::Payment,
@@ -166,7 +170,10 @@ mod tests {
         // The trailing slash is stripped so `{base}{path}` cannot produce
         // `//v1/products`.
         assert_eq!(normalize("http://localhost:8082/"), "http://localhost:8082");
-        assert_eq!(normalize("  http://localhost:8082/  "), "http://localhost:8082");
+        assert_eq!(
+            normalize("  http://localhost:8082/  "),
+            "http://localhost:8082"
+        );
         assert_eq!(normalize("http://localhost:8082"), "http://localhost:8082");
     }
 }

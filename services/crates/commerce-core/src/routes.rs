@@ -101,7 +101,10 @@ mod tests {
         assert_eq!(owner_of("/v1/products"), Some(ServiceId::Catalog));
         assert_eq!(owner_of("/v1/products/p-bra-01"), Some(ServiceId::Catalog));
         assert_eq!(owner_of("/v1/carts/c-1/items/sku-1"), Some(ServiceId::Cart));
-        assert_eq!(owner_of("/v1/orders/ord-1/reconcile"), Some(ServiceId::Order));
+        assert_eq!(
+            owner_of("/v1/orders/ord-1/reconcile"),
+            Some(ServiceId::Order)
+        );
         assert_eq!(owner_of("/v1/sessions/line"), Some(ServiceId::Identity));
         assert_eq!(owner_of("/admin/v1/orders"), Some(ServiceId::Admin));
     }

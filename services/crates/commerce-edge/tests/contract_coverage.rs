@@ -60,8 +60,8 @@ fn contract() -> Value {
 /// The gateway under test: the edge, which mounts every service router in one
 /// process behind one router.
 fn gateway() -> Router {
-    let admin = commerce_admin::AdminState::from_env()
-        .expect("the admin facade builds without a database");
+    let admin =
+        commerce_admin::AdminState::from_env().expect("the admin facade builds without a database");
     let (edge, _services) = commerce_edge::build(admin);
     edge
 }

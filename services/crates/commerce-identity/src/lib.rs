@@ -155,8 +155,9 @@ impl TokenVerifier {
         }
         let (header_b64, payload_b64, signature_b64) = (parts[0], parts[1], parts[2]);
 
-        let header: JwtHeader = decode_json(header_b64)
-            .map_err(|_| status::unauthorized("identity.bad_header", "unreadable JWS header", TRACE))?;
+        let header: JwtHeader = decode_json(header_b64).map_err(|_| {
+            status::unauthorized("identity.bad_header", "unreadable JWS header", TRACE)
+        })?;
         // Reject `alg: none` and algorithm substitution outright.
         if header.alg != "HS256" {
             return Err(status::unauthorized(
@@ -176,18 +177,31 @@ impl TokenVerifier {
             ));
         }
 
-        let wrapper: JwtPayload<LineIdTokenClaims> = decode_json(payload_b64)
-            .map_err(|_| status::unauthorized("identity.bad_payload", "unreadable id_token payload", TRACE))?;
+        let wrapper: JwtPayload<LineIdTokenClaims> = decode_json(payload_b64).map_err(|_| {
+            status::unauthorized("identity.bad_payload", "unreadable id_token payload", TRACE)
+        })?;
         let c = wrapper.claims;
 
         if c.iss != self.expected_issuer {
-            return Err(status::unauthorized("identity.bad_issuer", "unexpected id_token issuer", TRACE));
+            return Err(status::unauthorized(
+                "identity.bad_issuer",
+                "unexpected id_token issuer",
+                TRACE,
+            ));
         }
         if c.aud != self.expected_audience {
-            return Err(status::unauthorized("identity.bad_audience", "id_token audience mismatch", TRACE));
+            return Err(status::unauthorized(
+                "identity.bad_audience",
+                "id_token audience mismatch",
+                TRACE,
+            ));
         }
         if c.exp <= now_s {
-            return Err(status::unauthorized("identity.expired_token", "id_token has expired", TRACE));
+            return Err(status::unauthorized(
+                "identity.expired_token",
+                "id_token has expired",
+                TRACE,
+            ));
         }
         // Nonce binding defeats replay of a captured id_token.
         if let Some(n) = presented_nonce {
@@ -200,7 +214,11 @@ impl TokenVerifier {
             }
         }
         if c.sub.is_empty() {
-            return Err(status::unauthorized("identity.no_subject", "id_token has no subject", TRACE));
+            return Err(status::unauthorized(
+                "identity.no_subject",
+                "id_token has no subject",
+                TRACE,
+            ));
         }
         Ok(c)
     }
@@ -235,7 +253,10 @@ pub struct IdentityStore {
 
 impl IdentityStore {
     pub fn new(now_ms: i64) -> Self {
-        Self { now_ms, ..Default::default() }
+        Self {
+            now_ms,
+            ..Default::default()
+        }
     }
 
     fn next_session_id(&mut self) -> String {
@@ -528,7 +549,10 @@ mod tests {
     #[test]
     fn wrong_signature_is_rejected() {
         let v = verifier();
-        let attacker = TokenVerifier { signing_key: "other".into(), ..verifier() };
+        let attacker = TokenVerifier {
+            signing_key: "other".into(),
+            ..verifier()
+        };
         let token = attacker.mint_for_test("U1", 2_000_000_000, None);
         assert!(v.verify(&token, None, 1_000).is_err());
     }
@@ -536,7 +560,10 @@ mod tests {
     #[test]
     fn wrong_audience_is_rejected() {
         let v = verifier();
-        let other = TokenVerifier { expected_audience: "chan-999".into(), ..verifier() };
+        let other = TokenVerifier {
+            expected_audience: "chan-999".into(),
+            ..verifier()
+        };
         let token = other.mint_for_test("U1", 2_000_000_000, None);
         let err = v.verify(&token, None, 1_000).unwrap_err();
         assert!(matches!(err, AppError::Problem(p) if p.code == "identity.bad_audience"));
@@ -545,7 +572,10 @@ mod tests {
     #[test]
     fn wrong_issuer_is_rejected() {
         let v = verifier();
-        let other = TokenVerifier { expected_issuer: "https://evil.example".into(), ..verifier() };
+        let other = TokenVerifier {
+            expected_issuer: "https://evil.example".into(),
+            ..verifier()
+        };
         let token = other.mint_for_test("U1", 2_000_000_000, None);
         let err = v.verify(&token, None, 1_000).unwrap_err();
         assert!(matches!(err, AppError::Problem(p) if p.code == "identity.bad_issuer"));
@@ -570,7 +600,9 @@ mod tests {
     #[test]
     fn alg_none_and_algarbitrary_are_rejected() {
         let header = base64_url(br#"{"alg":"none"}"#);
-        let payload = base64_url(br#"{"iss":"https://access.line.me","aud":"chan-123","sub":"U1","exp":9999999999}"#);
+        let payload = base64_url(
+            br#"{"iss":"https://access.line.me","aud":"chan-123","sub":"U1","exp":9999999999}"#,
+        );
         let token = format!("{header}.{payload}.");
         let err = verifier().verify(&token, None, 1).unwrap_err();
         assert!(matches!(err, AppError::Problem(p) if p.code == "identity.bad_algorithm"));
@@ -590,7 +622,8 @@ mod tests {
         // (`packages/domain_models/lib/src/session.dart`).
 
         // It must be accepted on the way in...
-        let parsed: Channel = serde_json::from_str("\"line\"").expect("the contract's channel is accepted");
+        let parsed: Channel =
+            serde_json::from_str("\"line\"").expect("the contract's channel is accepted");
         assert_eq!(parsed, Channel::LineMiniApp);
 
         // ...and it must be the value that goes out.
@@ -659,7 +692,9 @@ mod tests {
     fn revocation_invalidates_a_session_immediately() {
         let v = verifier();
         let mut s = IdentityStore::new(1_000);
-        let claims = v.verify(&v.mint_for_test("U1", 2_000_000_000, None), None, 1_000).unwrap();
+        let claims = v
+            .verify(&v.mint_for_test("U1", 2_000_000_000, None), None, 1_000)
+            .unwrap();
         let sess = s.issue_session(&claims, Channel::Web);
         assert!(s.authorize(&sess.session_id).is_ok());
         s.revoke(&sess.session_id);
@@ -677,7 +712,13 @@ mod tests {
         // Not a published NIST vector — this pins determinism and the empty-key path.
         let a = hmac_sha256_hex(b"key", b"The quick brown fox jumps over the lazy dog");
         assert_eq!(a.len(), 64);
-        assert_eq!(a, hmac_sha256_hex(b"key", b"The quick brown fox jumps over the lazy dog"));
-        assert_ne!(a, hmac_sha256_hex(b"key2", b"The quick brown fox jumps over the lazy dog"));
+        assert_eq!(
+            a,
+            hmac_sha256_hex(b"key", b"The quick brown fox jumps over the lazy dog")
+        );
+        assert_ne!(
+            a,
+            hmac_sha256_hex(b"key2", b"The quick brown fox jumps over the lazy dog")
+        );
     }
 }

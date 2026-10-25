@@ -7,21 +7,21 @@
 use serde::{Deserialize, Serialize};
 
 pub mod error;
+pub mod idempotency;
+pub mod json_body;
 pub mod money;
 pub mod order_state;
-pub mod idempotency;
 pub mod price_authority;
-pub mod json_body;
 pub mod routes;
 pub mod secrets;
 
 pub use error::{AppError, ProblemDetails};
-pub use money::{Money, Currency};
-pub use order_state::{OrderEvent, transition, CheckoutState, ReservationState, TransitionRefusal};
-pub use idempotency::{IdempotencyRecord, IdempotencyDecision, fingerprint, hash_key};
+pub use idempotency::{fingerprint, hash_key, IdempotencyDecision, IdempotencyRecord};
+pub use json_body::{JsonBody, JsonBodyStrict};
+pub use money::{Currency, Money};
+pub use order_state::{transition, CheckoutState, OrderEvent, ReservationState, TransitionRefusal};
 pub use price_authority::{PriceAuthority, PriceSource};
 pub use routes::{owner_of, ServiceId};
-pub use json_body::{JsonBody, JsonBodyStrict};
 
 /// Correlation / trace identifiers threaded through every request and event.
 #[derive(Debug, Clone, Default)]
@@ -60,17 +60,46 @@ pub const SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum DomainEvent {
-    OrderRequested { order_id: String, cart_id: String },
-    StockReserved { order_id: String, reservation_id: String },
-    StockRejected { order_id: String, reason: String },
-    PaymentAuthorized { order_id: String, provider_ref: String },
-    PaymentDeclined { order_id: String, reason: String },
+    OrderRequested {
+        order_id: String,
+        cart_id: String,
+    },
+    StockReserved {
+        order_id: String,
+        reservation_id: String,
+    },
+    StockRejected {
+        order_id: String,
+        reason: String,
+    },
+    PaymentAuthorized {
+        order_id: String,
+        provider_ref: String,
+    },
+    PaymentDeclined {
+        order_id: String,
+        reason: String,
+    },
     /// NOT a failure — an unresolvable PSP state. Never blind-retry; reconcile.
-    PaymentUnknown { order_id: String, provider_ref: String },
-    OrderConfirmed { order_id: String },
-    OrderRejected { order_id: String, reason: String },
-    CompensationRequested { order_id: String, target: String },
-    ReconciliationCompleted { order_id: String, outcome: String },
+    PaymentUnknown {
+        order_id: String,
+        provider_ref: String,
+    },
+    OrderConfirmed {
+        order_id: String,
+    },
+    OrderRejected {
+        order_id: String,
+        reason: String,
+    },
+    CompensationRequested {
+        order_id: String,
+        target: String,
+    },
+    ReconciliationCompleted {
+        order_id: String,
+        outcome: String,
+    },
 }
 
 impl DomainEvent {
@@ -112,16 +141,45 @@ mod tests {
     #[test]
     fn event_topics_are_stable_and_distinct() {
         let all = [
-            DomainEvent::OrderRequested { order_id: "o".into(), cart_id: "c".into() },
-            DomainEvent::StockReserved { order_id: "o".into(), reservation_id: "r".into() },
-            DomainEvent::StockRejected { order_id: "o".into(), reason: "x".into() },
-            DomainEvent::PaymentAuthorized { order_id: "o".into(), provider_ref: "p".into() },
-            DomainEvent::PaymentDeclined { order_id: "o".into(), reason: "x".into() },
-            DomainEvent::PaymentUnknown { order_id: "o".into(), provider_ref: "p".into() },
-            DomainEvent::OrderConfirmed { order_id: "o".into() },
-            DomainEvent::OrderRejected { order_id: "o".into(), reason: "x".into() },
-            DomainEvent::CompensationRequested { order_id: "o".into(), target: "t".into() },
-            DomainEvent::ReconciliationCompleted { order_id: "o".into(), outcome: "x".into() },
+            DomainEvent::OrderRequested {
+                order_id: "o".into(),
+                cart_id: "c".into(),
+            },
+            DomainEvent::StockReserved {
+                order_id: "o".into(),
+                reservation_id: "r".into(),
+            },
+            DomainEvent::StockRejected {
+                order_id: "o".into(),
+                reason: "x".into(),
+            },
+            DomainEvent::PaymentAuthorized {
+                order_id: "o".into(),
+                provider_ref: "p".into(),
+            },
+            DomainEvent::PaymentDeclined {
+                order_id: "o".into(),
+                reason: "x".into(),
+            },
+            DomainEvent::PaymentUnknown {
+                order_id: "o".into(),
+                provider_ref: "p".into(),
+            },
+            DomainEvent::OrderConfirmed {
+                order_id: "o".into(),
+            },
+            DomainEvent::OrderRejected {
+                order_id: "o".into(),
+                reason: "x".into(),
+            },
+            DomainEvent::CompensationRequested {
+                order_id: "o".into(),
+                target: "t".into(),
+            },
+            DomainEvent::ReconciliationCompleted {
+                order_id: "o".into(),
+                outcome: "x".into(),
+            },
         ];
         let mut topics: Vec<_> = all.iter().map(|e| e.topic()).collect();
         topics.sort_unstable();

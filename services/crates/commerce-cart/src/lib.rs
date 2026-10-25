@@ -12,12 +12,11 @@ use axum::{
     routing::{get, patch},
     Json, Router,
 };
-use commerce_core::{
-    PriceSource,
-    error::{status, AppError},
-    Currency, Money,
-};
 use commerce_core::JsonBody;
+use commerce_core::{
+    error::{status, AppError},
+    Currency, Money, PriceSource,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -84,14 +83,14 @@ impl Cart {
                     "cart.subtotal",
                 )
             })?;
-            let line = unit.checked_mul_rounded(item.quantity).map_err(|e| {
-                AppError::Internal(format!("subtotal overflow: {e}"))
-            })?;
+            let line = unit
+                .checked_mul_rounded(item.quantity)
+                .map_err(|e| AppError::Internal(format!("subtotal overflow: {e}")))?;
             total = Some(match total {
                 None => line,
-                Some(acc) => acc.checked_add(line).map_err(|e| {
-                    AppError::Internal(format!("subtotal overflow: {e}"))
-                })?,
+                Some(acc) => acc
+                    .checked_add(line)
+                    .map_err(|e| AppError::Internal(format!("subtotal overflow: {e}")))?,
             });
         }
         Ok(total.unwrap_or_else(|| Money::zero(Currency::Jpy)))
@@ -112,7 +111,11 @@ pub struct CartStore {
 
 impl CartStore {
     pub fn new() -> Self {
-        Self { carts: HashMap::new(), replays: HashMap::new(), seq: 0 }
+        Self {
+            carts: HashMap::new(),
+            replays: HashMap::new(),
+            seq: 0,
+        }
     }
 
     pub fn next_id(&mut self) -> String {
@@ -159,8 +162,7 @@ impl CartStore {
                     owner_id: None,
                     version: 1,
                     items: vec![],
-                    expires_at_ms: commerce_core::idempotency::now_ms()
-                        + 30 * 24 * 3600 * 1000,
+                    expires_at_ms: commerce_core::idempotency::now_ms() + 30 * 24 * 3600 * 1000,
                 },
             );
         }
@@ -251,7 +253,9 @@ async fn get_cart(
     headers: HeaderMap,
 ) -> Result<Json<Cart>, AppError> {
     const TRACE: &str = "cart.get";
-    let cart_id = p.get("cart_id").ok_or_else(|| status::bad_request("cart.missing_id", "cartId required", TRACE))?;
+    let cart_id = p
+        .get("cart_id")
+        .ok_or_else(|| status::bad_request("cart.missing_id", "cartId required", TRACE))?;
     let guard = store
         .read()
         .map_err(|_| AppError::Internal("cart store lock poisoned".into()))?;
@@ -264,7 +268,11 @@ async fn get_cart(
     if let Some(owner) = &cart.owner_id {
         let presented = session_of(&headers);
         if presented.as_deref() != Some(owner.as_str()) {
-            return Err(status::forbidden("cart.forbidden", "cart belongs to another session", TRACE));
+            return Err(status::forbidden(
+                "cart.forbidden",
+                "cart belongs to another session",
+                TRACE,
+            ));
         }
     }
     Ok(Json(cart.clone()))
@@ -317,9 +325,10 @@ async fn update_item(
             .map_err(|_| AppError::Internal("cart store lock poisoned".into()))?;
         if let Some(cached) = guard.replays.get(k) {
             if cached.get("_fp").and_then(|v| v.as_str()) == Some(fingerprint.as_str()) {
-                return Ok(Json(serde_json::from_value(cached.clone()).map_err(|e| {
-                    AppError::Internal(format!("replay decode: {e}"))
-                })?));
+                return Ok(Json(
+                    serde_json::from_value(cached.clone())
+                        .map_err(|e| AppError::Internal(format!("replay decode: {e}")))?,
+                ));
             }
             return Err(status::conflict(
                 "cart.idempotency_key_reuse",
@@ -397,7 +406,13 @@ mod tests {
         let id = s.next_id();
         s.carts.insert(
             id.clone(),
-            Cart { cart_id: id, owner_id: None, version: 1, items: vec![], expires_at_ms: 0 },
+            Cart {
+                cart_id: id,
+                owner_id: None,
+                version: 1,
+                items: vec![],
+                expires_at_ms: 0,
+            },
         );
         s
     }
@@ -407,9 +422,7 @@ mod tests {
         let mut s = store_with_cart();
         let id = s.carts.keys().next().unwrap().clone();
         let price = Money::new(4800, Currency::Jpy).unwrap();
-        let c = s
-            .apply_mutation(&id, "sku-tee-01", 2, 1, price)
-            .unwrap();
+        let c = s.apply_mutation(&id, "sku-tee-01", 2, 1, price).unwrap();
         assert_eq!(c.version, 2);
         assert_eq!(c.items[0].quantity, 2);
         assert_eq!(c.items[0].unit_amount_snapshot, 4800);
@@ -420,8 +433,22 @@ mod tests {
         let mut s = store_with_cart();
         let id = s.carts.keys().next().unwrap().clone();
         // Both snapshots are deliberately wrong (simulating a tampered client).
-        s.apply_mutation(&id, "sku-tee-01", 2, 1, Money::new(1, Currency::Jpy).unwrap()).unwrap();
-        s.apply_mutation(&id, "sku-hoodie-01", 1, 2, Money::new(1, Currency::Jpy).unwrap()).unwrap();
+        s.apply_mutation(
+            &id,
+            "sku-tee-01",
+            2,
+            1,
+            Money::new(1, Currency::Jpy).unwrap(),
+        )
+        .unwrap();
+        s.apply_mutation(
+            &id,
+            "sku-hoodie-01",
+            1,
+            2,
+            Money::new(1, Currency::Jpy).unwrap(),
+        )
+        .unwrap();
         let cart = s.carts[&id].clone();
         let tee = Money::new(4800, Currency::Jpy).unwrap();
         let hoodie = Money::new(12800, Currency::Jpy).unwrap();
@@ -433,7 +460,14 @@ mod tests {
             })
             .unwrap();
         assert_eq!(total.amount_minor, 2 * 4800 + 12800);
-        assert!(total.amount_minor > cart.items.iter().map(|i| i.unit_amount_snapshot).sum::<i64>());
+        assert!(
+            total.amount_minor
+                > cart
+                    .items
+                    .iter()
+                    .map(|i| i.unit_amount_snapshot)
+                    .sum::<i64>()
+        );
     }
 
     #[test]
@@ -442,7 +476,9 @@ mod tests {
         let id = s.carts.keys().next().unwrap().clone();
         let price = Money::new(4800, Currency::Jpy).unwrap();
         s.apply_mutation(&id, "sku-tee-01", 1, 1, price).unwrap();
-        let err = s.apply_mutation(&id, "sku-tee-01", 5, 1, price).unwrap_err();
+        let err = s
+            .apply_mutation(&id, "sku-tee-01", 5, 1, price)
+            .unwrap_err();
         assert!(matches!(err, AppError::Problem(p) if p.code == "cart.version_conflict"));
         // The cart must be unchanged after a rejected mutation.
         assert_eq!(s.carts[&id].items[0].quantity, 1);
@@ -463,20 +499,38 @@ mod tests {
         let mut s = store_with_cart();
         let id = s.carts.keys().next().unwrap().clone();
         // Snapshot says 1 (deliberately wrong, simulating a tampered client).
-        let c = s.apply_mutation(&id, "sku-tee-01", 2, 1, Money::new(1, Currency::Jpy).unwrap()).unwrap();
+        let c = s
+            .apply_mutation(
+                &id,
+                "sku-tee-01",
+                2,
+                1,
+                Money::new(1, Currency::Jpy).unwrap(),
+            )
+            .unwrap();
         assert_eq!(c.items[0].unit_amount_snapshot, 1);
         let authoritative = Money::new(4800, Currency::Jpy).unwrap();
         let total = c
             .authoritative_subtotal(&|sku| (sku == "sku-tee-01").then_some(authoritative))
             .unwrap();
-        assert_eq!(total.amount_minor, 9600, "must use server price, not snapshot");
+        assert_eq!(
+            total.amount_minor, 9600,
+            "must use server price, not snapshot"
+        );
     }
 
     #[test]
     fn unknown_sku_subtotal_is_an_error_not_a_zero_price() {
         let mut s = store_with_cart();
         let id = s.carts.keys().next().unwrap().clone();
-        s.apply_mutation(&id, "sku-ghost", 1, 1, Money::new(100, Currency::Jpy).unwrap()).unwrap();
+        s.apply_mutation(
+            &id,
+            "sku-ghost",
+            1,
+            1,
+            Money::new(100, Currency::Jpy).unwrap(),
+        )
+        .unwrap();
         let cart = s.carts[&id].clone();
         let err = cart.authoritative_subtotal(&|_| None).unwrap_err();
         assert!(matches!(err, AppError::Problem(p) if p.code == "cart.price_unavailable"));

@@ -62,11 +62,17 @@ impl Money {
         if amount_minor < 0 {
             return Err(MoneyError::Negative);
         }
-        Ok(Self { amount_minor, currency })
+        Ok(Self {
+            amount_minor,
+            currency,
+        })
     }
 
     pub fn zero(currency: Currency) -> Self {
-        Self { amount_minor: 0, currency }
+        Self {
+            amount_minor: 0,
+            currency,
+        }
     }
 
     pub fn checked_add(self, rhs: Money) -> Result<Money, MoneyError> {
@@ -75,7 +81,10 @@ impl Money {
         }
         self.amount_minor
             .checked_add(rhs.amount_minor)
-            .map(|amount_minor| Money { amount_minor, currency: self.currency })
+            .map(|amount_minor| Money {
+                amount_minor,
+                currency: self.currency,
+            })
             .ok_or(MoneyError::Overflow)
     }
 
@@ -83,7 +92,10 @@ impl Money {
     pub fn checked_mul(self, qty: u32) -> Result<Money, MoneyError> {
         self.amount_minor
             .checked_mul(qty as i64)
-            .map(|amount_minor| Money { amount_minor, currency: self.currency })
+            .map(|amount_minor| Money {
+                amount_minor,
+                currency: self.currency,
+            })
             .ok_or(MoneyError::Overflow)
     }
 
@@ -116,7 +128,12 @@ impl fmt::Display for Money {
         if self.currency.exponent() == 0 {
             write!(f, "{} {}", self.amount_minor, self.currency)
         } else {
-            write!(f, "{:.2} {}", self.amount_minor as f64 / 100.0, self.currency)
+            write!(
+                f,
+                "{:.2} {}",
+                self.amount_minor as f64 / 100.0,
+                self.currency
+            )
         }
     }
 }
@@ -150,7 +167,10 @@ mod tests {
     #[test]
     fn overflow_is_an_error_not_a_wrap() {
         let m = Money::new(i64::MAX, Currency::Usd).unwrap();
-        assert_eq!(m.checked_add(Money::new(1, Currency::Usd).unwrap()), Err(MoneyError::Overflow));
+        assert_eq!(
+            m.checked_add(Money::new(1, Currency::Usd).unwrap()),
+            Err(MoneyError::Overflow)
+        );
         assert_eq!(m.checked_mul(2), Err(MoneyError::Overflow));
     }
 

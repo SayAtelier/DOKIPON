@@ -11,7 +11,10 @@ use std::sync::RwLock;
 
 #[tokio::main]
 async fn main() {
-    let port: u16 = std::env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     let store: SharedInventory = Arc::new(RwLock::new(InventoryStore::new(
         // These SKUs must match commerce-catalog's seed: the checkout path
         // looks stock up by sku, and a sku that exists in one service but not
@@ -21,6 +24,11 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port)))
         .await
         .expect("bind inventory");
-    tracing::info!("inventory service listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, router(store)).await.expect("serve inventory");
+    tracing::info!(
+        "inventory service listening on {}",
+        listener.local_addr().unwrap()
+    );
+    axum::serve(listener, router(store))
+        .await
+        .expect("serve inventory");
 }

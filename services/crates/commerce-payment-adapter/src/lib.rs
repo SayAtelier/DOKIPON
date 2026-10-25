@@ -16,11 +16,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use commerce_core::JsonBody;
 use commerce_core::{
     error::{status, AppError},
     Currency, Money,
 };
-use commerce_core::JsonBody;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -166,7 +166,10 @@ pub struct PaymentAdapter {
 
 impl PaymentAdapter {
     pub fn new(secret: impl Into<String>) -> Self {
-        Self { secret: secret.into(), ..Default::default() }
+        Self {
+            secret: secret.into(),
+            ..Default::default()
+        }
     }
 
     pub fn with_script(mut self, script: ProviderScript) -> Self {
@@ -241,7 +244,8 @@ impl PaymentAdapter {
         if status == AuthorizationOutcome::Unknown {
             self.unknown_attempts.push(attempt.provider_ref.clone());
         }
-        self.attempts.insert(attempt.provider_ref.clone(), attempt.clone());
+        self.attempts
+            .insert(attempt.provider_ref.clone(), attempt.clone());
         Ok(attempt)
     }
 
@@ -296,12 +300,7 @@ impl PaymentAdapter {
     ///
     /// `next_cursor` is `None` on the last page, so a console stops paging
     /// instead of asking for an empty page forever.
-    pub fn list(
-        &self,
-        order_id: Option<&str>,
-        cursor: Option<&str>,
-        limit: usize,
-    ) -> PaymentPage {
+    pub fn list(&self, order_id: Option<&str>, cursor: Option<&str>, limit: usize) -> PaymentPage {
         // The store is a HashMap, so its iteration order is arbitrary. The
         // contract wants a stable page, so the page is ordered by attempt id.
         let mut sorted: Vec<&PaymentAttempt> = self.attempts.values().collect();
@@ -350,7 +349,11 @@ impl PaymentAdapter {
         format!("{:x}", h.finalize())
     }
 
-    pub fn verify_and_accept(&mut self, event: WebhookEvent, now_ms: i64) -> Result<PaymentAttempt, AppError> {
+    pub fn verify_and_accept(
+        &mut self,
+        event: WebhookEvent,
+        now_ms: i64,
+    ) -> Result<PaymentAttempt, AppError> {
         const TRACE: &str = "payment.webhook";
         const MAX_SKEW_MS: i64 = 5 * 60 * 1000;
 
@@ -376,7 +379,8 @@ impl PaymentAdapter {
                 TRACE,
             ));
         }
-        self.seen_webhooks.insert(event.provider_event_id.clone(), now_ms);
+        self.seen_webhooks
+            .insert(event.provider_event_id.clone(), now_ms);
 
         let attempt = self.attempts.get_mut(&event.provider_ref).ok_or_else(|| {
             status::not_found("payment.attempt_not_found", "unknown provider_ref", TRACE)
@@ -449,7 +453,9 @@ impl ListPaymentsQuery {
     /// console convenience, and a console asking for 500 rows should get the
     /// first 100 rather than an error page.
     fn effective_limit(&self) -> usize {
-        self.limit.unwrap_or(DEFAULT_PAGE_LIMIT).clamp(1, MAX_PAGE_LIMIT) as usize
+        self.limit
+            .unwrap_or(DEFAULT_PAGE_LIMIT)
+            .clamp(1, MAX_PAGE_LIMIT) as usize
     }
 }
 
@@ -473,11 +479,18 @@ async fn authorize(
     State(store): State<SharedPayment>,
     JsonBody(body): JsonBody<AuthorizeBody>,
 ) -> Result<Json<PaymentAttempt>, AppError> {
-    let mut guard = store.write().map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
-    let amount = Money::new(body.amount_minor, body.currency)
-        .map_err(|_| status::unprocessable("payment.bad_amount", "invalid amount", "payment.authorize"))?;
+    let mut guard = store
+        .write()
+        .map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
+    let amount = Money::new(body.amount_minor, body.currency).map_err(|_| {
+        status::unprocessable("payment.bad_amount", "invalid amount", "payment.authorize")
+    })?;
     guard.tick();
-    Ok(Json(guard.authorize(&body.order_id, &body.payment_method_ref, amount)?))
+    Ok(Json(guard.authorize(
+        &body.order_id,
+        &body.payment_method_ref,
+        amount,
+    )?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -491,16 +504,22 @@ async fn reconcile(
     State(store): State<SharedPayment>,
     JsonBody(body): JsonBody<ReconcileBody>,
 ) -> Result<Json<PaymentAttempt>, AppError> {
-    let mut guard = store.write().map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
+    let mut guard = store
+        .write()
+        .map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
     guard.tick();
-    Ok(Json(guard.reconcile(&body.provider_ref, body.provider_answer)?))
+    Ok(Json(
+        guard.reconcile(&body.provider_ref, body.provider_answer)?,
+    ))
 }
 
 async fn webhook(
     State(store): State<SharedPayment>,
     JsonBody(event): JsonBody<WebhookEvent>,
 ) -> Result<Json<PaymentAttempt>, AppError> {
-    let mut guard = store.write().map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
+    let mut guard = store
+        .write()
+        .map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
     // The freshness window is measured against the clock as it is now, not
     // against the time the process started.
     let now = guard.tick();
@@ -519,7 +538,9 @@ async fn list_payments(
     // A listing does not mutate the store, so it takes the read lock: the
     // write routes (authorize / reconcile / webhook) keep running while the
     // console pages through the history.
-    let guard = store.read().map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
+    let guard = store
+        .read()
+        .map_err(|_| AppError::Internal("payment lock poisoned".into()))?;
     Ok(Json(guard.list(
         query.order_id.as_deref(),
         query.cursor.as_deref(),
@@ -615,8 +636,7 @@ mod tests {
     #[tokio::test]
     async fn the_cursor_continues_after_the_first_page() {
         let first = list("/v1/payments?limit=2").await;
-        let last_of_first = first["items"].as_array().unwrap().last().unwrap()
-            ["paymentAttemptId"]
+        let last_of_first = first["items"].as_array().unwrap().last().unwrap()["paymentAttemptId"]
             .as_str()
             .unwrap()
             .to_string();
@@ -627,7 +647,10 @@ mod tests {
         let items = second["items"].as_array().unwrap();
         assert_eq!(items.len(), 1, "the rest of the attempts");
         assert!(items[0]["paymentAttemptId"].as_str().unwrap() > last_of_first.as_str());
-        assert!(second["next_cursor"].is_null(), "the last page has no cursor");
+        assert!(
+            second["next_cursor"].is_null(),
+            "the last page has no cursor"
+        );
     }
 
     /// The item's field names are the contract's, asserted on the JSON.
@@ -642,13 +665,25 @@ mod tests {
         let page = list("/v1/payments?orderId=ord-1&limit=1").await;
         let item = &page["items"][0];
 
-        let mut keys: Vec<&str> = item.as_object().unwrap().keys().map(String::as_str).collect();
+        let mut keys: Vec<&str> = item
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         keys.sort_unstable();
-        assert_eq!(keys, vec!["amount", "orderId", "paymentAttemptId", "status"]);
+        assert_eq!(
+            keys,
+            vec!["amount", "orderId", "paymentAttemptId", "status"]
+        );
 
         let amount = &item["amount"];
-        let mut amount_keys: Vec<&str> =
-            amount.as_object().unwrap().keys().map(String::as_str).collect();
+        let mut amount_keys: Vec<&str> = amount
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         amount_keys.sort_unstable();
         assert_eq!(amount_keys, vec!["amountMinor", "currency"]);
         assert_eq!(amount["amountMinor"], 1500);
@@ -684,7 +719,12 @@ mod tests {
         let mut a = adapter(ProviderScript::Authorize);
         let att = a.authorize("ord-1", "tok_a", money()).unwrap();
         let value = serde_json::to_value(&att).unwrap();
-        let mut keys: Vec<&str> = value.as_object().unwrap().keys().map(String::as_str).collect();
+        let mut keys: Vec<&str> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         keys.sort_unstable();
         assert_eq!(
             keys,
@@ -707,7 +747,10 @@ mod tests {
         assert_eq!(att.status, AuthorizationOutcome::Authorized);
         assert!(att.provider_ref.starts_with("pref_"));
         let json = serde_json::to_string(&att).unwrap();
-        assert!(!json.contains("tok_visa_123"), "payment method token must not be echoed");
+        assert!(
+            !json.contains("tok_visa_123"),
+            "payment method token must not be echoed"
+        );
         assert!(!json.contains("secret"));
     }
 
@@ -745,8 +788,11 @@ mod tests {
     fn reconcile_is_idempotent() {
         let mut a = adapter(ProviderScript::Timeout);
         let att = a.authorize("order-1", "tok", money()).unwrap();
-        a.reconcile(&att.provider_ref, AuthorizationOutcome::Authorized).unwrap();
-        let again = a.reconcile(&att.provider_ref, AuthorizationOutcome::Authorized).unwrap();
+        a.reconcile(&att.provider_ref, AuthorizationOutcome::Authorized)
+            .unwrap();
+        let again = a
+            .reconcile(&att.provider_ref, AuthorizationOutcome::Authorized)
+            .unwrap();
         assert_eq!(again.status, AuthorizationOutcome::Authorized);
     }
 
@@ -754,7 +800,9 @@ mod tests {
     fn declined_attempt_is_not_reconcilable() {
         let mut a = adapter(ProviderScript::Decline);
         let att = a.authorize("order-1", "tok", money()).unwrap();
-        assert!(a.reconcile(&att.provider_ref, AuthorizationOutcome::Authorized).is_err());
+        assert!(a
+            .reconcile(&att.provider_ref, AuthorizationOutcome::Authorized)
+            .is_err());
     }
 
     #[test]
@@ -768,7 +816,9 @@ mod tests {
     #[test]
     fn zero_amount_is_rejected() {
         let mut a = adapter(ProviderScript::Authorize);
-        assert!(a.authorize("o", "tok", Money::new(0, Currency::Jpy).unwrap()).is_err());
+        assert!(a
+            .authorize("o", "tok", Money::new(0, Currency::Jpy).unwrap())
+            .is_err());
     }
 
     #[test]

@@ -229,12 +229,12 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
+use commerce_core::JsonBody;
 use commerce_core::{
     error::{self, AppError, ProblemDetails},
     CheckoutState,
 };
 use reqwest::{redirect::Policy, Client};
-use commerce_core::JsonBody;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -533,7 +533,12 @@ async fn read_content(
         .bytes()
         .await
         .map_err(|_| upstream_unavailable(&correlation.0))?;
-    Ok((status, [("content-type", "application/json")], bytes.to_vec()).into_response())
+    Ok((
+        status,
+        [("content-type", "application/json")],
+        bytes.to_vec(),
+    )
+        .into_response())
 }
 
 /// `PUT /admin/v1/content` — replace the content document.
@@ -561,7 +566,12 @@ async fn write_content(
         .bytes()
         .await
         .map_err(|_| upstream_unavailable(&correlation.0))?;
-    Ok((status, [("content-type", "application/json")], bytes.to_vec()).into_response())
+    Ok((
+        status,
+        [("content-type", "application/json")],
+        bytes.to_vec(),
+    )
+        .into_response())
 }
 
 pub fn router(state: AdminState) -> Router {
@@ -828,7 +838,10 @@ async fn reconcile_order(
     request_upstream_as_operator(
         &state,
         &state.upstreams.order,
-        &format!("/v1/operator/orders/{}/reconcile", encode_segment(&order_id)),
+        &format!(
+            "/v1/operator/orders/{}/reconcile",
+            encode_segment(&order_id)
+        ),
         Method::POST,
         None,
         Some(serde_json::json!({ "authorized": body.authorized })),
@@ -1008,7 +1021,17 @@ async fn request_upstream(
     body: Option<Value>,
     correlation: &CorrelationId,
 ) -> Result<Response, AppError> {
-    request_upstream_with(state, base_url, path, method, query, body, correlation, false).await
+    request_upstream_with(
+        state,
+        base_url,
+        path,
+        method,
+        query,
+        body,
+        correlation,
+        false,
+    )
+    .await
 }
 
 /// The same call, as the operator.
@@ -1025,7 +1048,17 @@ async fn request_upstream_as_operator(
     body: Option<Value>,
     correlation: &CorrelationId,
 ) -> Result<Response, AppError> {
-    request_upstream_with(state, base_url, path, method, query, body, correlation, true).await
+    request_upstream_with(
+        state,
+        base_url,
+        path,
+        method,
+        query,
+        body,
+        correlation,
+        true,
+    )
+    .await
 }
 
 async fn request_upstream_with(

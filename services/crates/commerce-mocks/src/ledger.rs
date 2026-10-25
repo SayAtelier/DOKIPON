@@ -19,7 +19,11 @@
 //! failure mode worth catching here, because that is exactly what makes a
 //! recovered system lie to a customer.
 
-use axum::{http::StatusCode, routing::{get, post}, Json, Router};
+use axum::{
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
@@ -231,12 +235,42 @@ fn happy_order(id: &str, buyer: &str, amount: i64) -> LedgerEntry {
         amount_minor: amount,
         awaiting_reconciliation: false,
         trail: vec![
-            TrailStep { sequence: 1, event: "Requested".into(), from_state: "new".into(), to_state: "new".into() },
-            TrailStep { sequence: 2, event: "BeginReserve".into(), from_state: "new".into(), to_state: "reserving".into() },
-            TrailStep { sequence: 3, event: "StockReserved".into(), from_state: "reserving".into(), to_state: "stock_reserved".into() },
-            TrailStep { sequence: 4, event: "RequestPayment".into(), from_state: "stock_reserved".into(), to_state: "awaiting_payment".into() },
-            TrailStep { sequence: 5, event: "PaymentAuthorized".into(), from_state: "awaiting_payment".into(), to_state: "confirming".into() },
-            TrailStep { sequence: 6, event: "Confirmed".into(), from_state: "confirming".into(), to_state: "confirmed".into() },
+            TrailStep {
+                sequence: 1,
+                event: "Requested".into(),
+                from_state: "new".into(),
+                to_state: "new".into(),
+            },
+            TrailStep {
+                sequence: 2,
+                event: "BeginReserve".into(),
+                from_state: "new".into(),
+                to_state: "reserving".into(),
+            },
+            TrailStep {
+                sequence: 3,
+                event: "StockReserved".into(),
+                from_state: "reserving".into(),
+                to_state: "stock_reserved".into(),
+            },
+            TrailStep {
+                sequence: 4,
+                event: "RequestPayment".into(),
+                from_state: "stock_reserved".into(),
+                to_state: "awaiting_payment".into(),
+            },
+            TrailStep {
+                sequence: 5,
+                event: "PaymentAuthorized".into(),
+                from_state: "awaiting_payment".into(),
+                to_state: "confirming".into(),
+            },
+            TrailStep {
+                sequence: 6,
+                event: "Confirmed".into(),
+                from_state: "confirming".into(),
+                to_state: "confirmed".into(),
+            },
         ],
     }
 }
@@ -250,11 +284,36 @@ fn unknown_payment_order(id: &str, buyer: &str, amount: i64) -> LedgerEntry {
         amount_minor: amount,
         awaiting_reconciliation: true,
         trail: vec![
-            TrailStep { sequence: 1, event: "Requested".into(), from_state: "new".into(), to_state: "new".into() },
-            TrailStep { sequence: 2, event: "BeginReserve".into(), from_state: "new".into(), to_state: "reserving".into() },
-            TrailStep { sequence: 3, event: "StockReserved".into(), from_state: "reserving".into(), to_state: "stock_reserved".into() },
-            TrailStep { sequence: 4, event: "RequestPayment".into(), from_state: "stock_reserved".into(), to_state: "awaiting_payment".into() },
-            TrailStep { sequence: 5, event: "PaymentTimedOut".into(), from_state: "awaiting_payment".into(), to_state: "payment_unknown".into() },
+            TrailStep {
+                sequence: 1,
+                event: "Requested".into(),
+                from_state: "new".into(),
+                to_state: "new".into(),
+            },
+            TrailStep {
+                sequence: 2,
+                event: "BeginReserve".into(),
+                from_state: "new".into(),
+                to_state: "reserving".into(),
+            },
+            TrailStep {
+                sequence: 3,
+                event: "StockReserved".into(),
+                from_state: "reserving".into(),
+                to_state: "stock_reserved".into(),
+            },
+            TrailStep {
+                sequence: 4,
+                event: "RequestPayment".into(),
+                from_state: "stock_reserved".into(),
+                to_state: "awaiting_payment".into(),
+            },
+            TrailStep {
+                sequence: 5,
+                event: "PaymentTimedOut".into(),
+                from_state: "awaiting_payment".into(),
+                to_state: "payment_unknown".into(),
+            },
         ],
     }
 }
@@ -268,11 +327,36 @@ fn declined_order(id: &str, buyer: &str, amount: i64) -> LedgerEntry {
         amount_minor: amount,
         awaiting_reconciliation: false,
         trail: vec![
-            TrailStep { sequence: 1, event: "Requested".into(), from_state: "new".into(), to_state: "new".into() },
-            TrailStep { sequence: 2, event: "BeginReserve".into(), from_state: "new".into(), to_state: "reserving".into() },
-            TrailStep { sequence: 3, event: "StockReserved".into(), from_state: "reserving".into(), to_state: "stock_reserved".into() },
-            TrailStep { sequence: 4, event: "RequestPayment".into(), from_state: "stock_reserved".into(), to_state: "awaiting_payment".into() },
-            TrailStep { sequence: 5, event: "PaymentDeclined".into(), from_state: "awaiting_payment".into(), to_state: "rejected".into() },
+            TrailStep {
+                sequence: 1,
+                event: "Requested".into(),
+                from_state: "new".into(),
+                to_state: "new".into(),
+            },
+            TrailStep {
+                sequence: 2,
+                event: "BeginReserve".into(),
+                from_state: "new".into(),
+                to_state: "reserving".into(),
+            },
+            TrailStep {
+                sequence: 3,
+                event: "StockReserved".into(),
+                from_state: "reserving".into(),
+                to_state: "stock_reserved".into(),
+            },
+            TrailStep {
+                sequence: 4,
+                event: "RequestPayment".into(),
+                from_state: "stock_reserved".into(),
+                to_state: "awaiting_payment".into(),
+            },
+            TrailStep {
+                sequence: 5,
+                event: "PaymentDeclined".into(),
+                from_state: "awaiting_payment".into(),
+                to_state: "rejected".into(),
+            },
         ],
     }
 }
@@ -357,8 +441,7 @@ mod tests {
         let l = LedgerMock::new();
         l.seed_demo().await;
         let export = l.snapshot().await;
-        let orders: Vec<LedgerEntry> =
-            serde_json::from_value(export.0["orders"].clone()).unwrap();
+        let orders: Vec<LedgerEntry> = serde_json::from_value(export.0["orders"].clone()).unwrap();
         let expected: Vec<String> = export.0["fingerprints"]
             .as_array()
             .unwrap()
@@ -444,9 +527,19 @@ mod tests {
             amount_minor: 100,
             awaiting_reconciliation: false,
             trail: vec![
-                TrailStep { sequence: 1, event: "a".into(), from_state: "new".into(), to_state: "reserving".into() },
+                TrailStep {
+                    sequence: 1,
+                    event: "a".into(),
+                    from_state: "new".into(),
+                    to_state: "reserving".into(),
+                },
                 // jumps away from "reserving" without saying so
-                TrailStep { sequence: 2, event: "b".into(), from_state: "cancelled".into(), to_state: "confirmed".into() },
+                TrailStep {
+                    sequence: 2,
+                    event: "b".into(),
+                    from_state: "cancelled".into(),
+                    to_state: "confirmed".into(),
+                },
             ],
         };
         assert!(!e.trail_is_contiguous());
@@ -475,7 +568,11 @@ mod tests {
 
     #[test]
     fn seeded_trails_are_all_contiguous() {
-        for e in [happy_order("a", "u", 1), unknown_payment_order("b", "u", 1), declined_order("c", "u", 1)] {
+        for e in [
+            happy_order("a", "u", 1),
+            unknown_payment_order("b", "u", 1),
+            declined_order("c", "u", 1),
+        ] {
             assert!(e.trail_is_contiguous(), "{} has a broken trail", e.order_id);
         }
     }

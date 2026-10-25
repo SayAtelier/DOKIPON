@@ -13,7 +13,11 @@
 //! the duplicate appear anyway.
 
 use crate::fault::{Fault, FaultController, FaultMode};
-use axum::{http::StatusCode, routing::{get, post}, Json, Router};
+use axum::{
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -83,10 +87,14 @@ impl BrokerMock {
                 tokio::time::sleep(std::time::Duration::from_millis(f.latency_ms)).await;
             }
             let _ = f;
-            return Err(StatusCode::from_u16(f.http_status)
-                .unwrap_or(StatusCode::SERVICE_UNAVAILABLE));
+            return Err(
+                StatusCode::from_u16(f.http_status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE)
+            );
         }
-        let mut g = self.state.write().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let mut g = self
+            .state
+            .write()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         g.messages.push(msg);
         Ok(())
     }
@@ -106,7 +114,10 @@ impl BrokerMock {
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
 
-        let mut g = self.state.write().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let mut g = self
+            .state
+            .write()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let msg = g
             .messages
             .iter()
@@ -146,7 +157,10 @@ impl BrokerMock {
 
     /// CASE-IT-002: force the broker to deliver an event again.
     pub async fn redeliver(&self, event_id: &str) -> Result<Json<serde_json::Value>, StatusCode> {
-        let mut g = self.state.write().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let mut g = self
+            .state
+            .write()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let msg = g
             .messages
             .iter()
@@ -155,12 +169,15 @@ impl BrokerMock {
             .ok_or(StatusCode::NOT_FOUND)?;
         let topic = msg.topic.clone();
         let outcome = {
-            let entry = g.inbox.entry(event_id.to_string()).or_insert_with(|| InboxEntry {
-                event_id: event_id.to_string(),
-                topic: topic.clone(),
-                delivery_count: 0,
-                processed_count: 0,
-            });
+            let entry = g
+                .inbox
+                .entry(event_id.to_string())
+                .or_insert_with(|| InboxEntry {
+                    event_id: event_id.to_string(),
+                    topic: topic.clone(),
+                    delivery_count: 0,
+                    processed_count: 0,
+                });
             entry.delivery_count += 1;
             entry.processed_count > 0
         };
@@ -255,10 +272,7 @@ pub fn router(mock: BrokerMock) -> Router {
                                 StatusCode::OK,
                                 Json(serde_json::to_value(o).unwrap_or(serde_json::Value::Null)),
                             ),
-                            Err(s) => (
-                                s,
-                                Json(serde_json::json!({ "error": s.as_u16() })),
-                            ),
+                            Err(s) => (s, Json(serde_json::json!({ "error": s.as_u16() }))),
                         }
                     }
                 }
@@ -352,8 +366,14 @@ mod tests {
         assert!(second.delivered, "the duplicate WAS delivered");
         assert!(!second.processed, "but was NOT reprocessed");
         assert!(second.duplicate);
-        assert_eq!(second.delivery_count, 3, "1 original + 1 redelivery + 1 consume");
-        assert_eq!(second.processed_count, 1, "processing happened exactly once");
+        assert_eq!(
+            second.delivery_count, 3,
+            "1 original + 1 redelivery + 1 consume"
+        );
+        assert_eq!(
+            second.processed_count, 1,
+            "processing happened exactly once"
+        );
     }
 
     #[tokio::test]
@@ -378,7 +398,8 @@ mod tests {
         // CASE-CHAOS-002: the producer must learn it failed, or the Outbox row
         // would be marked published and the event lost forever.
         let b = BrokerMock::new();
-        b.faults().inject(fault("broker.publish", FaultMode::NextN, 2));
+        b.faults()
+            .inject(fault("broker.publish", FaultMode::NextN, 2));
 
         assert!(b.publish(msg("e4")).await.is_err());
         assert!(b.publish(msg("e5")).await.is_err());
@@ -399,7 +420,9 @@ mod tests {
 
         let dump = b.inbox_dump().await;
         let entry = &dump.0["inbox"][0];
-        assert!(entry["delivery_count"].as_u64().unwrap() > entry["processed_count"].as_u64().unwrap());
+        assert!(
+            entry["delivery_count"].as_u64().unwrap() > entry["processed_count"].as_u64().unwrap()
+        );
     }
 
     #[tokio::test]

@@ -26,6 +26,8 @@
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use super::routing::{route_for, Route, ServiceId};
+use super::upstreams::Upstreams;
 use axum::{
     extract::{Request, State},
     http::{header::HeaderName, HeaderValue, StatusCode},
@@ -34,8 +36,6 @@ use axum::{
     Router,
 };
 use tower::ServiceExt;
-use super::routing::{route_for, Route, ServiceId};
-use super::upstreams::Upstreams;
 
 /// The largest request body the gateway forwards.
 ///
@@ -77,9 +77,7 @@ pub struct Gateway {
 impl Gateway {
     /// Build the gateway with an explicit set of upstreams.
     pub fn with_upstreams(upstreams: Upstreams) -> Self {
-        let bff = commerce_bff::router(Arc::new(RwLock::new(
-            commerce_bff::RateLimiter::default(),
-        )));
+        let bff = commerce_bff::router(Arc::new(RwLock::new(commerce_bff::RateLimiter::default())));
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .no_proxy()

@@ -39,8 +39,8 @@ const KEY: &str = "11111111-1111-1111-1111-111111111111";
 /// their state in memory, so a checkout created by one request must still be
 /// there for the next one.
 fn gateway() -> Router {
-    let admin = commerce_admin::AdminState::from_env()
-        .expect("the admin facade builds without a database");
+    let admin =
+        commerce_admin::AdminState::from_env().expect("the admin facade builds without a database");
     let (edge, _services) = commerce_edge::build(admin);
     edge
 }
@@ -100,7 +100,10 @@ async fn the_product_list_uses_the_contract_field_names() {
         first["price"]["amountMinor"].is_i64(),
         "price.amountMinor: {first}"
     );
-    assert!(first["price"]["currency"].is_string(), "price.currency: {first}");
+    assert!(
+        first["price"]["currency"].is_string(),
+        "price.currency: {first}"
+    );
 
     // The old snake_case spelling must be gone: the client reads `productId`
     // and `price.amountMinor` only.
@@ -110,7 +113,9 @@ async fn the_product_list_uses_the_contract_field_names() {
     // `ProductPage.next_cursor` is snake_case in the contract — the one field
     // of this page that is.
     assert!(
-        body.as_object().expect("the page is an object").contains_key("next_cursor"),
+        body.as_object()
+            .expect("the page is an object")
+            .contains_key("next_cursor"),
         "next_cursor: {body}"
     );
     assert!(body.get("nextCursor").is_none(), "{body}");
@@ -126,7 +131,10 @@ async fn the_product_detail_uses_the_contract_field_names() {
     assert_eq!(body["productId"], "p-bra-01");
     assert!(body["sku"].is_string(), "sku: {body}");
     assert!(body["titleI18n"].is_object(), "titleI18n: {body}");
-    assert!(body["descriptionI18n"].is_object(), "descriptionI18n: {body}");
+    assert!(
+        body["descriptionI18n"].is_object(),
+        "descriptionI18n: {body}"
+    );
     assert!(body["categoryId"].is_string(), "categoryId: {body}");
     assert!(body["published"].is_boolean(), "published: {body}");
     assert!(body["version"].is_i64(), "version: {body}");
@@ -217,9 +225,19 @@ async fn a_checkout_and_its_order_use_the_contract_field_names() {
     assert!(body["status"].is_string(), "status: {body}");
     let checkout_id = body["checkoutId"].as_str().unwrap().to_string();
 
-    let (status, body) = call(&gateway, "GET", &format!("/v1/checkouts/{checkout_id}"), None).await;
+    let (status, body) = call(
+        &gateway,
+        "GET",
+        &format!("/v1/checkouts/{checkout_id}"),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "body: {body}");
-    assert_eq!(body["checkoutId"], checkout_id.as_str(), "checkoutId: {body}");
+    assert_eq!(
+        body["checkoutId"],
+        checkout_id.as_str(),
+        "checkoutId: {body}"
+    );
     assert!(body["orderId"].is_string(), "orderId: {body}");
     assert!(body["status"].is_string(), "status: {body}");
     assert!(body["terminal"].is_boolean(), "terminal: {body}");
@@ -250,8 +268,14 @@ async fn a_checkout_and_its_order_use_the_contract_field_names() {
     let line = &body["lines"][0];
     assert_eq!(line["sku"], "sku-bra-01", "line: {line}");
     assert_eq!(line["quantity"], 2, "line: {line}");
-    assert!(line["unitPrice"]["amountMinor"].is_i64(), "line.unitPrice: {line}");
-    assert!(line["unitPrice"]["currency"].is_string(), "line.unitPrice: {line}");
+    assert!(
+        line["unitPrice"]["amountMinor"].is_i64(),
+        "line.unitPrice: {line}"
+    );
+    assert!(
+        line["unitPrice"]["currency"].is_string(),
+        "line.unitPrice: {line}"
+    );
     assert!(line.get("unit_amount_minor").is_none(), "line: {line}");
 
     // `Money` nested, camelCase — the total of two 8900-yen bras.

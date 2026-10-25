@@ -152,7 +152,10 @@ mod tests {
                 assert_eq!(p.status, 422);
                 assert_eq!(p.code, "request.malformed_json");
                 // The internal field name must not be in the response.
-                assert!(!p.detail.contains("quantity"), "detail leaked the field name");
+                assert!(
+                    !p.detail.contains("quantity"),
+                    "detail leaked the field name"
+                );
             }
             other => panic!("expected a problem, got {other:?}"),
         }
