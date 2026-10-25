@@ -35,6 +35,13 @@ name: commerce-ci
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: short
+  # The database the services' repository tests run against.
+  #
+  # The tests that need a database skip themselves when there is no
+  # `DATABASE_URL` — and without this they skipped in every CI run, so the
+  # database paths were never actually checked. The schema, the id sequences
+  # and the cross-instance visibility are checked here.
+  DATABASE_URL: postgres://dokipon:dokipon_test_pw@localhost:5432/dokipon_commerce
 
 jobs:
   # -------------------------------------------------------------------------
@@ -45,6 +52,21 @@ jobs:
     name: rust fmt + clippy + test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dokipon
+          POSTGRES_PASSWORD: dokipon_test_pw
+          POSTGRES_DB: dokipon_commerce
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dokipon -d dokipon_commerce"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 5s
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -110,9 +132,18 @@ jobs:
             (cd "$d" && flutter pub get)
           done
 
-      - name: flutter test (domain_models)
-        working-directory: packages/domain_models
-        run: flutter test
+      - name: flutter test (every package that has tests)
+        # The tests used to run in one package only, and the other four
+        # packages' tests never ran in CI at all — a test that is never run
+        # is not a test. Every package and app that has a test file is run
+        # here, and the ones without one are skipped rather than failing.
+        run: |
+          for d in packages/* apps/*; do
+            if [ -d "$d/test" ] && [ -n "$(find "$d/test" -name '*_test.dart' -print -quit)" ]; then
+              echo "--- $d ---"
+              (cd "$d" && flutter test)
+            fi
+          done
 
       - name: dart analyze (fatal-infos)
         run: |
