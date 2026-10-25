@@ -660,6 +660,26 @@ fn actor(headers: &HeaderMap) -> Result<String, AppError> {
         })
 }
 
+/// The currency the client's lines disagree about, if they disagree.
+///
+/// A line that claims no currency at all is not a disagreement: the
+/// catalogue decides, and a client that omits it is a client that trusts the
+/// server.
+fn mixed_currency(lines: &[OrderLineInput]) -> Option<Currency> {
+    let mut claimed: Option<Currency> = None;
+    for line in lines {
+        let Some(currency) = line.currency else {
+            continue;
+        };
+        match claimed {
+            None => claimed = Some(currency),
+            Some(first) if first != currency => return Some(currency),
+            Some(_) => {}
+        }
+    }
+    None
+}
+
 /// Replace every line's client-supplied price with the catalogue's price.
 ///
 /// This is the control that makes "the server is the only authority" true
@@ -760,6 +780,29 @@ async fn submit_checkout(
             )
         })?
         .to_string();
+
+    // --- One order, one currency --------------------------------------------
+    //
+    // The client claims the currency of each line, and the claim is normally
+    // discarded — the catalogue owns the price *and* the currency. But an
+    // order whose lines claim **different** currencies cannot become one
+    // total, so it is refused here, with that reason, rather than further
+    // down where it would come out as "this SKU has no price" — a statement
+    // about the catalogue that the client cannot act on.
+    //
+    // The catalogue's own currencies are checked again after the re-pricing
+    // (`OrderStore::total_of`): a catalogue that holds one SKU in yen and
+    // another in dollars is refused with the same code, because the total
+    // would be meaningless there too.
+    if let Some(currency) = mixed_currency(&body.lines) {
+        return Err(status::unprocessable(
+            "order.mixed_currency",
+            format!(
+                "a single order cannot mix currencies (this one claims {currency} and another)"
+            ),
+            "checkout.reprice",
+        ));
+    }
 
     // --- Re-price from the catalogue ---------------------------------------
     //
@@ -1432,6 +1475,75 @@ mod tests {
             )
             .unwrap_err();
         assert!(matches!(err, AppError::Problem(p) if p.code == "order.mixed_currency"));
+    }
+
+    /// The client's **claim** about the currencies is checked before the
+    /// re-pricing, so that an order whose lines claim different currencies is
+    /// refused with `order.mixed_currency` — not with "this SKU has no
+    /// price", which is a statement about the catalogue the client cannot act
+    /// on.
+    ///
+    /// The store's own check (`mixed_currency_order_is_rejected` above) still
+    /// holds the catalogue's currencies to one currency too.
+    #[test]
+    fn lines_that_claim_different_currencies_are_a_disagreement() {
+        let lines = vec![
+            OrderLineInput {
+                sku: "a".into(),
+                quantity: 1,
+                unit_amount_minor: Some(100),
+                currency: Some(Currency::Jpy),
+            },
+            OrderLineInput {
+                sku: "b".into(),
+                quantity: 1,
+                unit_amount_minor: Some(100),
+                currency: Some(Currency::Usd),
+            },
+        ];
+        assert_eq!(mixed_currency(&lines), Some(Currency::Usd));
+    }
+
+    /// A line that claims no currency is not a disagreement: the catalogue
+    /// decides, and a client that omits it is a client that trusts the
+    /// server.
+    #[test]
+    fn a_line_that_claims_no_currency_is_not_a_disagreement() {
+        let lines = vec![
+            OrderLineInput {
+                sku: "a".into(),
+                quantity: 1,
+                unit_amount_minor: Some(100),
+                currency: None,
+            },
+            OrderLineInput {
+                sku: "b".into(),
+                quantity: 1,
+                unit_amount_minor: Some(100),
+                currency: Some(Currency::Jpy),
+            },
+        ];
+        assert_eq!(mixed_currency(&lines), None);
+    }
+
+    /// Lines that all claim the same currency are not a disagreement either.
+    #[test]
+    fn lines_that_claim_the_same_currency_are_not_a_disagreement() {
+        let lines = vec![
+            OrderLineInput {
+                sku: "a".into(),
+                quantity: 1,
+                unit_amount_minor: Some(100),
+                currency: Some(Currency::Jpy),
+            },
+            OrderLineInput {
+                sku: "b".into(),
+                quantity: 1,
+                unit_amount_minor: Some(100),
+                currency: Some(Currency::Jpy),
+            },
+        ];
+        assert_eq!(mixed_currency(&lines), None);
     }
 
     #[test]
