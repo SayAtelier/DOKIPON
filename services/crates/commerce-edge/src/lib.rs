@@ -212,8 +212,14 @@ pub fn build(admin: commerce_admin::AdminState) -> (Router, EdgeServices) {
         // The cart and the order both need a price authority. The edge serves
         // prices in-process, so the two services get the in-process variant
         // rather than an HTTP client that would call back into itself.
-        cart: commerce_cart::router(cart, prices.clone()),
-        order: commerce_order::router(order, prices),
+        cart: commerce_cart::router(
+            Arc::new(commerce_cart::MemoryCartRepository::new(cart)),
+            prices.clone(),
+        ),
+        order: commerce_order::router(
+            Arc::new(commerce_order::MemoryOrderRepository::new(order)),
+            prices,
+        ),
         content: commerce_content::router(content),
         identity: commerce_identity::router(identity, stores::identity_verifier(), None),
         inventory: commerce_inventory::router(inventory),

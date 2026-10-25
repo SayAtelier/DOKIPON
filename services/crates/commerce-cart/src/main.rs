@@ -23,7 +23,20 @@ async fn main() {
         std::env::var("CATALOG_URL").unwrap_or_else(|_| "http://commerce-catalog:8082".to_string());
     let store: SharedCart = Arc::new(RwLock::new(CartStore::new()));
     let prices = Arc::new(PriceAuthority::new(catalog_url.clone()));
-    let app = router(store, prices);
+    // The carts live in the database when the deployment has one: a cart
+    // created on one instance has to be visible to the next. A deployment
+    // that has a database and cannot reach it does not start — a store that
+    // quietly kept its state in memory would look healthy and lose the cart
+    // anyway.
+    let repo: Arc<dyn CartRepository> = match commerce_core::db::connect_from_env().await {
+        Ok(Some(pool)) => {
+            tracing::info!("the cart service persists its carts in the database");
+            Arc::new(DbCartRepository::new(pool))
+        }
+        Ok(None) => Arc::new(MemoryCartRepository::new(store)),
+        Err(error) => panic!("the database must be reachable: {error}"),
+    };
+    let app = router(repo, prices);
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("bind cart");

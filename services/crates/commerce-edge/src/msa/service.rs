@@ -41,19 +41,29 @@ pub fn catalog() -> Router {
 }
 
 /// The cart Function. It serves `/v1/carts`.
-pub fn cart() -> Router {
-    mount(
-        ServiceId::Cart,
-        commerce_cart::router(stores::cart(), prices()),
-    )
+///
+/// The pool is the database the carts live in, when the deployment has one.
+/// Without one the carts live in this process's memory, which is what the
+/// local run and the in-process edge do on purpose.
+pub fn cart(pool: Option<commerce_core::db::Pool>) -> Router {
+    let repo: Arc<dyn commerce_cart::CartRepository> = match pool {
+        Some(pool) => Arc::new(commerce_cart::DbCartRepository::new(pool)),
+        None => Arc::new(commerce_cart::MemoryCartRepository::new(stores::cart())),
+    };
+    mount(ServiceId::Cart, commerce_cart::router(repo, prices()))
 }
 
 /// The order Function. It serves `/v1/checkouts` and `/v1/orders`.
-pub fn order() -> Router {
-    mount(
-        ServiceId::Order,
-        commerce_order::router(stores::order(), prices()),
-    )
+///
+/// The pool is the database the orders live in, when the deployment has one.
+/// Without one the orders live in this process's memory, which is what the
+/// local run and the in-process edge do on purpose.
+pub fn order(pool: Option<commerce_core::db::Pool>) -> Router {
+    let repo: Arc<dyn commerce_order::OrderRepository> = match pool {
+        Some(pool) => Arc::new(commerce_order::DbOrderRepository::new(pool)),
+        None => Arc::new(commerce_order::MemoryOrderRepository::new(stores::order())),
+    };
+    mount(ServiceId::Order, commerce_order::router(repo, prices()))
 }
 
 /// The content Function. It serves `/v1/content`.

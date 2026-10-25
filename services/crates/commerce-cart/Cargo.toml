@@ -17,4 +17,6 @@ chrono = { workspace = true }
 async-trait = { workspace = true }
 # The cart prices every line from the catalogue, never from the client.
 reqwest = { workspace = true }
+# The carts live in the database when the deployment has one.
+sqlx = { workspace = true }
 commerce-core = { path = "../commerce-core" }

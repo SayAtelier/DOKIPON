@@ -24,6 +24,19 @@ async fn main() {
         std::env::var("CATALOG_URL").unwrap_or_else(|_| "http://commerce-catalog:8082".to_string());
     let store: SharedOrder = Arc::new(RwLock::new(OrderStore::new(idempotency::now_ms())));
     let prices = Arc::new(PriceAuthority::new(catalog_url.clone()));
+    // The orders live in the database when the deployment has one: an order
+    // created on one instance has to be visible to the next. A deployment
+    // that has a database and cannot reach it does not start — a store that
+    // quietly kept its state in memory would look healthy and lose the order
+    // anyway.
+    let repo: Arc<dyn OrderRepository> = match commerce_core::db::connect_from_env().await {
+        Ok(Some(pool)) => {
+            tracing::info!("the order service persists its orders in the database");
+            Arc::new(DbOrderRepository::new(pool))
+        }
+        Ok(None) => Arc::new(MemoryOrderRepository::new(store)),
+        Err(error) => panic!("the database must be reachable: {error}"),
+    };
     let listener = tokio::net::TcpListener::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port)))
         .await
         .expect("bind order");
@@ -32,7 +45,7 @@ async fn main() {
         listener.local_addr().unwrap(),
         catalog_url
     );
-    axum::serve(listener, router(store, prices))
+    axum::serve(listener, router(repo, prices))
         .await
         .expect("serve order");
 }

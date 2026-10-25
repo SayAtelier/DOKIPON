@@ -23,6 +23,10 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+pub mod repo;
+
+pub use repo::{CartRepository, DbCartRepository, MemoryCartRepository};
+
 /// The cart store, shared across requests.
 ///
 /// It is an `Arc<RwLock<…>>`, not a bare `Arc<CartStore>`. With a bare Arc,
@@ -235,7 +239,7 @@ pub struct CartPath {
     pub sku: String,
 }
 
-pub fn router(state: SharedCart, prices: Arc<dyn PriceSource>) -> Router {
+pub fn router(state: Arc<dyn CartRepository>, prices: Arc<dyn PriceSource>) -> Router {
     Router::new()
         .route("/v1/carts/{cart_id}", get(get_cart))
         .route("/v1/carts/{cart_id}/items/{sku}", patch(update_item))
@@ -248,7 +252,7 @@ async fn health() -> StatusCode {
 }
 
 async fn get_cart(
-    State((store, _prices)): State<(SharedCart, Arc<dyn PriceSource>)>,
+    State((repo, _prices)): State<(Arc<dyn CartRepository>, Arc<dyn PriceSource>)>,
     Path(p): Path<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> Result<Json<Cart>, AppError> {
@@ -256,12 +260,9 @@ async fn get_cart(
     let cart_id = p
         .get("cart_id")
         .ok_or_else(|| status::bad_request("cart.missing_id", "cartId required", TRACE))?;
-    let guard = store
-        .read()
-        .map_err(|_| AppError::Internal("cart store lock poisoned".into()))?;
-    let cart = guard
-        .carts
-        .get(cart_id)
+    let cart = repo
+        .load(cart_id)
+        .await?
         .ok_or_else(|| status::not_found("cart.not_found", "cart not found", TRACE))?;
 
     // Server-side ownership check. A client-side session flag is never trusted.
@@ -286,7 +287,7 @@ fn session_of(headers: &HeaderMap) -> Option<String> {
 }
 
 async fn update_item(
-    State((store, prices)): State<(SharedCart, Arc<dyn PriceSource>)>,
+    State((repo, prices)): State<(Arc<dyn CartRepository>, Arc<dyn PriceSource>)>,
     Path(p): Path<CartPath>,
     headers: HeaderMap,
     JsonBody(body): JsonBody<UpdateItemBody>,
@@ -320,10 +321,7 @@ async fn update_item(
     ]);
 
     if let Some(k) = &key {
-        let guard = store
-            .read()
-            .map_err(|_| AppError::Internal("cart store lock poisoned".into()))?;
-        if let Some(cached) = guard.replays.get(k) {
+        if let Some(cached) = repo.replay(&p.cart_id, k).await? {
             if cached.get("_fp").and_then(|v| v.as_str()) == Some(fingerprint.as_str()) {
                 return Ok(Json(
                     serde_json::from_value(cached.clone())
@@ -371,31 +369,24 @@ async fn update_item(
             )
         })?;
 
-    // The mutation happens under the write lock, on the shared store.
-    let updated = {
-        let mut guard = store
-            .write()
-            .map_err(|_| AppError::Internal("cart store lock poisoned".into()))?;
-        guard.apply_mutation(
+    // The mutation happens in the store, which is either this process's map
+    // or the database every instance shares.
+    let updated = repo
+        .apply_mutation(
             &p.cart_id,
             &p.sku,
             body.quantity,
             body.expected_version,
             unit_price,
-        )?
-    };
+        )
+        .await?;
 
     if let Some(k) = key {
         let mut cached = serde_json::to_value(&updated).unwrap_or(serde_json::Value::Null);
         if let Some(obj) = cached.as_object_mut() {
             obj.insert("_fp".into(), serde_json::Value::String(fingerprint));
         }
-        {
-            let mut guard = store
-                .write()
-                .map_err(|_| AppError::Internal("cart store lock poisoned".into()))?;
-            guard.replays.insert(k, cached);
-        }
+        repo.remember(&p.cart_id, &k, &cached).await?;
     }
     Ok(Json(updated))
 }

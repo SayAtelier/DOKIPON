@@ -33,6 +33,10 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+pub mod repo;
+
+pub use repo::{DbOrderRepository, MemoryOrderRepository, OrderRepository};
+
 pub type SharedOrder = Arc<RwLock<OrderStore>>;
 
 /// What the downstream services reported back to the orchestrator. The Order
@@ -621,7 +625,7 @@ pub struct ReconcileBody {
 /// and the only way in is the facade's own upstream call.
 const OPERATOR_TOKEN_HEADER: &str = "x-service-token";
 
-pub fn router(state: SharedOrder, prices: Arc<dyn PriceSource>) -> Router {
+pub fn router(state: Arc<dyn OrderRepository>, prices: Arc<dyn PriceSource>) -> Router {
     Router::new()
         .route("/v1/checkouts", post(submit_checkout))
         .route("/v1/checkouts/{checkout_id}", get(checkout_status))
@@ -740,7 +744,7 @@ async fn reprice(
 }
 
 async fn submit_checkout(
-    State((store, prices)): State<(SharedOrder, Arc<dyn PriceSource>)>,
+    State((repo, prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
     headers: HeaderMap,
     JsonBody(body): JsonBody<SubmitBody>,
 ) -> Result<Response, AppError> {
@@ -765,13 +769,10 @@ async fn submit_checkout(
     // `unit_amount_minor: 1` and buy an 8900-yen item for one cent.
     let lines = reprice(&body.lines, &prices).await?;
 
-    let mut guard = store
-        .write()
-        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
     // In production this comes from the payment adapter; the BFF supplies the
     // observed outcome. `Unknown` is the safe default for an unresolved call.
     let outcome = header_outcome(&headers);
-    let (checkout_id, state, _) = guard.submit(&buyer, lines, &key, outcome)?;
+    let (checkout_id, state, _) = repo.submit(&buyer, lines, &key, outcome).await?;
 
     // The contract (`contracts/openapi.yaml` -> `POST /v1/checkouts`) says
     // `201` when the order reached `confirmed` and `202` while it is still
@@ -789,10 +790,11 @@ async fn submit_checkout(
     // them, only `pollable` — so a client that had just bought something had
     // no order id to navigate to, and the Dart client reads `orderId` from
     // this very response.
-    let order_id = guard
+    let order_id = repo
         .by_checkout(&checkout_id)
+        .await
         .ok()
-        .map(|order| order.order_id.clone());
+        .map(|order| order.order_id);
 
     Ok((
         code,
@@ -803,7 +805,7 @@ async fn submit_checkout(
             "terminal": state.is_terminal(),
             "awaitingReconciliation": state == CheckoutState::PaymentUnknown,
             "pollable": state.is_pollable() || !state.is_terminal(),
-            "traceId": guard.now_ms.to_string(),
+            "traceId": commerce_core::idempotency::now_ms().to_string(),
         })),
     )
         .into_response())
@@ -822,15 +824,12 @@ fn header_outcome(headers: &HeaderMap) -> PaymentOutcome {
 }
 
 async fn checkout_status(
-    State((store, _prices)): State<(SharedOrder, Arc<dyn PriceSource>)>,
+    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
     Path(checkout_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let session = actor(&headers)?;
-    let guard = store
-        .read()
-        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
-    let order = guard.by_checkout(&checkout_id)?;
+    let order = repo.by_checkout(&checkout_id).await?;
     // Owner check happens BEFORE returning any order data.
     if order.buyer_id != session {
         return Err(status::forbidden(
@@ -850,15 +849,12 @@ async fn checkout_status(
 }
 
 async fn order_detail(
-    State((store, _prices)): State<(SharedOrder, Arc<dyn PriceSource>)>,
+    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
     Path(order_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let session = actor(&headers)?;
-    let guard = store
-        .read()
-        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
-    let order = guard.get(&order_id)?;
+    let order = repo.get(&order_id).await?;
     if order.buyer_id != session {
         return Err(status::forbidden(
             "order.forbidden",
@@ -866,7 +862,7 @@ async fn order_detail(
             "orders.detail",
         ));
     }
-    Ok(Json(order_json(order)))
+    Ok(Json(order_json(&order)))
 }
 
 /// `checkout.reconcile` — the ONLY way out of `PaymentUnknown`.
@@ -874,17 +870,14 @@ async fn order_detail(
 /// Server-only: the payment adapter's verdict, not the client's. The owner
 /// check still applies so a caller cannot reconcile somebody else's order.
 async fn reconcile_checkout(
-    State((store, _prices)): State<(SharedOrder, Arc<dyn PriceSource>)>,
+    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
     Path(order_id): Path<String>,
     headers: HeaderMap,
     JsonBody(body): JsonBody<ReconcileBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let session = actor(&headers)?;
     {
-        let guard = store
-            .read()
-            .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
-        let order = guard.get(&order_id)?;
+        let order = repo.get(&order_id).await?;
         if order.buyer_id != session {
             return Err(status::forbidden(
                 "order.forbidden",
@@ -893,10 +886,7 @@ async fn reconcile_checkout(
             ));
         }
     }
-    let mut guard = store
-        .write()
-        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
-    let final_state = guard.reconcile(&order_id, body.authorized)?;
+    let final_state = repo.reconcile(&order_id, body.authorized).await?;
     Ok(Json(serde_json::json!({
         "orderId": order_id,
         "state": final_state,
@@ -905,14 +895,11 @@ async fn reconcile_checkout(
 }
 
 async fn list_orders(
-    State((store, _prices)): State<(SharedOrder, Arc<dyn PriceSource>)>,
+    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let session = actor(&headers)?;
-    let guard = store
-        .read()
-        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
-    let orders = guard.list_for(&session);
+    let orders = repo.list_for(&session).await?;
     Ok(Json(serde_json::json!({
         "items": orders
             .iter()
@@ -973,16 +960,13 @@ fn require_operator(headers: &HeaderMap) -> Result<(), AppError> {
 /// facade's list was always empty: the operator console showed a table with
 /// no rows, and no order could be opened from it.
 async fn operator_list_orders(
-    State((store, _prices)): State<(SharedOrder, Arc<dyn PriceSource>)>,
+    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
     Query(query): Query<OperatorOrdersQuery>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_operator(&headers)?;
-    let guard = store
-        .read()
-        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
 
-    let mut orders: Vec<&Order> = guard.orders.values().collect();
+    let mut orders: Vec<Order> = repo.list_all().await?;
     // Newest first. The order ids are zero-padded sequences, so sorting by
     // the id sorts by the order the orders were created.
     orders.sort_by(|a, b| b.order_id.cmp(&a.order_id));
@@ -999,7 +983,7 @@ async fn operator_list_orders(
             .unwrap_or(0),
         None => 0,
     };
-    let page: Vec<&Order> = orders.iter().skip(start).take(limit).copied().collect();
+    let page: Vec<&Order> = orders.iter().skip(start).take(limit).collect();
     let next_cursor = if start + page.len() < orders.len() {
         page.last().map(|order| order.order_id.clone())
     } else {
@@ -1026,16 +1010,13 @@ async fn operator_list_orders(
 /// for a customer, useless for the operator, whose job is to read exactly
 /// those orders.
 async fn operator_order_detail(
-    State((store, _prices)): State<(SharedOrder, Arc<dyn PriceSource>)>,
+    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
     Path(order_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_operator(&headers)?;
-    let guard = store
-        .read()
-        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
-    let order = guard.get(&order_id)?;
-    Ok(Json(order_json(order)))
+    let order = repo.get(&order_id).await?;
+    Ok(Json(order_json(&order)))
 }
 
 /// The operator's recovery of an order in `payment_unknown`.
@@ -1044,16 +1025,13 @@ async fn operator_order_detail(
 /// reconcile somebody else's order. The operator may, because recovering a
 /// payment the provider already answered for is the operator's job.
 async fn operator_reconcile_checkout(
-    State((store, _prices)): State<(SharedOrder, Arc<dyn PriceSource>)>,
+    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
     Path(order_id): Path<String>,
     headers: HeaderMap,
     JsonBody(body): JsonBody<ReconcileBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_operator(&headers)?;
-    let mut guard = store
-        .write()
-        .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
-    let final_state = guard.reconcile(&order_id, body.authorized)?;
+    let final_state = repo.reconcile(&order_id, body.authorized).await?;
     Ok(Json(serde_json::json!({
         "orderId": order_id,
         "state": final_state,
@@ -1535,7 +1513,7 @@ mod tests {
     async fn serve(state: SharedOrder, prices: Arc<dyn PriceSource>) -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address: SocketAddr = listener.local_addr().unwrap();
-        let app = router(state, prices);
+        let app = router(Arc::new(MemoryOrderRepository::new(state)), prices);
         tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });

@@ -18,4 +18,6 @@ async-trait = { workspace = true }
 # The order service must price every line from the catalogue, never from the
 # client's claim. It fetches the authoritative price over HTTP.
 reqwest = { workspace = true }
+# The orders live in the database when the deployment has one.
+sqlx = { workspace = true }
 commerce-core = { path = "../commerce-core" }
