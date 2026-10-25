@@ -48,6 +48,7 @@ import {
   VERCEL_JSON,
   listDir,
   isDirectory,
+  MOCK_PROCESSES,
   resolveCredentials,
   serviceUrls,
 } from './config.mjs';
@@ -67,6 +68,10 @@ const CARGO_PACKAGES = [
   'commerce-payment-adapter',
   'commerce-admin',
   'commerce-edge',
+  // The LINE id-token issuer, so a test can mint a token the deployment's
+  // identity service accepts. It is a fixture, not a product dependency —
+  // nothing in `services/` points at it.
+  'commerce-mocks',
 ];
 
 /** Run a command, capturing its output. */
@@ -154,6 +159,7 @@ export class LocalStack {
   async build({ force = false } = {}) {
     const binaries = [
       ...Object.values(SERVICE_PROCESSES).map((service) => service.binary),
+      ...Object.values(MOCK_PROCESSES).map((mock) => mock.binary),
       'local-gateway',
       'commerce-edge',
     ];
@@ -235,6 +241,7 @@ export class LocalStack {
     // inside the container and outside it.
     for (const port of [
       ...Object.values(SERVICE_PROCESSES).map((service) => service.port),
+      ...Object.values(MOCK_PROCESSES).map((mock) => mock.port),
       PORTS.gateway,
       PORTS.edge,
     ]) {
@@ -362,6 +369,10 @@ export class LocalStack {
       ]),
       ['the gateway', PORTS.gateway],
       ['the single-process fallback', PORTS.edge],
+      ...Object.entries(MOCK_PROCESSES).map(([name, mock]) => [
+        `the ${name} mock`,
+        mock.port,
+      ]),
     ];
     for (const [what, port] of ports) {
       await waitForPort(port, what);
@@ -486,6 +497,35 @@ export class LocalStack {
     return { failures };
   }
 
+  /**
+   * Run the UAT against the local stack.
+   *
+   * The UAT is the only thing here that needs the **mock**: the LINE
+   * journey signs in with a token the mock mints, and the identity service
+   * verifies it with the same key. That is the mock↔product handshake, live,
+   * and it is why the local stack runs the issuer.
+   */
+  async runUat() {
+    const failures = [];
+    this.log('');
+    this.log('==> the UAT, against the local stack');
+    const uat = await run(
+      'node',
+      [resolve(E2E_ROOT, 'uat', 'run.mjs')],
+      {
+        cwd: E2E_ROOT,
+        env: {
+          DOKIPON_BASE: this.base,
+          ADMIN_USER: this.credentials.adminUser,
+          ADMIN_PASSWORD: this.credentials.adminPassword,
+        },
+        echo: true,
+      },
+    );
+    if (uat.code !== 0) failures.push(`the UAT reported findings (exit ${uat.code})`);
+    return { failures };
+  }
+
   /** Tear the stack down. */
   async stop() {
     if (this.origin) {
@@ -543,6 +583,14 @@ async function main() {
         code = 1;
       } else {
         stack.log('PASS  the local stack answered every check');
+      }
+    } else if (mode === 'uat') {
+      const { failures } = await stack.runUat();
+      if (failures.length) {
+        for (const failure of failures) stack.log(`FAIL  ${failure}`);
+        code = 1;
+      } else {
+        stack.log('PASS  every journey held');
       }
     } else {
       await new Promise((resolvePromise) => {

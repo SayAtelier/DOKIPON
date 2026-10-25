@@ -73,6 +73,30 @@ field arrives empty and the product renders without a title.
 Markdown file is the one to read; the JSON is for diffing against a previous
 run.
 
+## The UAT — whether a person can do the things a person has to do
+
+The audit above asks whether every **control** does something. The UAT
+(`uat/`) asks a different question: whether the **journeys** work — browse,
+filter, open a product, fill the cart, pay, and have the order turn up on
+the operator's screen. A control that works in isolation and a shop that
+cannot sell are different failures, and only one of them is a dead button.
+
+```bash
+cd tools/commerce-e2e
+npm run uat            # against the live deployment
+npm run local:uat      # against the local stack (the Vercel topology)
+```
+
+The UAT is the one thing here that needs the **mock**: its LINE journey
+signs in with an id_token the `mock-line-identity` mock mints, and the
+deployment's identity service verifies it with the same key and for the
+same channel. That is the mock↔product agreement, live, over HTTP, through
+a browser — the one place a mock's output meets the product.
+
+Its journeys, its expectations (which live in the fixture set, not in the
+journey code) and its three answers — `PASS`, `FAIL`, `UNMEASURED` — are
+documented in [`uat/README.md`](uat/README.md).
+
 The audit exits non-zero when it finds anything, so it can be wired into CI
 as a post-deploy gate.
 

@@ -155,5 +155,56 @@
       "wrong issuer": "identity.bad_issuer",
       "nonce mismatch": "identity.nonce_mismatch"
     }
+  },
+  "uat": {
+    "$comment": "What the Playwright UAT asserts against. The UAT reads these instead of writing them into its own code, so a catalogue change shows up as a fixture mismatch instead of as a mystery. The catalogue's contents are listed here product by product, because the UAT has to name a product, its price and its stock state — and a price that quietly changes must not quietly change the UAT's expectations too.",
+    "catalogue": {
+      "where": "services/crates/commerce-catalog/src/lib.rs:130 (seed_demo)",
+      "lowStockThreshold": 10,
+      "webCount": 10,
+      "lineCount": 9,
+      "note": "p-adult-01 is eligible for web only, so the LINE channel sees 9. The channel filter is the server's job (services/crates/commerce-catalog/src/lib.rs:285).",
+      "products": [
+        { "productId": "p-bra-01", "sku": "sku-bra-01", "title": "DOKIPON Triple ノ-wire ブラ", "titleEn": "Triple Wireless Bra", "category": "cat-bra-sets", "priceMinor": 8900, "availability": "in_stock", "quantity": 42, "lineEligible": true },
+        { "productId": "p-brief-01", "sku": "sku-brief-01", "title": "DOKIPON 百合 ショーツ", "titleEn": "Lily Brief", "category": "cat-lingerie", "priceMinor": 3900, "availability": "low_stock", "quantity": 7, "lineEligible": true },
+        { "productId": "p-set-01", "sku": "sku-set-01", "title": "DOKIPON 黒蝶 ブラ＆ショーツセット", "titleEn": "Black Butterfly Set", "category": "cat-bra-sets", "priceMinor": 12900, "availability": "out_of_stock", "quantity": 0, "lineEligible": true },
+        { "productId": "p-night-01", "sku": "sku-night-01", "title": "DOKIPON 月光 ナイトブラ", "titleEn": "Moonlight Night Bra", "category": "cat-nightwear", "priceMinor": 4900, "availability": "in_stock", "quantity": 28, "lineEligible": true },
+        { "productId": "p-cami-01", "sku": "sku-cami-01", "title": "DOKIPON 霞 キャミソール", "titleEn": "Haze Camisole", "category": "cat-lingerie", "priceMinor": 6900, "availability": "made_to_order", "quantity": null, "lineEligible": true },
+        { "productId": "p-adult-01", "sku": "sku-adult-01", "title": "DOKIPON 深紅 ストッキング", "titleEn": "Crimson Stockings", "category": "cat-lingerie", "priceMinor": 5800, "availability": "low_stock", "quantity": 3, "lineEligible": false },
+        { "productId": "p-swim-01", "sku": "sku-swim-01", "title": "DOKIPON 潮騒 スイムビーフ", "titleEn": "Shiosai Swim Brief", "category": "cat-swim", "priceMinor": 5900, "availability": "in_stock", "quantity": 12, "lineEligible": true },
+        { "productId": "p-beauty-01", "sku": "sku-beauty-01", "title": "DOKIPON 雪輪 ボディケアセット", "titleEn": "Yukiwa Body Care Set", "category": "cat-beauty", "priceMinor": 2400, "availability": "in_stock", "quantity": null, "lineEligible": true },
+        { "productId": "p-goods-01", "sku": "sku-goods-01", "title": "DOKIPON 星屑 ヘアピン", "titleEn": "Hoshikuzu Hair Pin", "category": "cat-goods", "priceMinor": 1800, "availability": "in_stock", "quantity": null, "lineEligible": true },
+        { "productId": "p-sale-01", "sku": "sku-sale-01", "title": "DOKIPON 薄暮 セール セット", "titleEn": "Twilight Sale Set", "category": "cat-sale", "priceMinor": 3900, "availability": "low_stock", "quantity": 5, "lineEligible": true }
+      ]
+    },
+    "categories": {
+      "where": "packages/design_system/lib/src/widgets/storefront_app.dart:745 (_CategoryNav)",
+      "note": "The strip is a filter, not decoration: tapping an entry re-queries the catalogue with that categoryId. The product counts are for the web channel.",
+      "entries": [
+        { "label": "ランジェリー / LINGERIE", "categoryId": "cat-lingerie", "webProducts": 3 },
+        { "label": "ブラ＆セット / BRA & SETS", "categoryId": "cat-bra-sets", "webProducts": 2 },
+        { "label": "ナイトウェア / NIGHTWEAR", "categoryId": "cat-nightwear", "webProducts": 1 },
+        { "label": "スイム / SWIM", "categoryId": "cat-swim", "webProducts": 1 },
+        { "label": "ボディケア / BEAUTY", "categoryId": "cat-beauty", "webProducts": 1 },
+        { "label": "グッズ / GOODS", "categoryId": "cat-goods", "webProducts": 1 },
+        { "label": "セール / SALE", "categoryId": "cat-sale", "webProducts": 1 }
+      ]
+    },
+    "journeys": {
+      "$comment": "The products the UAT's journeys use, and what each one is for.",
+      "buy": { "sku": "sku-bra-01", "title": "DOKIPON Triple ノ-wire ブラ", "priceMinor": 8900, "why": "Reserved with 42 on hand: a plain, purchasable line whose price the server owns." },
+      "outOfStock": { "sku": "sku-set-01", "title": "DOKIPON 黒蝶 ブラ＆ショーツセット", "priceMinor": 12900, "why": "Reserved with 0 on hand: the add-to-cart button must be dead, and saying so is the point." },
+      "madeToOrder": { "sku": "sku-cami-01", "title": "DOKIPON 霞 キャミソール", "priceMinor": 6900, "why": "MadeToOrder: no stock level at all, and still purchasable." },
+      "restrictedFromLine": { "productId": "p-adult-01", "title": "DOKIPON 深紅 ストッキング", "why": "Eligible for web only: the LINE journey must not see it." }
+    },
+    "line": {
+      "$comment": "The LINE journey signs in with a token the mock mints. The mock signs with LINE_ID_TOKEN_KEY and mints for LINE_CHANNEL_ID — the same two values the identity service verifies with, which is what makes the handshake real.",
+      "mock": "mock-line-identity",
+      "mintPath": "/mockline/mint",
+      "flavour": "valid",
+      "subject": "U_uat_line_user",
+      "nonce": "uat-nonce-1",
+      "note": "The mock's issuer mints against the wall clock, so the token is valid for an hour from the moment it is minted. The mock runs inside the local stack; a deployment whose LINE_ID_TOKEN_KEY is a platform secret cannot be given a token by a test, because the key cannot be read back."
+    }
   }
 }

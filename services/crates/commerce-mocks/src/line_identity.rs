@@ -96,12 +96,27 @@ impl LineIdentityMock {
     }
 
     /// Mint a token of the requested flavour.
+    ///
+    /// The subject is the LINE user id the token is for. It defaults to
+    /// `U_mock_user`, and a caller can ask for a specific one: a test that
+    /// needs two **different** users (one who buys, one whose order must
+    /// stay invisible to them) cannot do it with a fixed subject.
     pub fn mint(&self, flavour: TokenFlavour, nonce: Option<&str>) -> String {
+        self.mint_for(flavour, nonce, "U_mock_user")
+    }
+
+    /// Mint a token for a specific subject.
+    pub fn mint_for(
+        &self,
+        flavour: TokenFlavour,
+        nonce: Option<&str>,
+        sub: &str,
+    ) -> String {
         let now = *self.now_s.read().expect("line lock");
         let mut claims = IdTokenClaims {
             iss: self.expected_issuer.clone(),
             aud: self.expected_audience.clone(),
-            sub: "U_mock_user".to_string(),
+            sub: sub.to_string(),
             exp: now + 3600,
             nonce: nonce.map(str::to_string),
             // LINE includes these; the server must ignore them rather than
@@ -166,12 +181,18 @@ pub fn router(mock: LineIdentityMock) -> Router {
                 let mock = m1.clone();
                 async move {
                     let flavour = q.flavour.unwrap_or(TokenFlavour::Valid);
-                    let token = mock.mint(flavour, q.nonce.as_deref());
+                    let sub = q.sub.unwrap_or_else(|| "U_mock_user".into());
+                    // The token carries the subject that was asked for. The
+                    // answer used to echo `sub` while the token carried a
+                    // fixed one, so the mock told the caller it had minted
+                    // for a user it had not — a mock that lies about its
+                    // own output is worse than no mock.
+                    let token = mock.mint_for(flavour, q.nonce.as_deref(), &sub);
                     Json(serde_json::json!({
                         "idToken": token,
                         "flavour": flavour,
                         "nonce": q.nonce,
-                        "sub": q.sub.unwrap_or_else(|| "U_mock_user".into()),
+                        "sub": sub,
                         "note": "Profile claims are present but the server must ignore them as authorization inputs.",
                     }))
                 }
@@ -301,6 +322,16 @@ mod tests {
         let parts: Vec<&str> = token.split('.').collect();
         assert_eq!(parts.len(), 3);
         assert!(!parts[2].is_empty(), "valid tokens are signed");
+    }
+
+    #[test]
+    fn a_token_can_be_minted_for_a_chosen_subject() {
+        // The mint endpoint takes a subject and answers with it. The token
+        // has to carry the same one: a mock that answers "I minted this for
+        // U_alice" while the token says U_mock_user is a mock that lies
+        // about its own output.
+        let token = mock().mint_for(TokenFlavour::Valid, None, "U_alice");
+        assert_eq!(decode_payload(&token)["sub"], "U_alice");
     }
 
     #[test]

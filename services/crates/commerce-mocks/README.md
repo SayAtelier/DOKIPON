@@ -68,6 +68,21 @@ makes every test that uses it wrong, so the mock↔product agreement test
 (`tools/commerce-e2e/agreement/tests/line_token_agreement.rs`) reads both
 values out of `local.json` and uses them on each side.
 
+**The local stack runs the issuer.** `tools/commerce-e2e/local/` starts
+`mock-line-identity` as a process of its own, on `base port + 12`, with
+those two values in its environment, and publishes the port so a test on
+the host can reach it. That is the one mock that can run beside the
+deployment without changing the deployment: the product never calls an
+issuer, so running the issuer changes nothing about the product's
+behaviour — it gives a **test** a token the deployment's identity service
+accepts.
+
+That is what the UAT's LINE journey uses
+(`tools/commerce-e2e/uat/`): the mock mints an `id_token`, the harness
+publishes it through the LIFF bridge the app reads, and the app exchanges
+it for a server session. The mock↔product agreement, live, over HTTP,
+through a browser.
+
 ## What is wired, and what is not — honestly
 
 **No mock is called over HTTP by the product today.** Not one. The product

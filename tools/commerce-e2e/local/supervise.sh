@@ -35,6 +35,7 @@ PAYMENT_PORT=$((BASE_PORT + 7))
 ADMIN_PORT=$((BASE_PORT + 8))
 GATEWAY_PORT=$((BASE_PORT + 9))
 EDGE_PORT=$((BASE_PORT + 10))
+MOCK_LINE_IDENTITY_PORT=$((BASE_PORT + 12))
 
 export CATALOG_URL="http://127.0.0.1:${CATALOG_PORT}"
 export CART_URL="http://127.0.0.1:${CART_PORT}"
@@ -74,6 +75,14 @@ start gateway "$GATEWAY_PORT" local-gateway
 # The single-process fallback: the whole contract in one process, which is
 # what `/api/index` is rewritten to.
 start edge "$EDGE_PORT" commerce-edge
+
+# The LINE id-token issuer.
+#
+# Not a dependency of the deployment: the product verifies tokens itself and
+# never calls an issuer. It is here so a **test** can mint a token the
+# deployment's identity service accepts — signed with the same key and for
+# the same channel, because both come from the fixture set's environment.
+start mock-line-identity "$MOCK_LINE_IDENTITY_PORT" mock-line-identity
 
 echo "==> the local stack is up"
 

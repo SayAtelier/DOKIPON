@@ -80,6 +80,32 @@ export const PORTS = {
   gateway: BASE_PORT + 9,
   edge: BASE_PORT + 10,
   public: BASE_PORT + 11,
+  mockLineIdentity: BASE_PORT + 12,
+};
+
+/**
+ * The mocks the local stack runs.
+ *
+ * A mock is not a dependency of the deployment — the product simulates its
+ * dependencies in process, so nothing in `services/` points at a mock. The
+ * mock that the local stack runs is the one a **test** needs: the LINE
+ * id-token issuer.
+ *
+ * The issuer is the one mock that can be run here without touching the
+ * product. The product never calls an issuer (it verifies tokens itself), so
+ * running the issuer changes nothing about the deployment's behaviour — it
+ * gives a test a token that the deployment's identity service accepts,
+ * signed with the same key and for the same channel. That is the mock↔product
+ * handshake, live, over HTTP.
+ */
+export const MOCK_PROCESSES = {
+  lineIdentity: {
+    binary: 'mock-line-identity',
+    port: PORTS.mockLineIdentity,
+    // The base URL a test reaches the mock by. The container publishes the
+    // port unchanged, so the address is the same inside and out.
+    url: `http://127.0.0.1:${BASE_PORT + 12}`,
+  },
 };
 
 /**
