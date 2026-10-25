@@ -115,16 +115,26 @@ class AdminApiClient {
 
   Uri _uri(String path) => baseUri.replace(path: path);
 
+  /// The order's own path.
+  ///
+  /// It is built from [ordersPath] the way every other path is, and for two
+  /// reasons that both cost a real screen:
+  ///
+  ///   - the shape. `['v1', 'admin', 'orders', …]` is the **old draft's**
+  ///     shape — the one the comment above says the server does not serve.
+  ///     The facade mounts everything under `/admin/v1`.
+  ///   - the leading slash. `Uri.replace(pathSegments: …)` builds a path with
+  ///     **no leading slash**, so the browser resolves it against the
+  ///     console's own URL: the console is at `/admin/`, and
+  ///     `v1/admin/orders/ord-000001` becomes
+  ///     `/admin/v1/admin/orders/ord-000001` — a 404 with an empty body,
+  ///     and an order detail screen that says "Error" and offers a Retry
+  ///     that cannot work.
+  ///
+  /// The reconcile path had the same two faults, and it is the one an
+  /// operator uses to settle a payment they cannot read.
   Uri _orderUri(String orderId, {bool reconcile = false}) =>
-      baseUri.replace(
-        pathSegments: [
-          'v1',
-          'admin',
-          'orders',
-          orderId,
-          if (reconcile) 'reconcile',
-        ],
-      );
+      _uri('$ordersPath/$orderId${reconcile ? '/reconcile' : ''}');
 
   Future<Map<String, dynamic>> _request(
     String method,
