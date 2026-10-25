@@ -119,7 +119,14 @@ mod tests {
         quantity: u32,
     }
 
-    async fn body_of(req: HttpRequest<Body>) -> Result<Payload, AppError> {
+    /// The parsed body, or the error.
+    ///
+    /// The error is boxed because a `Result` carries its error variant by
+    /// value, and `AppError` is a rich ProblemDetails — big enough that
+    /// clippy (`result_large_err`) rightly objects to every signature that
+    /// hands it back. A test helper has one caller, so it boxes it rather
+    /// than making the whole crate's error type small.
+    async fn body_of(req: HttpRequest<Body>) -> Result<Payload, Box<AppError>> {
         let JsonBody(payload) = JsonBody::<Payload>::from_request(req, &()).await?;
         Ok(payload)
     }
@@ -147,7 +154,7 @@ mod tests {
             .body(Body::from(r#"{"quantity":"not a number"}"#))
             .unwrap();
         let err = body_of(request).await.expect_err("must reject");
-        match err {
+        match *err {
             AppError::Problem(p) => {
                 assert_eq!(p.status, 422);
                 assert_eq!(p.code, "request.malformed_json");
@@ -170,7 +177,7 @@ mod tests {
             .body(Body::from(r#"{}"#))
             .unwrap();
         let err = body_of(request).await.expect_err("must reject");
-        match err {
+        match *err {
             AppError::Problem(p) => {
                 assert_eq!(p.status, 422);
                 assert_eq!(p.code, "request.malformed_json");

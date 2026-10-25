@@ -78,8 +78,9 @@ fn concrete(path: &str) -> String {
 /// Every path in the contract, and the service that owns it.
 ///
 /// The ownership is spelled out here rather than derived, so the test says
-/// what it means: the storefront's twelve paths belong to the six services
-/// that serve them, and the eleven admin paths belong to the admin facade.
+/// what it means: the storefront's thirteen paths belong to the seven
+/// services that serve them, and the twelve admin paths belong to the admin
+/// facade.
 const CONTRACT_OWNERS: &[(&str, ServiceId)] = &[
     ("/v1/storefront", ServiceId::Bff),
     ("/v1/products", ServiceId::Catalog),
@@ -93,6 +94,7 @@ const CONTRACT_OWNERS: &[(&str, ServiceId)] = &[
     ("/v1/orders/{orderId}/reconcile", ServiceId::Order),
     ("/v1/sessions/line", ServiceId::Identity),
     ("/v1/sessions/guest", ServiceId::Identity),
+    ("/v1/content", ServiceId::Content),
     ("/admin/v1/sessions", ServiceId::Admin),
     ("/admin/v1/session", ServiceId::Admin),
     ("/admin/v1/orders", ServiceId::Admin),
@@ -106,6 +108,7 @@ const CONTRACT_OWNERS: &[(&str, ServiceId)] = &[
         "/admin/v1/inventory/reservations/{reservationId}/release",
         ServiceId::Admin,
     ),
+    ("/admin/v1/content", ServiceId::Admin),
     ("/admin/v1/payments", ServiceId::Admin),
 ];
 
@@ -126,8 +129,8 @@ fn the_contract_declares_the_paths_this_test_knows() {
     let paths = contract_paths();
     assert_eq!(
         paths.len(),
-        23,
-        "the contract declares 23 paths, the owner list must match it: {paths:?}"
+        25,
+        "the contract declares 25 paths, the owner list must match it: {paths:?}"
     );
     for path in &paths {
         assert!(
