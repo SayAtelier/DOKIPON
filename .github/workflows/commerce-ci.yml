@@ -169,6 +169,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [rust]   # depends on Rust building the order binary
+    # The order service refuses to start without a real LINE credential — a
+    # deployment that keeps the development value would accept an id token
+    # signed by anyone, and this service verifies those tokens.
+    #
+    # This job runs the order service alone in a throwaway environment, so it
+    # gets its **own** values. They are not the development values (those are
+    # published in this repository and are refused), so no
+    # "accept the development credentials" flag is needed either.
+    env:
+      LINE_CHANNEL_ID: ci-channel
+      LINE_ID_TOKEN_KEY: ci-signing-key
     steps:
       - name: Checkout
         uses: actions/checkout@v4

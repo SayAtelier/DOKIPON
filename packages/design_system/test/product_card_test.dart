@@ -1,7 +1,6 @@
 import 'package:design_system/design_system.dart';
 import 'package:domain_models/domain_models.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The product card is a button, and it says so.
@@ -58,7 +57,7 @@ void main() {
       await pump(tester, summary());
 
       final semantics = tester.getSemantics(find.byType(ProductCard));
-      expect(semantics.hasFlag(SemanticsFlag.isButton), isTrue,
+      expect(semantics.flagsCollection.isButton, isTrue,
           reason: 'the card is an InkWell with an onTap, so it has to say so');
 
       handle.dispose();
@@ -92,7 +91,7 @@ void main() {
       final button = find.widgetWithText(FilledButton, 'カートに追加');
       expect(button, findsOneWidget);
       expect(
-        tester.getSemantics(button).hasFlag(SemanticsFlag.isButton),
+        tester.getSemantics(button).flagsCollection.isButton,
         isTrue,
       );
 
