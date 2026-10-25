@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod db;
 pub mod error;
 pub mod idempotency;
 pub mod json_body;

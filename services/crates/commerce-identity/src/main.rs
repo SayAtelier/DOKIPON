@@ -38,6 +38,18 @@ async fn main() {
     let store: SharedIdentity = Arc::new(RwLock::new(IdentityStore::new(
         commerce_core::idempotency::now_ms(),
     )));
+    // The sessions live in the database when the deployment has one: the id
+    // comes from a sequence there, so two instances of this service cannot
+    // mint the same session id (two shoppers sharing one cart), and every
+    // instance sees the same session. A deployment that has a database and
+    // cannot reach it does not start.
+    let db = commerce_core::db::connect_from_env()
+        .await
+        .expect("the database must be reachable");
+    if db.is_some() {
+        tracing::info!("the identity service persists its sessions in the database");
+    }
+    let repo = db.map(|pool| Arc::new(SessionRepo::new(pool)));
     let listener = tokio::net::TcpListener::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port)))
         .await
         .expect("bind identity");
@@ -45,7 +57,7 @@ async fn main() {
         "identity service listening on {}",
         listener.local_addr().unwrap()
     );
-    axum::serve(listener, router(store, verifier))
+    axum::serve(listener, router(store, verifier, repo))
         .await
         .expect("serve identity");
 }

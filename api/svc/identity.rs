@@ -8,8 +8,9 @@
 #[path = "../../services/deploy/vercel/src/svc/identity.rs"]
 mod identity;
 
-fn main() {
-    if let Err(error) = identity::run() {
+#[tokio::main]
+async fn main() {
+    if let Err(error) = identity::run().await {
         eprintln!("dokipon identity function: {error}");
         std::process::exit(1);
     }

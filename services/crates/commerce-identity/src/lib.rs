@@ -12,6 +12,10 @@
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use commerce_core::error::{status, AppError};
 use commerce_core::JsonBody;
+pub mod session_repo;
+
+pub use session_repo::SessionRepo;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -270,36 +274,58 @@ impl IdentityStore {
     /// app channel is an ordinary shopper and can.
     pub fn issue_guest(&mut self, channel: Channel) -> Session {
         let id = self.next_session_id();
-        let s = Session {
-            session_id: id.clone(),
+        let session = self.guest_with_id(id, channel);
+        self.sessions
+            .insert(session.session_id.clone(), session.clone());
+        session
+    }
+
+    /// The session a guest gets, with an id the caller minted.
+    ///
+    /// The in-memory path mints the id itself; a deployment with a
+    /// database mints it from a sequence there, so that two instances
+    /// cannot mint the same one — two shoppers sharing a session would
+    /// share a cart.
+    pub fn guest_with_id(&self, id: String, channel: Channel) -> Session {
+        Session {
+            session_id: id,
             kind: SessionKind::Guest,
             channel,
             subject: None,
             issued_at_ms: self.now_ms,
             expires_at_ms: self.now_ms + SESSION_TTL_MS,
             revoked: false,
-        };
-        self.sessions.insert(id, s.clone());
-        s
+        }
     }
 
     /// `identity.liff` — only reachable after a successful token verification.
     pub fn issue_session(&mut self, claims: &LineIdTokenClaims, channel: Channel) -> Session {
         let id = self.next_session_id();
-        let s = Session {
-            session_id: id.clone(),
+        let session = self.session_with_id(id, claims, channel);
+        if let Some(n) = &claims.nonce {
+            self.consumed_nonces.insert(n.clone(), self.now_ms);
+        }
+        self.sessions
+            .insert(session.session_id.clone(), session.clone());
+        session
+    }
+
+    /// The session a verified LINE user gets, with an id the caller minted.
+    pub fn session_with_id(
+        &self,
+        id: String,
+        claims: &LineIdTokenClaims,
+        channel: Channel,
+    ) -> Session {
+        Session {
+            session_id: id,
             kind: SessionKind::LineUser,
             channel,
             subject: Some(claims.sub.clone()),
             issued_at_ms: self.now_ms,
             expires_at_ms: self.now_ms + SESSION_TTL_MS,
             revoked: false,
-        };
-        if let Some(n) = &claims.nonce {
-            self.consumed_nonces.insert(n.clone(), self.now_ms);
         }
-        self.sessions.insert(id, s.clone());
-        s
     }
 
     /// Single-use nonce consumption (LIFF-006 style replay defence).
@@ -344,12 +370,16 @@ pub struct GuestBody {
     pub channel: Option<Channel>,
 }
 
-pub fn router(state: SharedIdentity, verifier: Arc<TokenVerifier>) -> Router {
+pub fn router(
+    state: SharedIdentity,
+    verifier: Arc<TokenVerifier>,
+    repo: Option<Arc<SessionRepo>>,
+) -> Router {
     Router::new()
         .route("/v1/sessions/line", post(line_session))
         .route("/v1/sessions/guest", post(guest_session))
         .route("/healthz", post(health))
-        .with_state((state, verifier))
+        .with_state((state, verifier, repo))
 }
 
 async fn health() -> StatusCode {
@@ -357,16 +387,37 @@ async fn health() -> StatusCode {
 }
 
 async fn line_session(
-    State((store, verifier)): State<(SharedIdentity, Arc<TokenVerifier>)>,
+    State((store, verifier, repo)): State<(
+        SharedIdentity,
+        Arc<TokenVerifier>,
+        Option<Arc<SessionRepo>>,
+    )>,
     JsonBody(body): JsonBody<LineSessionBody>,
 ) -> Result<Json<Session>, AppError> {
-    let mut guard = store
-        .write()
-        .map_err(|_| AppError::Internal("identity lock poisoned".into()))?;
-    let now_s = guard.now_ms / 1000;
-    let claims = verifier.verify(&body.id_token, body.nonce.as_deref(), now_s)?;
+    let (claims, channel, now_ms) = {
+        let guard = store
+            .read()
+            .map_err(|_| AppError::Internal("identity lock poisoned".into()))?;
+        let now_s = guard.now_ms / 1000;
+        let claims = verifier.verify(&body.id_token, body.nonce.as_deref(), now_s)?;
+        let channel = body.channel.unwrap_or(Channel::LineMiniApp);
+        (claims, channel, guard.now_ms)
+    };
+
+    // The nonce is taken **once**, and the database is what decides: two
+    // instances cannot both accept the same id_token, because the nonce
+    // lives in the one place they share.
     if let Some(n) = &body.nonce {
-        if !guard.consume_nonce(n) {
+        let fresh = match &repo {
+            Some(repo) => repo.consume_nonce(n, now_ms).await?,
+            None => {
+                let mut guard = store
+                    .write()
+                    .map_err(|_| AppError::Internal("identity lock poisoned".into()))?;
+                guard.consume_nonce(n)
+            }
+        };
+        if !fresh {
             return Err(status::unauthorized(
                 "identity.nonce_replay",
                 "this nonce was already used",
@@ -374,19 +425,60 @@ async fn line_session(
             ));
         }
     }
-    let channel = body.channel.unwrap_or(Channel::LineMiniApp);
-    Ok(Json(guard.issue_session(&claims, channel)))
+
+    let session = match &repo {
+        Some(repo) => {
+            // The id comes from the database's sequence, and the session is
+            // written there: every instance of the service sees it.
+            let id = repo.next_session_id().await?;
+            let session = {
+                let guard = store
+                    .read()
+                    .map_err(|_| AppError::Internal("identity lock poisoned".into()))?;
+                guard.session_with_id(id, &claims, channel)
+            };
+            repo.save_session(&session).await?;
+            session
+        }
+        None => {
+            let mut guard = store
+                .write()
+                .map_err(|_| AppError::Internal("identity lock poisoned".into()))?;
+            guard.issue_session(&claims, channel)
+        }
+    };
+    Ok(Json(session))
 }
 
 async fn guest_session(
-    State((store, _)): State<(SharedIdentity, Arc<TokenVerifier>)>,
+    State((store, _verifier, repo)): State<(
+        SharedIdentity,
+        Arc<TokenVerifier>,
+        Option<Arc<SessionRepo>>,
+    )>,
     JsonBody(body): JsonBody<GuestBody>,
 ) -> Result<Json<Session>, AppError> {
-    let mut guard = store
-        .write()
-        .map_err(|_| AppError::Internal("identity lock poisoned".into()))?;
     let channel = body.channel.unwrap_or(Channel::LineMiniApp);
-    Ok(Json(guard.issue_guest(channel)))
+    let session = match &repo {
+        Some(repo) => {
+            let id = repo.next_session_id().await?;
+            let session = {
+                let guard = store
+                    .read()
+                    .map_err(|_| AppError::Internal("identity lock poisoned".into()))?;
+                guard.guest_with_id(id, channel)
+            };
+            repo.save_session(&session).await?;
+            session
+        }
+        None => {
+            let mut guard = store
+                .write()
+                .map_err(|_| AppError::Internal("identity lock poisoned".into()))?;
+            guard.issue_guest(channel)
+        }
+    };
+    Ok(Json(session))
 }
 
 // ---------------------------------------------------------------------------

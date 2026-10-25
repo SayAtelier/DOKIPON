@@ -146,6 +146,12 @@ pub use commerce_core::routes::{owner_of as route_for, ServiceId};
 /// without naming another dependency.
 pub use commerce_core::secrets;
 
+/// The database the services persist to, when the deployment has one.
+///
+/// Re-exported here for the same reason as [`secrets`]: the deployment's
+/// entry points depend on this crate, not on `commerce-core` directly.
+pub use commerce_core::db;
+
 /// The eight service routers, ready to be dispatched to.
 #[derive(Clone)]
 pub struct EdgeServices {
@@ -209,7 +215,7 @@ pub fn build(admin: commerce_admin::AdminState) -> (Router, EdgeServices) {
         cart: commerce_cart::router(cart, prices.clone()),
         order: commerce_order::router(order, prices),
         content: commerce_content::router(content),
-        identity: commerce_identity::router(identity, stores::identity_verifier()),
+        identity: commerce_identity::router(identity, stores::identity_verifier(), None),
         inventory: commerce_inventory::router(inventory),
         payment: commerce_payment_adapter::router(payment),
         admin: commerce_admin::router(admin),

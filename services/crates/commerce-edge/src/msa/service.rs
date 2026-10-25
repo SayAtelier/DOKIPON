@@ -65,10 +65,15 @@ pub fn content() -> Router {
 }
 
 /// The identity Function. It serves `/v1/sessions`.
-pub fn identity() -> Router {
+///
+/// The pool is the database the sessions live in, when the deployment has
+/// one. `None` means the sessions live in this process's memory, which is
+/// what the local run and the in-process edge do on purpose.
+pub fn identity(pool: Option<commerce_core::db::Pool>) -> Router {
+    let repo = pool.map(|pool| Arc::new(commerce_identity::SessionRepo::new(pool)));
     mount(
         ServiceId::Identity,
-        commerce_identity::router(stores::identity(), stores::identity_verifier()),
+        commerce_identity::router(stores::identity(), stores::identity_verifier(), repo),
     )
 }
 

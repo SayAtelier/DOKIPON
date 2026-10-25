@@ -17,3 +17,6 @@ chrono = { workspace = true }
 async-trait = { workspace = true }
 sha2 = "0.10"
 commerce-core = { path = "../commerce-core" }
+# The store every instance of the service shares: the sessions, and the
+# id sequence that keeps two instances from minting the same one.
+sqlx = { workspace = true }

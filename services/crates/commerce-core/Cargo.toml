@@ -16,6 +16,10 @@ tracing = { workspace = true }
 sha2 = "0.10"
 # The shared price authority fetches catalogue prices over HTTP.
 reqwest = { workspace = true }
+# The store that keeps a sale: a database every instance of a Function
+# shares. The services that persist use it; the local run does not have one
+# and keeps its state in memory on purpose.
+sqlx = { workspace = true }
 
 [dev-dependencies]
 # The tests use #[tokio::test] and spin up a local server.

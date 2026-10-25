@@ -42,9 +42,14 @@
 
 ## 2. DB / ER
 
-> **注意**: 現在は各サービスのストアがプロセス内メモリである。以下は*本番 Postgres で採用すべき*
-> schema 案であり、**すでに存在する DB ではない**（Atlas の禁令に従い、偽の ER を主張しない）。
-> `[Designed]`
+> **注意**: この schema は実在する — `services/crates/commerce-core/migrations/0001_commerce.sql` が
+> それである。デプロイは `DATABASE_URL` があれば起動時に適用する（冪等、`IF NOT EXISTS` のみ）。
+> 下の DDL は**設計時の形**であり、ID は `uuid` ではなく実装どおりの `text`
+> （`sku-bra-01` / `ord-000001` / `sess-000001`）、時刻は `timestamptz` ではなく
+> 実装どおりの `bigint`（ミリ秒）である。**記録の正本はマイグレーションファイル**、
+> この節は設計理由と差分を語っているだけ。
+> 現在 DB を使うのは identity だけ — cart / order / inventory / payment はまだ
+> プロセス内メモリであり、共有ストアに移るのは次の段取り（`[Designed]`）。
 
 ```mermaid
 erDiagram
