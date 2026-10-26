@@ -52,6 +52,16 @@ class _StorefrontAppState extends State<StorefrontApp> {
       // Keep the fallback config; the catalogue still loads.
     }
     await catalog.load();
+    // The cart comes back with the session.
+    //
+    // The cart is identified per session, so a shopper who comes back finds
+    // the basket they left. Without this the cart was only ever fetched when
+    // something was added to it, and a reload showed an empty basket even
+    // though the server still had it.
+    final current = session.session;
+    if (current != null) {
+      await cart.load(current.sessionId);
+    }
     if (mounted) {
       setState(() => _booting = false);
     }

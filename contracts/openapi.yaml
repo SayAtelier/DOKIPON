@@ -362,6 +362,31 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
 
+  /v1/sessions/current:
+    get:
+      tags: [identity]
+      operationId: identity.current
+      summary: The session this request carries, if it is still good.
+      description: |
+        "Am I still the shopper I was?"
+
+        The session id comes from the `x-session-id` header, or from the cookie
+        the server set when it minted the session. A client that reloaded the
+        page has forgotten the id; the browser still sends the cookie, so the
+        session can be found again — and with it the cart and the orders that
+        belong to it.
+
+        The answer comes from the database, because that is where the session
+        lives: a session revoked on one instance is revoked on all of them.
+      security: []
+      responses:
+        '200':
+          description: The session, still good.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Problem' }
+
   /v1/content:
     get:
       tags: [content]

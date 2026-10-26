@@ -48,11 +48,14 @@ passing quietly.
 | `guest-browse` | a guest browses the catalogue, narrows it with the category strip, opens a product, fills the cart, and buys | — |
 | `stock-states` | what the catalogue says about stock, and whether the buttons agree | — |
 | `payment-refused` | a refused payment does not become a confirmed order | — |
+| `session-survives-reload` | the shopper buys, reloads the page, and is still the same shopper with the same basket | — |
 | `line-purchase` | a LINE user signs in, buys a product, and the order exists | the mock |
 | `operator-view` | the operator sees the order, its price and its trail | the credential |
 
 They run in that order, and the order matters: the LINE journey places an
-order, and the operator journey is the other side of that same order.
+order, and the operator journey is the other side of that same order. The
+reload journey places one too — it is the one that proves the shopper comes
+back as the same shopper.
 
 ## The mock, and why the mock is here
 
@@ -103,14 +106,16 @@ in the account sheet's wording, and in the cart drawer's button. The
 server does not distinguish the two guest kinds: it accepts a guest
 checkout and keys the order by the session.
 
-**What that leaves open**: a web guest's order is reachable only while the
-page lives. Reload the storefront and the session is gone — the client asks
-for a new one — so the shopper cannot find the order they just placed (the
-operator still can).
+**What that leaves open**: the sessions are shared now — they live in the
+database, so every instance sees the same one, and the server remembers them
+in a cookie the browser sends on its own. A reload therefore **keeps** the
+shopper: the same session, the same basket, the same orders. The
+`session-survives-reload` journey proves it, in a browser.
 
-The sessions themselves **are** shared now: they live in the database, so
-every instance of the identity Function sees the same one, and two instances
-cannot mint the same session id. What is missing is the other half — a way
-to **validate a stored session** (the identity service has no "who am I"
-route), and a client that keeps the session id across a reload. Until both
-exist, the session cannot outlive the page.
+What is still missing is the other half of "coming back": the session is
+short-lived (30 minutes, by design), so a shopper who returns tomorrow is a
+new session, and the orders they placed yesterday are not reachable under it.
+The LINE user is the case that matters — their **subject** (the LINE user id)
+is the durable key, and the order could be keyed by it instead of by the
+session. That is a design change to the order's owner, not a bug in this
+code.

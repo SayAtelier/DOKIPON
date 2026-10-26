@@ -46,6 +46,7 @@ import { guestBrowse } from './journeys/journey-guest-browse.mjs';
 import { linePurchase } from './journeys/journey-line-purchase.mjs';
 import { operatorView } from './journeys/journey-operator-view.mjs';
 import { paymentRefused } from './journeys/journey-payment-refused.mjs';
+import { sessionSurvivesReload } from './journeys/journey-session-survives-reload.mjs';
 import { stockStates } from './journeys/journey-stock-states.mjs';
 
 const BASE = (process.env.DOKIPON_BASE || 'https://dokipon-commerce.vercel.app').replace(/\/$/, '');
@@ -106,7 +107,16 @@ async function mockFor(base) {
   }
 }
 
-const JOURNEYS = [guestBrowse, stockStates, paymentRefused, linePurchase, operatorView];
+// The order matters: the reload journey places an order, and the operator
+// journey is the other side of that same order.
+const JOURNEYS = [
+  guestBrowse,
+  stockStates,
+  paymentRefused,
+  sessionSurvivesReload,
+  linePurchase,
+  operatorView,
+];
 
 async function main() {
   const startedAt = new Date().toISOString();

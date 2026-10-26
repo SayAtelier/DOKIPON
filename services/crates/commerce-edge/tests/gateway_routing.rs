@@ -12,7 +12,7 @@
 //!
 //! Both read the same table (`commerce_core::routes`), so they cannot drift
 //! apart by accident. This test is the guard that says so out loud: every
-//! path in `contracts/openapi.yaml` — all twenty-three of them — has an
+//! path in `contracts/openapi.yaml` — all twenty-six of them — has an
 //! owner, the gateway routes it to that owner, and the owner is the service
 //! the contract's path prefix names.
 //!
@@ -78,7 +78,7 @@ fn concrete(path: &str) -> String {
 /// Every path in the contract, and the service that owns it.
 ///
 /// The ownership is spelled out here rather than derived, so the test says
-/// what it means: the storefront's thirteen paths belong to the seven
+/// what it means: the storefront's fourteen paths belong to the seven
 /// services that serve them, and the twelve admin paths belong to the admin
 /// facade.
 const CONTRACT_OWNERS: &[(&str, ServiceId)] = &[
@@ -94,6 +94,7 @@ const CONTRACT_OWNERS: &[(&str, ServiceId)] = &[
     ("/v1/orders/{orderId}/reconcile", ServiceId::Order),
     ("/v1/sessions/line", ServiceId::Identity),
     ("/v1/sessions/guest", ServiceId::Identity),
+    ("/v1/sessions/current", ServiceId::Identity),
     ("/v1/content", ServiceId::Content),
     ("/admin/v1/sessions", ServiceId::Admin),
     ("/admin/v1/session", ServiceId::Admin),
@@ -129,8 +130,8 @@ fn the_contract_declares_the_paths_this_test_knows() {
     let paths = contract_paths();
     assert_eq!(
         paths.len(),
-        25,
-        "the contract declares 25 paths, the owner list must match it: {paths:?}"
+        26,
+        "the contract declares 26 paths, the owner list must match it: {paths:?}"
     );
     for path in &paths {
         assert!(

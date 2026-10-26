@@ -68,6 +68,20 @@ class SessionController with ChangeNotifierLike {
         _notice = _noticeForLiffState();
       }
 
+      // The session may still be good. The server remembers it in a cookie the
+      // browser sends on its own, so a reload does not have to mean a new
+      // shopper: the same session means the same cart and the same orders.
+      //
+      // A session that is gone, expired or revoked answers with a failure,
+      // and all three are the same thing here — there is nothing to continue,
+      // so a new one is minted below.
+      try {
+        _session = await api.resumeSession();
+        return;
+      } on ApiProblem catch (_) {
+        // No session to continue.
+      }
+
       // Guest fallback — always succeeds, never loops.
       _session = await api.guestSession();
     } on ApiProblem catch (_) {

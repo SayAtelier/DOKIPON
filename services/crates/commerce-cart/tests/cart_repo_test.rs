@@ -46,7 +46,7 @@ async fn a_cart_survives_the_round_trip() {
     let id = a_cart_id();
     let price = jpy(4_800);
     let updated = repo
-        .apply_mutation(&id, "sku-tee-01", 2, 1, price)
+        .apply_mutation(&id, None, "sku-tee-01", 2, 1, price)
         .await
         .expect("the first mutation creates the cart");
     assert_eq!(updated.version, 2, "the version is bumped by the mutation");
@@ -74,13 +74,13 @@ async fn a_stale_version_is_a_conflict() {
     let repo = DbCartRepository::new(pool);
 
     let id = a_cart_id();
-    repo.apply_mutation(&id, "sku-tee-01", 1, 1, jpy(4_800))
+    repo.apply_mutation(&id, None, "sku-tee-01", 1, 1, jpy(4_800))
         .await
         .expect("the first mutation creates the cart");
 
     // The caller believes the cart is at version 1, and it is at version 2.
     let error = repo
-        .apply_mutation(&id, "sku-bra-01", 1, 1, jpy(8_900))
+        .apply_mutation(&id, None, "sku-bra-01", 1, 1, jpy(8_900))
         .await
         .expect_err("a stale version must be refused");
     assert!(
@@ -106,7 +106,7 @@ async fn two_repositories_share_one_cart() {
 
     let id = a_cart_id();
     first
-        .apply_mutation(&id, "sku-brief-01", 1, 1, jpy(3_900))
+        .apply_mutation(&id, None, "sku-brief-01", 1, 1, jpy(3_900))
         .await
         .expect("the first instance creates the cart");
 

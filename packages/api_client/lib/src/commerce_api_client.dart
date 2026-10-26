@@ -226,6 +226,21 @@ class CommerceApiClient {
     return session!;
   }
 
+  /// Asks the server "am I still the shopper I was?".
+  ///
+  /// The server answers from the cookie it set when it minted the session, so
+  /// this works even though the client itself forgot everything: a reload
+  /// loses the session id, and the browser still sends the cookie.
+  ///
+  /// It throws an [ApiProblem] when there is no session, when it has expired,
+  /// or when it was revoked — and the caller treats all three the same way:
+  /// there is no session to continue, so a new one is minted.
+  Future<Session> resumeSession() async {
+    final json = await _get('/v1/sessions/current');
+    session = Session.fromJson(json);
+    return session!;
+  }
+
   /// Exchanges a LINE `id_token` for a short-lived session.
   ///
   /// The token is sent once and never stored by this client. Everything after

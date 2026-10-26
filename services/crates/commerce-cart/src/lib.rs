@@ -138,9 +138,16 @@ impl CartStore {
     ///
     /// The created cart starts at version 1, and the caller's
     /// `expectedVersion` of 1 matches it.
+    /// The session presenting the request.
+    ///
+    /// A cart created here is **owned** by that session, and only that
+    /// session may change it afterwards: the ownership rule lives in the
+    /// domain layer, so it holds whether the cart lives in this process's map
+    /// or in the database every instance shares.
     pub fn apply_mutation(
         &mut self,
         cart_id: &str,
+        owner_id: Option<&str>,
         sku: &str,
         new_quantity: u32,
         expected_version: i64,
@@ -163,12 +170,28 @@ impl CartStore {
                 cart_id.to_string(),
                 Cart {
                     cart_id: cart_id.to_string(),
-                    owner_id: None,
+                    // Whoever created the cart owns it. The id is the session
+                    // id, so the owner is the session that asked for the cart
+                    // — and the ownership check is real rather than a column
+                    // nobody ever writes.
+                    owner_id: owner_id.map(str::to_string),
                     version: 1,
                     items: vec![],
                     expires_at_ms: commerce_core::idempotency::now_ms() + 30 * 24 * 3600 * 1000,
                 },
             );
+        } else if let Some(owner) = &self.carts[cart_id].owner_id {
+            // The cart belongs to a session. Another session may not change
+            // it — the same rule the read path applies. Without this the
+            // ownership would be advisory: readable only by the owner, but
+            // writable by anyone who knows the id.
+            if owner_id != Some(owner.as_str()) {
+                return Err(status::forbidden(
+                    "cart.forbidden",
+                    "cart belongs to another session",
+                    TRACE,
+                ));
+            }
         }
 
         let cart = self
@@ -371,9 +394,15 @@ async fn update_item(
 
     // The mutation happens in the store, which is either this process's map
     // or the database every instance shares.
+    //
+    // The session presenting the request is the cart's owner: the storefront's
+    // cart id **is** the session id, so the session that asks for the cart is
+    // the session that owns it and may change it.
+    let owner = session_of(&headers);
     let updated = repo
         .apply_mutation(
             &p.cart_id,
+            owner.as_deref(),
             &p.sku,
             body.quantity,
             body.expected_version,
@@ -416,7 +445,9 @@ mod tests {
         let mut s = store_with_cart();
         let id = s.carts.keys().next().unwrap().clone();
         let price = Money::new(4800, Currency::Jpy).unwrap();
-        let c = s.apply_mutation(&id, "sku-tee-01", 2, 1, price).unwrap();
+        let c = s
+            .apply_mutation(&id, None, "sku-tee-01", 2, 1, price)
+            .unwrap();
         assert_eq!(c.version, 2);
         assert_eq!(c.items[0].quantity, 2);
         assert_eq!(c.items[0].unit_amount_snapshot, 4800);
@@ -429,6 +460,7 @@ mod tests {
         // Both snapshots are deliberately wrong (simulating a tampered client).
         s.apply_mutation(
             &id,
+            None,
             "sku-tee-01",
             2,
             1,
@@ -437,6 +469,7 @@ mod tests {
         .unwrap();
         s.apply_mutation(
             &id,
+            None,
             "sku-hoodie-01",
             1,
             2,
@@ -469,9 +502,10 @@ mod tests {
         let mut s = store_with_cart();
         let id = s.carts.keys().next().unwrap().clone();
         let price = Money::new(4800, Currency::Jpy).unwrap();
-        s.apply_mutation(&id, "sku-tee-01", 1, 1, price).unwrap();
+        s.apply_mutation(&id, None, "sku-tee-01", 1, 1, price)
+            .unwrap();
         let err = s
-            .apply_mutation(&id, "sku-tee-01", 5, 1, price)
+            .apply_mutation(&id, None, "sku-tee-01", 5, 1, price)
             .unwrap_err();
         assert!(matches!(err, AppError::Problem(p) if p.code == "cart.version_conflict"));
         // The cart must be unchanged after a rejected mutation.
@@ -483,8 +517,11 @@ mod tests {
         let mut s = store_with_cart();
         let id = s.carts.keys().next().unwrap().clone();
         let price = Money::new(4800, Currency::Jpy).unwrap();
-        s.apply_mutation(&id, "sku-tee-01", 3, 1, price).unwrap();
-        let c = s.apply_mutation(&id, "sku-tee-01", 0, 2, price).unwrap();
+        s.apply_mutation(&id, None, "sku-tee-01", 3, 1, price)
+            .unwrap();
+        let c = s
+            .apply_mutation(&id, None, "sku-tee-01", 0, 2, price)
+            .unwrap();
         assert!(c.items.is_empty());
     }
 
@@ -496,6 +533,7 @@ mod tests {
         let c = s
             .apply_mutation(
                 &id,
+                None,
                 "sku-tee-01",
                 2,
                 1,
@@ -519,6 +557,7 @@ mod tests {
         let id = s.carts.keys().next().unwrap().clone();
         s.apply_mutation(
             &id,
+            None,
             "sku-ghost",
             1,
             1,
@@ -546,11 +585,41 @@ mod tests {
         let mut s = CartStore::new();
         let price = Money::new(4800, Currency::Jpy).unwrap();
         let cart = s
-            .apply_mutation("cart-new", "sku-tee-01", 2, 1, price)
+            .apply_mutation("cart-new", None, "sku-tee-01", 2, 1, price)
             .expect("the first mutation creates the cart");
         assert_eq!(cart.version, 2, "the mutation bumps the new cart to 2");
         assert_eq!(cart.items.len(), 1);
         assert!(s.carts.contains_key("cart-new"));
+    }
+
+    /// The owner is written when the cart is created: the column is a fact
+    /// about the cart, not a promise nobody keeps.
+    #[test]
+    fn the_creating_session_owns_the_cart() {
+        let mut s = CartStore::new();
+        let price = Money::new(4800, Currency::Jpy).unwrap();
+        let cart = s
+            .apply_mutation("cart-new", Some("sess-1"), "sku-tee-01", 1, 1, price)
+            .expect("the first mutation creates the cart");
+        assert_eq!(cart.owner_id.as_deref(), Some("sess-1"));
+    }
+
+    /// Another session may not change a cart that belongs to one. Without
+    /// this the ownership would be a read-side rule only: readable by the
+    /// owner, writable by anyone who knows the cart's id.
+    #[test]
+    fn another_session_may_not_change_the_cart() {
+        let mut s = CartStore::new();
+        let price = Money::new(4800, Currency::Jpy).unwrap();
+        s.apply_mutation("cart-1", Some("sess-1"), "sku-tee-01", 1, 1, price)
+            .expect("the first mutation creates the cart");
+        let err = s
+            .apply_mutation("cart-1", Some("sess-2"), "sku-tee-01", 5, 2, price)
+            .unwrap_err();
+        assert!(
+            matches!(&err, AppError::Problem(p) if p.code == "cart.forbidden"),
+            "another session must not change the cart: {err:?}"
+        );
     }
 
     /// A mutation that claims a version other than 1 against an unknown
@@ -562,6 +631,7 @@ mod tests {
         let err = s
             .apply_mutation(
                 "cart-does-not-exist",
+                None,
                 "sku",
                 1,
                 7,

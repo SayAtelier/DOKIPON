@@ -9,9 +9,16 @@
 //! - Sessions are short-lived, revocable, and bound to a channel.
 //! - Tokens and profile PII are never returned to a simulation model or logged.
 
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+    routing::{get, post},
+    Json, Router,
+};
 use commerce_core::error::{status, AppError};
 use commerce_core::JsonBody;
+pub mod session_cookie;
 pub mod session_repo;
 
 pub use session_repo::SessionRepo;
@@ -378,8 +385,83 @@ pub fn router(
     Router::new()
         .route("/v1/sessions/line", post(line_session))
         .route("/v1/sessions/guest", post(guest_session))
+        // "Am I still the shopper I was?" — the client asks this after a
+        // reload, and the server answers from the cookie it set earlier.
+        .route("/v1/sessions/current", get(current_session))
         .route("/healthz", post(health))
         .with_state((state, verifier, repo))
+}
+
+/// The session, and the cookie that remembers it.
+///
+/// The cookie's lifetime is the session's own remaining lifetime: a cookie
+/// that outlived its session would keep sending an id the server refuses, and
+/// a cookie that died before the session would lose the session early.
+fn session_response(session: &Session) -> Response {
+    let now_ms = commerce_core::idempotency::now_ms();
+    let max_age = (session.expires_at_ms - now_ms) / 1000;
+    (
+        [(
+            axum::http::header::SET_COOKIE,
+            session_cookie::set_cookie(&session.session_id, max_age),
+        )],
+        Json(session.clone()),
+    )
+        .into_response()
+}
+
+/// `GET /v1/sessions/current` — the session this request carries, if it is
+/// still good.
+///
+/// The session id comes from the `x-session-id` header or from the cookie the
+/// server set when it minted the session. A client that reloaded the page has
+/// forgotten the id; the cookie has not.
+///
+/// The **database** decides whether the session is still good, because that is
+/// where the session lives: a session revoked on one instance is revoked on
+/// all of them.
+async fn current_session(
+    State((store, _verifier, repo)): State<(
+        SharedIdentity,
+        Arc<TokenVerifier>,
+        Option<Arc<SessionRepo>>,
+    )>,
+    headers: HeaderMap,
+) -> Result<Json<Session>, AppError> {
+    const TRACE: &str = "identity.current_session";
+
+    let Some(session_id) = session_cookie::presented_session(&headers) else {
+        return Err(status::unauthorized(
+            "identity.missing_session",
+            "no session was presented",
+            TRACE,
+        ));
+    };
+
+    let session = match &repo {
+        Some(repo) => repo.load_session(&session_id).await?,
+        None => {
+            let guard = store
+                .read()
+                .map_err(|_| AppError::Internal("identity lock poisoned".into()))?;
+            guard.sessions.get(&session_id).cloned()
+        }
+    };
+    let Some(session) = session else {
+        return Err(status::unauthorized(
+            "identity.unknown_session",
+            "session not found",
+            TRACE,
+        ));
+    };
+    if !session.is_valid(commerce_core::idempotency::now_ms()) {
+        return Err(status::unauthorized(
+            "identity.session_expired",
+            "session expired or revoked",
+            TRACE,
+        ));
+    }
+    Ok(Json(session))
 }
 
 async fn health() -> StatusCode {
@@ -393,7 +475,7 @@ async fn line_session(
         Option<Arc<SessionRepo>>,
     )>,
     JsonBody(body): JsonBody<LineSessionBody>,
-) -> Result<Json<Session>, AppError> {
+) -> Result<Response, AppError> {
     let (claims, channel, now_ms) = {
         let guard = store
             .read()
@@ -447,7 +529,7 @@ async fn line_session(
             guard.issue_session(&claims, channel)
         }
     };
-    Ok(Json(session))
+    Ok(session_response(&session))
 }
 
 async fn guest_session(
@@ -457,7 +539,7 @@ async fn guest_session(
         Option<Arc<SessionRepo>>,
     )>,
     JsonBody(body): JsonBody<GuestBody>,
-) -> Result<Json<Session>, AppError> {
+) -> Result<Response, AppError> {
     let channel = body.channel.unwrap_or(Channel::LineMiniApp);
     let session = match &repo {
         Some(repo) => {
@@ -478,7 +560,7 @@ async fn guest_session(
             guard.issue_guest(channel)
         }
     };
-    Ok(Json(session))
+    Ok(session_response(&session))
 }
 
 // ---------------------------------------------------------------------------

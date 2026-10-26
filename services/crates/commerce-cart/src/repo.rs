@@ -50,6 +50,7 @@ pub trait CartRepository: Send + Sync {
     async fn apply_mutation(
         &self,
         cart_id: &str,
+        owner_id: Option<&str>,
         sku: &str,
         quantity: u32,
         expected_version: i64,
@@ -101,6 +102,7 @@ impl CartRepository for MemoryCartRepository {
     async fn apply_mutation(
         &self,
         cart_id: &str,
+        owner_id: Option<&str>,
         sku: &str,
         quantity: u32,
         expected_version: i64,
@@ -113,7 +115,7 @@ impl CartRepository for MemoryCartRepository {
             .store
             .write()
             .map_err(|_| AppError::Internal("cart store lock poisoned".into()))?;
-        guard.apply_mutation(cart_id, sku, quantity, expected_version, price)
+        guard.apply_mutation(cart_id, owner_id, sku, quantity, expected_version, price)
     }
 
     async fn replay(&self, cart_id: &str, key: &str) -> Result<Option<Value>, AppError> {
@@ -159,6 +161,7 @@ impl CartRepository for DbCartRepository {
     async fn apply_mutation(
         &self,
         cart_id: &str,
+        owner_id: Option<&str>,
         sku: &str,
         quantity: u32,
         expected_version: i64,
@@ -176,7 +179,8 @@ impl CartRepository for DbCartRepository {
         if let Some(cart) = existing.clone() {
             store.carts.insert(cart_id.to_string(), cart);
         }
-        let updated = store.apply_mutation(cart_id, sku, quantity, expected_version, price)?;
+        let updated =
+            store.apply_mutation(cart_id, owner_id, sku, quantity, expected_version, price)?;
 
         // The cart that was there when this request read it has to still be
         // there, at the same version, when the result is written back —
