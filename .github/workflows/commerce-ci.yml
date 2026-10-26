@@ -193,15 +193,15 @@ jobs:
           cache-on-failure: true
           workspaces: 'services -> target'
 
-      - name: cargo build -p commerce-catalog -p commerce-order (release)
+      - name: cargo build -p commerce-catalog -p commerce-inventory -p commerce-order (release)
         working-directory: services
-        run: cargo build --release -p commerce-catalog -p commerce-order
+        run: cargo build --release -p commerce-catalog -p commerce-inventory -p commerce-order
 
       # The order service re-prices every line from the catalogue before it
-      # charges anything — the client's own number is a display hint. So the
-      # checkout script needs the catalogue service too, not just the order
-      # service: without it every checkout is refused with
-      # `checkout.pricing_unavailable`, and the script would be asserting
+      # charges anything — the client's own number is a display hint — and it
+      # holds the units in the ledger before it asks for the payment. So the
+      # checkout script needs the catalogue **and** the inventory service: with
+      # neither, every checkout is refused and the script would be asserting
       # against refusals instead of against the Saga.
       - name: Start commerce-catalog in background
         working-directory: services
@@ -219,6 +219,22 @@ jobs:
           cat /tmp/catalog.pid >&2
           exit 1
 
+      - name: Start commerce-inventory in background
+        working-directory: services
+        run: |
+          PORT=8084 ./target/release/commerce-inventory &
+          echo "$!" > /tmp/inventory.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8084/healthz >/dev/null; then
+              echo "inventory is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "inventory did not become ready" >&2
+          cat /tmp/inventory.pid >&2
+          exit 1
+
       - name: Start commerce-order in background
         working-directory: services
         env:
@@ -226,6 +242,7 @@ jobs:
           # talks to 8085.
           PORT: 8085
           CATALOG_URL: http://127.0.0.1:8082
+          INVENTORY_URL: http://127.0.0.1:8084
         run: |
           ./target/release/commerce-order &
           echo "$!" > /tmp/order.pid
@@ -251,4 +268,7 @@ jobs:
           fi
           if [ -f /tmp/catalog.pid ]; then
             kill "$(cat /tmp/catalog.pid)" || true
+          fi
+          if [ -f /tmp/inventory.pid ]; then
+            kill "$(cat /tmp/inventory.pid)" || true
           fi

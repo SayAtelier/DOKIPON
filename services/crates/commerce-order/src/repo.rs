@@ -41,9 +41,10 @@ use commerce_core::{CheckoutState, DomainEvent};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
-use std::collections::HashSet;
 
-use crate::{Order, OrderLine, OrderStore, PaymentOutcome, SharedOrder, TrailEntry};
+use crate::{
+    Order, OrderLine, OrderStore, PaymentOutcome, SharedOrder, SubmitBegin, SubmitStart, TrailEntry,
+};
 
 /// The order service's store.
 ///
@@ -51,14 +52,33 @@ use crate::{Order, OrderLine, OrderStore, PaymentOutcome, SharedOrder, TrailEntr
 /// or in a database: it asks this, and it gets the same answers either way.
 #[async_trait]
 pub trait OrderRepository: Send + Sync {
-    /// `checkout.submit` — the whole Saga, driven by the payment outcome.
-    async fn submit(
+    /// The first half of `checkout.submit`: everything up to the point where
+    /// the stock has to be reserved.
+    ///
+    /// The caller reserves the stock and then calls [`OrderRepository::finish_submit`].
+    async fn begin_submit(
         &self,
         buyer_id: &str,
         lines: Vec<OrderLine>,
         idempotency_key: &str,
+    ) -> Result<SubmitStart, AppError>;
+
+    /// The second half: the stock is reserved, so the saga can go on.
+    ///
+    /// `reservation_id` is the one the **inventory service** minted.
+    async fn finish_submit(
+        &self,
+        begin: SubmitBegin,
+        reservation_id: String,
         payment_outcome: PaymentOutcome,
     ) -> Result<(String, CheckoutState, PaymentOutcome), AppError>;
+
+    /// Give up on a checkout that never got its stock.
+    ///
+    /// The idempotency record is released, so the client may try again with
+    /// the same key — a checkout that could not reserve its stock has not
+    /// happened yet.
+    async fn abandon(&self, begin: SubmitBegin) -> Result<(), AppError>;
 
     /// `checkout.reconcile` — the only way out of `PaymentUnknown`.
     async fn reconcile(&self, order_id: &str, authorized: bool) -> Result<CheckoutState, AppError>;
@@ -95,18 +115,39 @@ impl MemoryOrderRepository {
 
 #[async_trait]
 impl OrderRepository for MemoryOrderRepository {
-    async fn submit(
+    async fn begin_submit(
         &self,
         buyer_id: &str,
         lines: Vec<OrderLine>,
         idempotency_key: &str,
+    ) -> Result<SubmitStart, AppError> {
+        let mut guard = self
+            .store
+            .write()
+            .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
+        guard.begin_submit(buyer_id, lines, idempotency_key)
+    }
+
+    async fn finish_submit(
+        &self,
+        begin: SubmitBegin,
+        reservation_id: String,
         payment_outcome: PaymentOutcome,
     ) -> Result<(String, CheckoutState, PaymentOutcome), AppError> {
         let mut guard = self
             .store
             .write()
             .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
-        guard.submit(buyer_id, lines, idempotency_key, payment_outcome)
+        guard.finish_submit(begin, reservation_id, payment_outcome)
+    }
+
+    async fn abandon(&self, begin: SubmitBegin) -> Result<(), AppError> {
+        let mut guard = self
+            .store
+            .write()
+            .map_err(|_| AppError::Internal("order lock poisoned".into()))?;
+        guard.idempotency.remove(&begin.scoped_key);
+        Ok(())
     }
 
     async fn reconcile(&self, order_id: &str, authorized: bool) -> Result<CheckoutState, AppError> {
@@ -184,15 +225,12 @@ const ID_BLOCK: u64 = 8;
 
 #[async_trait]
 impl OrderRepository for DbOrderRepository {
-    async fn submit(
+    async fn begin_submit(
         &self,
         buyer_id: &str,
         lines: Vec<OrderLine>,
         idempotency_key: &str,
-        payment_outcome: PaymentOutcome,
-    ) -> Result<(String, CheckoutState, PaymentOutcome), AppError> {
-        const TRACE: &str = "checkout.submit";
-
+    ) -> Result<SubmitStart, AppError> {
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         let now_ms = commerce_core::idempotency::now_ms();
 
@@ -237,9 +275,7 @@ impl OrderRepository for DbOrderRepository {
         let first_id = reserve_ids(&mut tx, ID_BLOCK).await?;
         store.sequence = first_id - 1;
 
-        let before: HashSet<String> = store.orders.keys().cloned().collect();
-        let (checkout_id, state, outcome) =
-            store.submit(buyer_id, lines, idempotency_key, payment_outcome)?;
+        let start = store.begin_submit(buyer_id, lines, idempotency_key)?;
         if store.sequence > first_id + ID_BLOCK - 1 {
             // The saga wanted more ids than the block had. The transaction is
             // rolled back by the caller, and the ids it did use are not
@@ -248,19 +284,57 @@ impl OrderRepository for DbOrderRepository {
                 "the checkout needed more ids than the store reserved".into(),
             ));
         }
-        let _ = TRACE;
+
+        // The record that says "this key is in flight" is written **now**, so
+        // a second request with the same key is refused while the stock is
+        // being reserved.
+        if let SubmitStart::Begin(begin) = &start {
+            let record = commerce_core::idempotency::IdempotencyRecord::in_progress(
+                begin.scoped_key.clone(),
+                begin.fingerprint.clone(),
+                now_ms,
+            );
+            save_idempotency(&mut tx, buyer_id, &begin.scoped_key, &record).await?;
+        }
+
+        tx.commit().await.map_err(db_error)?;
+        Ok(start)
+    }
+
+    async fn finish_submit(
+        &self,
+        begin: SubmitBegin,
+        reservation_id: String,
+        payment_outcome: PaymentOutcome,
+    ) -> Result<(String, CheckoutState, PaymentOutcome), AppError> {
+        let mut tx = self.pool.begin().await.map_err(db_error)?;
+        let now_ms = commerce_core::idempotency::now_ms();
+
+        // The store the saga runs in. It needs the record that is already
+        // there: the key was taken when the checkout began.
+        let mut store = OrderStore::new(now_ms);
+        if let Some(record) = load_idempotency(&mut tx, &begin.buyer_id, &begin.scoped_key).await? {
+            store.idempotency.insert(begin.scoped_key.clone(), record);
+        }
+
+        let first_id = reserve_ids(&mut tx, ID_BLOCK).await?;
+        store.sequence = first_id - 1;
+
+        let scoped_key = begin.scoped_key.clone();
+        let buyer_id = begin.buyer_id.clone();
+        let (checkout_id, state, outcome) =
+            store.finish_submit(begin, reservation_id, payment_outcome)?;
+        if store.sequence > first_id + ID_BLOCK - 1 {
+            return Err(AppError::Internal(
+                "the checkout needed more ids than the store reserved".into(),
+            ));
+        }
 
         // --- Write it back ----------------------------------------------------
         for order in store.orders.values() {
-            if before.contains(&order.order_id) {
-                continue;
-            }
             save_order(&mut tx, order, now_ms).await?;
         }
         for (checkout, order_id) in store.checkouts.iter() {
-            if before.contains(order_id) {
-                continue;
-            }
             let order_state = store
                 .orders
                 .get(order_id)
@@ -268,12 +342,29 @@ impl OrderRepository for DbOrderRepository {
                 .unwrap_or(state);
             save_checkout(&mut tx, checkout, order_id, order_state, now_ms).await?;
         }
-        if let Some(record) = store.idempotency.get(&scoped) {
-            save_idempotency(&mut tx, buyer_id, &scoped, record).await?;
+        if let Some(record) = store.idempotency.get(&scoped_key) {
+            save_idempotency(&mut tx, &buyer_id, &scoped_key, record).await?;
         }
 
         tx.commit().await.map_err(db_error)?;
         Ok((checkout_id, state, outcome))
+    }
+
+    async fn abandon(&self, begin: SubmitBegin) -> Result<(), AppError> {
+        let mut tx = self.pool.begin().await.map_err(db_error)?;
+        // The key is released, so the client may try again: a checkout that
+        // could not reserve its stock has not happened.
+        sqlx::query(
+            "DELETE FROM idempotency_record \
+             WHERE actor = $1 AND operation = 'checkout.submit' AND key = $2",
+        )
+        .bind(&begin.buyer_id)
+        .bind(&begin.scoped_key)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_error)?;
+        tx.commit().await.map_err(db_error)?;
+        Ok(())
     }
 
     async fn reconcile(&self, order_id: &str, authorized: bool) -> Result<CheckoutState, AppError> {

@@ -671,12 +671,17 @@ paths:
         checkout path looks up — while product identity belongs to the
         catalogue. Join on `sku` if you need the product id.
 
-        **The levels are per-instance.** The inventory service keeps its stock
-        in memory, like the other commerce stores, so these are the numbers
-        this instance holds and a second instance has its own ledger. The same
-        holds for the merged edge deployment, where a serverless platform may
-        run several instances of the function. A production deployment needs
-        the stock moved into a shared store.
+        **The levels are shared.** The inventory service keeps its ledger in
+        the database when the deployment has one, so these are the numbers
+        every instance sees: a reservation taken on one instance is visible to
+        the next, and the units cannot be promised twice. A deployment
+        without a database keeps the ledger in memory, and the levels are then
+        per-instance.
+
+        The **storefront** reads the same ledger: the catalogue asks it for
+        the levels of the SKUs it is listing, so what the shopper is told
+        ("in stock", "sold out") is the ledger's answer and not a copy the
+        catalogue kept of itself.
 
         `reserved` counts the reservations still open in the ledger. A
         reservation past its TTL is not swept by this read, and the service

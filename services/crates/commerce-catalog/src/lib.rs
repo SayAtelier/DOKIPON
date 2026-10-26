@@ -11,7 +11,7 @@ use axum::{
 };
 use commerce_core::{
     error::{status, AppError},
-    Currency, Money,
+    Currency, Money, StockSource,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
@@ -378,16 +378,30 @@ impl CatalogStore {
         }
     }
 
-    fn availability(&self, sku: &Sku) -> Availability {
+    /// The availability of a SKU, from the **ledger's** level when the ledger
+    /// knows it.
+    ///
+    /// The level is the inventory service's answer: what is left after the
+    /// reservations. `None` means the ledger does not know the SKU — a
+    /// made-to-order product, or one that does not take part in the inventory
+    /// step — and the seeded number is the fallback.
+    ///
+    /// The seeded number is the fallback for a different reason too: if the
+    /// ledger cannot be reached at all, the shop still opens and says what
+    /// the catalogue knows, rather than failing to list its products.
+    pub fn availability_of(&self, sku: &Sku, level: Option<i64>) -> Availability {
         match sku.stock_policy {
             StockPolicy::MadeToOrder => Availability::MadeToOrder,
             StockPolicy::Unbounded => Availability::InStock,
-            StockPolicy::Reserved => match self.stock.get(&sku.sku_id) {
-                None => Availability::InStock,
-                Some(n) if *n <= 0 => Availability::OutOfStock,
-                Some(n) if *n <= LOW_STOCK_THRESHOLD => Availability::LowStock,
-                Some(_) => Availability::InStock,
-            },
+            StockPolicy::Reserved => {
+                let n = level.or_else(|| self.stock.get(&sku.sku_id).copied());
+                match n {
+                    None => Availability::InStock,
+                    Some(n) if n <= 0 => Availability::OutOfStock,
+                    Some(n) if n <= LOW_STOCK_THRESHOLD => Availability::LowStock,
+                    Some(_) => Availability::InStock,
+                }
+            }
         }
     }
 
@@ -427,12 +441,33 @@ pub struct DetailPath {
     pub product_id: String,
 }
 
-pub fn router(state: SharedCatalog) -> Router {
+pub fn router(state: SharedCatalog, stocks: Arc<dyn StockSource>) -> Router {
     Router::new()
         .route("/v1/products", get(list_products))
         .route("/v1/products/{product_id}", get(get_product))
         .route("/healthz", get(health))
-        .with_state(state)
+        .with_state((state, stocks))
+}
+
+/// The levels of the listed SKUs, as the ledger knows them.
+///
+/// One call for the whole page. If the ledger cannot be reached, the page is
+/// still served — with the catalogue's own numbers — because a shop that
+/// cannot ask about its stock must still show its products.
+async fn levels_for(
+    stocks: &Arc<dyn StockSource>,
+    skus: &[String],
+) -> std::collections::HashMap<String, i64> {
+    match stocks.fetch_levels(skus).await {
+        Ok(levels) => levels
+            .into_iter()
+            .map(|(sku, level)| (sku, level.available()))
+            .collect(),
+        Err(error) => {
+            tracing::warn!(error = %error, "the stock ledger is unreachable; the catalogue's own numbers are shown");
+            std::collections::HashMap::new()
+        }
+    }
 }
 
 async fn health() -> StatusCode {
@@ -441,7 +476,7 @@ async fn health() -> StatusCode {
 
 /// `catalog.list` — cursor-paginated, locale-resolved, channel-filtered.
 async fn list_products(
-    State(store): State<SharedCatalog>,
+    State((store, stocks)): State<(SharedCatalog, Arc<dyn StockSource>)>,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<CursorPage<ProductListItem>>, AppError> {
     let limit = q.limit.unwrap_or(20).clamp(1, 100) as usize;
@@ -469,9 +504,18 @@ async fn list_products(
         .collect();
 
     let has_more = eligible.len() > limit;
-    let page: Vec<ProductListItem> = eligible
+    let listed: Vec<_> = eligible.into_iter().take(limit).collect();
+
+    // One call to the ledger for the whole page: a catalogue page of twenty
+    // products is one question, not twenty.
+    let skus: Vec<String> = listed
+        .iter()
+        .filter_map(|(_, p)| store.skus.get(&p.sku).map(|sku| sku.sku_id.clone()))
+        .collect();
+    let levels = levels_for(&stocks, &skus).await;
+
+    let page: Vec<ProductListItem> = listed
         .into_iter()
-        .take(limit)
         .filter_map(|(_, p)| {
             let sku = store.skus.get(&p.sku)?;
             Some(ProductListItem {
@@ -482,7 +526,7 @@ async fn list_products(
                     amount_minor: sku.amount_minor,
                     currency: sku.currency,
                 },
-                availability: store.availability(sku),
+                availability: store.availability_of(sku, levels.get(&sku.sku_id).copied()),
             })
         })
         .collect();
@@ -497,7 +541,7 @@ async fn list_products(
 
 /// `catalog.detail` — authoritative price + version, used by cart and checkout.
 async fn get_product(
-    State(store): State<SharedCatalog>,
+    State((store, stocks)): State<(SharedCatalog, Arc<dyn StockSource>)>,
     Path(p): Path<DetailPath>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let trace = "catalog.detail";
@@ -514,6 +558,8 @@ async fn get_product(
     let price = Money::new(sku.amount_minor, sku.currency)
         .map_err(|e| AppError::Internal(format!("stored price invalid: {e}")))?;
 
+    let levels = levels_for(&stocks, std::slice::from_ref(&sku.sku_id)).await;
+
     Ok(Json(serde_json::json!({
         "productId": product.product_id,
         "sku": sku.sku_id,
@@ -525,7 +571,7 @@ async fn get_product(
         "price": { "amountMinor": price.amount_minor, "currency": price.currency },
         "version": sku.version,
         "stockPolicy": sku.stock_policy,
-        "availability": store.availability(sku),
+        "availability": store.availability_of(sku, levels.get(&sku.sku_id).copied()),
     })))
 }
 
@@ -534,7 +580,117 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
+    use commerce_core::StockLevel;
     use tower::ServiceExt;
+
+    /// A ledger that knows nothing, so the catalogue's own numbers are used.
+    struct NoStock;
+
+    #[async_trait::async_trait]
+    impl StockSource for NoStock {
+        async fn fetch_levels(
+            &self,
+            _skus: &[String],
+        ) -> Result<Vec<(String, StockLevel)>, String> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// A ledger with the levels it is told about.
+    struct FixedStock(Vec<(String, StockLevel)>);
+
+    #[async_trait::async_trait]
+    impl StockSource for FixedStock {
+        async fn fetch_levels(&self, skus: &[String]) -> Result<Vec<(String, StockLevel)>, String> {
+            Ok(self
+                .0
+                .iter()
+                .filter(|(sku, _)| skus.iter().any(|wanted| wanted == sku))
+                .cloned()
+                .collect())
+        }
+    }
+
+    /// The availability the storefront shows comes from the **ledger**.
+    ///
+    /// The catalogue's own copy of the stock number was a snapshot that
+    /// nothing kept up to date: a sale moved the ledger and the catalogue
+    /// kept saying "42 in stock". The shopper was told a thing was available
+    /// after the last one was sold.
+    #[tokio::test]
+    async fn the_availability_comes_from_the_ledger() {
+        let store = Arc::new(CatalogStore::seed_demo());
+        // The ledger says the bra is gone; the catalogue's own copy says 42.
+        let stocks = Arc::new(FixedStock(vec![(
+            "sku-bra-01".to_string(),
+            StockLevel {
+                on_hand: 0,
+                reserved: 0,
+            },
+        )]));
+        let app = router(store, stocks);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/products?limit=100&channel=web")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let bra = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["sku"] == "sku-bra-01")
+            .expect("the bra is in the list");
+        assert_eq!(
+            bra["availability"], "out_of_stock",
+            "the ledger says there is none left, so the storefront says so"
+        );
+    }
+
+    /// A ledger that cannot be reached must not stop the shop from opening.
+    #[tokio::test]
+    async fn an_unreachable_ledger_falls_back_to_the_catalogue() {
+        struct BrokenStock;
+
+        #[async_trait::async_trait]
+        impl StockSource for BrokenStock {
+            async fn fetch_levels(
+                &self,
+                _skus: &[String],
+            ) -> Result<Vec<(String, StockLevel)>, String> {
+                Err("inventory unreachable".to_string())
+            }
+        }
+
+        let app = router(Arc::new(CatalogStore::seed_demo()), Arc::new(BrokenStock));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/products?limit=100&channel=web")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "a shop that cannot ask about its stock must still show its products"
+        );
+    }
 
     #[test]
     fn seeded_products_have_positive_prices_and_versions() {
@@ -603,26 +759,45 @@ mod tests {
     #[test]
     fn availability_reflects_stock() {
         let s = CatalogStore::seed_demo();
+        // Without a level from the ledger, the catalogue's own numbers are the
+        // fallback.
         assert_eq!(
-            s.availability(s.skus.get("sku-bra-01").unwrap()),
+            s.availability_of(s.skus.get("sku-bra-01").unwrap(), None),
             Availability::InStock
         );
         assert_eq!(
-            s.availability(s.skus.get("sku-brief-01").unwrap()),
+            s.availability_of(s.skus.get("sku-brief-01").unwrap(), None),
             Availability::LowStock
         );
         assert_eq!(
-            s.availability(s.skus.get("sku-set-01").unwrap()),
+            s.availability_of(s.skus.get("sku-set-01").unwrap(), None),
             Availability::OutOfStock
         );
         assert_eq!(
-            s.availability(s.skus.get("sku-cami-01").unwrap()),
+            s.availability_of(s.skus.get("sku-cami-01").unwrap(), None),
             Availability::MadeToOrder
         );
         assert_eq!(
-            s.availability(s.skus.get("sku-night-01").unwrap()),
+            s.availability_of(s.skus.get("sku-night-01").unwrap(), None),
             Availability::InStock
         );
+    }
+
+    /// The **ledger's** level is what the shopper is told.
+    ///
+    /// The catalogue's own copy of the number was a snapshot that nothing kept
+    /// up to date: a sale moved the ledger and the catalogue kept saying "42
+    /// in stock". The shopper was told a thing was available after the last
+    /// one was sold.
+    #[test]
+    fn the_ledger_overrides_the_catalogue_s_own_number() {
+        let s = CatalogStore::seed_demo();
+        let bra = s.skus.get("sku-bra-01").unwrap();
+        // The catalogue says 42; the ledger says there is none left.
+        assert_eq!(s.availability_of(bra, Some(0)), Availability::OutOfStock);
+        // And the ledger says there are two left.
+        assert_eq!(s.availability_of(bra, Some(2)), Availability::LowStock);
+        assert_eq!(s.availability_of(bra, Some(40)), Availability::InStock);
     }
 
     #[test]
@@ -679,7 +854,7 @@ mod tests {
     /// the parameter name ever drifts from the contract again.
     #[tokio::test]
     async fn the_contract_category_parameter_filters_the_catalogue() {
-        let app = router(Arc::new(CatalogStore::seed_demo()));
+        let app = router(Arc::new(CatalogStore::seed_demo()), Arc::new(NoStock));
 
         let response = app
             .oneshot(
@@ -709,7 +884,7 @@ mod tests {
     /// empty list.
     #[tokio::test]
     async fn an_empty_category_is_an_empty_page_not_an_error() {
-        let app = router(Arc::new(CatalogStore::seed_demo()));
+        let app = router(Arc::new(CatalogStore::seed_demo()), Arc::new(NoStock));
 
         let response = app
             .oneshot(
@@ -735,7 +910,7 @@ mod tests {
     /// addition, not a replacement for the unfiltered listing.
     #[tokio::test]
     async fn an_unfiltered_listing_returns_the_whole_catalogue() {
-        let app = router(Arc::new(CatalogStore::seed_demo()));
+        let app = router(Arc::new(CatalogStore::seed_demo()), Arc::new(NoStock));
 
         let response = app
             .oneshot(

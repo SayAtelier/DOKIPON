@@ -152,6 +152,133 @@ pub use commerce_core::secrets;
 /// entry points depend on this crate, not on `commerce-core` directly.
 pub use commerce_core::db;
 
+/// The stock levels, served in-process.
+///
+/// The catalogue asks the inventory service how much of each SKU is left, so
+/// that the storefront is told what the ledger says rather than what the
+/// catalogue copied of it a while ago.
+///
+/// In this deployment the ledger is **in this process**, so the answer is
+/// read from the store the inventory service already holds — no HTTP round
+/// trip, and no chance of the two disagreeing.
+#[derive(Clone)]
+pub struct InProcessStocks {
+    inventory: Arc<std::sync::RwLock<commerce_inventory::InventoryStore>>,
+}
+
+impl InProcessStocks {
+    pub fn new(inventory: Arc<std::sync::RwLock<commerce_inventory::InventoryStore>>) -> Self {
+        Self { inventory }
+    }
+}
+
+#[async_trait::async_trait]
+impl commerce_core::StockSource for InProcessStocks {
+    async fn fetch_levels(
+        &self,
+        skus: &[String],
+    ) -> Result<Vec<(String, commerce_core::StockLevel)>, String> {
+        let guard = self
+            .inventory
+            .read()
+            .map_err(|_| "the inventory ledger's lock is poisoned".to_string())?;
+        Ok(guard
+            .stock
+            .iter()
+            .filter(|(sku, _)| skus.iter().any(|wanted| wanted == *sku))
+            .map(|(sku, level)| {
+                (
+                    sku.clone(),
+                    commerce_core::StockLevel {
+                        on_hand: level.on_hand,
+                        reserved: level.reserved,
+                    },
+                )
+            })
+            .collect())
+    }
+}
+
+/// The stock reservations, served in-process.
+///
+/// The order service asks the inventory service to hold the units before it
+/// asks for the payment. In this deployment the ledger is **in this
+/// process**, so the reservation is made against the store the inventory
+/// service already holds — the same rules, the same ledger.
+#[derive(Clone)]
+pub struct InProcessReservations {
+    inventory: Arc<std::sync::RwLock<commerce_inventory::InventoryStore>>,
+}
+
+impl InProcessReservations {
+    pub fn new(inventory: Arc<std::sync::RwLock<commerce_inventory::InventoryStore>>) -> Self {
+        Self { inventory }
+    }
+}
+
+#[async_trait::async_trait]
+impl commerce_core::ReservationSource for InProcessReservations {
+    async fn reserve(
+        &self,
+        sku: &str,
+        order_id: &str,
+        quantity: i64,
+    ) -> Result<commerce_core::Reservation, String> {
+        let mut guard = self
+            .inventory
+            .write()
+            .map_err(|_| "the inventory ledger's lock is poisoned".to_string())?;
+        guard
+            .reserve(sku, order_id, quantity)
+            .map_err(|error| error.to_string())
+    }
+
+    async fn commit(&self, reservation_id: &str) -> Result<commerce_core::Reservation, String> {
+        let mut guard = self
+            .inventory
+            .write()
+            .map_err(|_| "the inventory ledger's lock is poisoned".to_string())?;
+        guard
+            .commit(reservation_id)
+            .map_err(|error| error.to_string())
+    }
+
+    async fn release(&self, reservation_id: &str) -> Result<commerce_core::Reservation, String> {
+        let mut guard = self
+            .inventory
+            .write()
+            .map_err(|_| "the inventory ledger's lock is poisoned".to_string())?;
+        guard
+            .release(reservation_id)
+            .map_err(|error| error.to_string())
+    }
+
+    async fn list_for_order(
+        &self,
+        order_id: &str,
+    ) -> Result<Vec<commerce_core::Reservation>, String> {
+        let guard = self
+            .inventory
+            .read()
+            .map_err(|_| "the inventory ledger's lock is poisoned".to_string())?;
+        let mut held: Vec<commerce_core::Reservation> = guard
+            .reservations
+            .values()
+            .filter(|reservation| reservation.order_id == order_id)
+            .map(|reservation| commerce_core::Reservation {
+                reservation_id: reservation.reservation_id.clone(),
+                sku: reservation.sku.clone(),
+                order_id: reservation.order_id.clone(),
+                quantity: reservation.quantity,
+                state: reservation.state,
+                expires_at_ms: reservation.expires_at_ms,
+            })
+            .collect();
+        held.sort_by(|a, b| a.reservation_id.cmp(&b.reservation_id));
+        Ok(held)
+    }
+}
+
 /// The eight service routers, ready to be dispatched to.
 #[derive(Clone)]
 pub struct EdgeServices {
@@ -203,12 +330,21 @@ pub fn build(admin: commerce_admin::AdminState) -> (Router, EdgeServices) {
     let prices: Arc<dyn PriceSource> = Arc::new(InProcessPrices {
         catalog: catalog.clone(),
     });
+    // The catalogue asks the ledger how much of each SKU is left, so the
+    // storefront is told what the ledger says. Here the ledger is in this
+    // process, so the answer comes from the store.
+    let stocks: Arc<dyn commerce_core::StockSource> =
+        Arc::new(InProcessStocks::new(inventory.clone()));
+    // The order service asks the ledger to hold the units before it asks for
+    // the payment. Here the ledger is in this process.
+    let reservations: Arc<dyn commerce_core::ReservationSource> =
+        Arc::new(InProcessReservations::new(inventory.clone()));
 
     let services = EdgeServices {
         bff: commerce_bff::router(Arc::new(std::sync::RwLock::new(
             commerce_bff::RateLimiter::default(),
         ))),
-        catalog: commerce_catalog::router(catalog),
+        catalog: commerce_catalog::router(catalog, stocks),
         // The cart and the order both need a price authority. The edge serves
         // prices in-process, so the two services get the in-process variant
         // rather than an HTTP client that would call back into itself.
@@ -219,6 +355,7 @@ pub fn build(admin: commerce_admin::AdminState) -> (Router, EdgeServices) {
         order: commerce_order::router(
             Arc::new(commerce_order::MemoryOrderRepository::new(order)),
             prices,
+            reservations,
         ),
         content: commerce_content::router(content),
         identity: commerce_identity::router(identity, stores::identity_verifier(), None),

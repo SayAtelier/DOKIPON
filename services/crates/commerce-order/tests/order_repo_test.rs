@@ -11,7 +11,7 @@
 
 use commerce_core::db;
 use commerce_core::{CheckoutState, Currency};
-use commerce_order::{DbOrderRepository, OrderLine, OrderRepository, PaymentOutcome};
+use commerce_order::{DbOrderRepository, OrderLine, OrderRepository, PaymentOutcome, SubmitStart};
 
 fn database_url() -> Option<String> {
     std::env::var("DATABASE_URL")
@@ -39,6 +39,29 @@ fn a_line() -> OrderLine {
     }
 }
 
+/// The whole checkout, the way the handler does it.
+///
+/// The saga is begun, the stock is reserved — here by the test itself, since
+/// there is no inventory service in this test — and then the saga finishes.
+async fn submit(
+    repo: &DbOrderRepository,
+    buyer: &str,
+    lines: Vec<OrderLine>,
+    key: &str,
+    outcome: PaymentOutcome,
+) -> Result<(String, CheckoutState, PaymentOutcome), commerce_core::error::AppError> {
+    match repo.begin_submit(buyer, lines, key).await? {
+        SubmitStart::Replay {
+            checkout_id,
+            order_id: _,
+            state,
+        } => Ok((checkout_id, state, outcome)),
+        SubmitStart::Begin(begin) => {
+            let reservation_id = "res-000001".to_string();
+            repo.finish_submit(*begin, reservation_id, outcome).await
+        }
+    }
+}
 #[tokio::test]
 async fn an_order_survives_the_round_trip() {
     let Some(url) = database_url() else {
@@ -50,10 +73,15 @@ async fn an_order_survives_the_round_trip() {
     let repo = DbOrderRepository::new(pool);
 
     let buyer = a_buyer();
-    let (checkout_id, state, _) = repo
-        .submit(&buyer, vec![a_line()], "key-1", PaymentOutcome::Authorized)
-        .await
-        .expect("submit");
+    let (checkout_id, state, _) = submit(
+        &repo,
+        &buyer,
+        vec![a_line()],
+        "key-1",
+        PaymentOutcome::Authorized,
+    )
+    .await
+    .expect("submit");
     assert_eq!(
         state,
         CheckoutState::Confirmed,
@@ -97,10 +125,15 @@ async fn two_repositories_share_one_order() {
     let second = DbOrderRepository::new(pool);
 
     let buyer = a_buyer();
-    let (checkout_id, _, _) = first
-        .submit(&buyer, vec![a_line()], "key-1", PaymentOutcome::Authorized)
-        .await
-        .expect("submit");
+    let (checkout_id, _, _) = submit(
+        &first,
+        &buyer,
+        vec![a_line()],
+        "key-1",
+        PaymentOutcome::Authorized,
+    )
+    .await
+    .expect("submit");
 
     let order = second.by_checkout(&checkout_id).await.expect("by checkout");
     assert_eq!(order.buyer_id, buyer);
@@ -121,24 +154,24 @@ async fn the_same_key_replays_the_same_answer() {
     let repo = DbOrderRepository::new(pool);
 
     let buyer = a_buyer();
-    let (first_checkout, first_state, _) = repo
-        .submit(
-            &buyer,
-            vec![a_line()],
-            "key-replay",
-            PaymentOutcome::Authorized,
-        )
-        .await
-        .expect("submit");
-    let (second_checkout, second_state, _) = repo
-        .submit(
-            &buyer,
-            vec![a_line()],
-            "key-replay",
-            PaymentOutcome::Authorized,
-        )
-        .await
-        .expect("the second submit replays");
+    let (first_checkout, first_state, _) = submit(
+        &repo,
+        &buyer,
+        vec![a_line()],
+        "key-replay",
+        PaymentOutcome::Authorized,
+    )
+    .await
+    .expect("submit");
+    let (second_checkout, second_state, _) = submit(
+        &repo,
+        &buyer,
+        vec![a_line()],
+        "key-replay",
+        PaymentOutcome::Authorized,
+    )
+    .await
+    .expect("the second submit replays");
 
     assert_eq!(first_checkout, second_checkout, "the same checkout");
     assert_eq!(first_state, second_state, "the same state");
@@ -160,15 +193,15 @@ async fn an_unknown_payment_is_reconcilable() {
     let repo = DbOrderRepository::new(pool);
 
     let buyer = a_buyer();
-    let (_, state, _) = repo
-        .submit(
-            &buyer,
-            vec![a_line()],
-            "key-unknown",
-            PaymentOutcome::Unknown,
-        )
-        .await
-        .expect("submit");
+    let (_, state, _) = submit(
+        &repo,
+        &buyer,
+        vec![a_line()],
+        "key-unknown",
+        PaymentOutcome::Unknown,
+    )
+    .await
+    .expect("submit");
     assert_eq!(
         state,
         CheckoutState::PaymentUnknown,
@@ -209,7 +242,8 @@ async fn the_orders_waiting_for_reconciliation_are_listed() {
     let repo = DbOrderRepository::new(pool);
 
     let buyer = a_buyer();
-    repo.submit(
+    submit(
+        &repo,
         &buyer,
         vec![a_line()],
         "key-unknown-2",

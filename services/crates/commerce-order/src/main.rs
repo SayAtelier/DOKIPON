@@ -7,6 +7,7 @@
 
 use commerce_core::idempotency;
 use commerce_core::price_authority::PriceAuthority;
+use commerce_core::ReservationSource;
 use commerce_order::*;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -45,7 +46,15 @@ async fn main() {
         listener.local_addr().unwrap(),
         catalog_url
     );
-    axum::serve(listener, router(repo, prices))
+    // The ledger. The order service holds the units before it asks for the
+    // payment, so a checkout that cannot reserve its stock is refused rather
+    // than selling what the warehouse does not have.
+    let inventory_url =
+        std::env::var("INVENTORY_URL").unwrap_or_else(|_| "http://commerce-inventory:8084".into());
+    let reservations: Arc<dyn ReservationSource> = Arc::new(
+        commerce_core::inventory_authority::InventoryAuthority::new(inventory_url),
+    );
+    axum::serve(listener, router(repo, prices, reservations))
         .await
         .expect("serve order");
 }

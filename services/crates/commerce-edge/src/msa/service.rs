@@ -36,7 +36,7 @@ use crate::stores;
 pub fn catalog() -> Router {
     mount(
         ServiceId::Catalog,
-        commerce_catalog::router(stores::catalog()),
+        commerce_catalog::router(stores::catalog(), stocks()),
     )
 }
 
@@ -63,7 +63,10 @@ pub fn order(pool: Option<commerce_core::db::Pool>) -> Router {
         Some(pool) => Arc::new(commerce_order::DbOrderRepository::new(pool)),
         None => Arc::new(commerce_order::MemoryOrderRepository::new(stores::order())),
     };
-    mount(ServiceId::Order, commerce_order::router(repo, prices()))
+    mount(
+        ServiceId::Order,
+        commerce_order::router(repo, prices(), reservations()),
+    )
 }
 
 /// The content Function. It serves `/v1/content`.
@@ -137,6 +140,34 @@ fn prices() -> Arc<dyn commerce_core::PriceSource> {
         .unwrap_or_default()
         .to_string();
     Arc::new(commerce_core::price_authority::PriceAuthority::new(catalog))
+}
+
+/// The stock authority, asking the inventory Function over HTTP.
+///
+/// The catalogue asks it for the levels of the SKUs it is listing, so the
+/// storefront is told what the ledger says rather than what the catalogue
+/// copied of it a while ago.
+fn stocks() -> Arc<dyn commerce_core::StockSource> {
+    let inventory = Upstreams::from_env()
+        .base_url_for(ServiceId::Inventory)
+        .unwrap_or_default()
+        .to_string();
+    Arc::new(commerce_core::stock_source::StockAuthority::new(inventory))
+}
+
+/// The reservation authority, asking the inventory Function over HTTP.
+///
+/// The order service holds the units before it asks for the payment, so a
+/// checkout that cannot reserve its stock is refused rather than selling
+/// what the warehouse does not have.
+fn reservations() -> Arc<dyn commerce_core::ReservationSource> {
+    let inventory = Upstreams::from_env()
+        .base_url_for(ServiceId::Inventory)
+        .unwrap_or_default()
+        .to_string();
+    Arc::new(commerce_core::inventory_authority::InventoryAuthority::new(
+        inventory,
+    ))
 }
 
 /// Mount a service's router under the Function's own path.

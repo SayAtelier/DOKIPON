@@ -48,7 +48,7 @@ async fn a_repository() -> (DbInventoryRepository, String) {
 
 /// The level of one SKU, read out of the ledger.
 async fn level_of(repo: &DbInventoryRepository, sku: &str) -> commerce_inventory::StockLevelRow {
-    let page = repo.list(0, 100).await.expect("list");
+    let page = repo.list(0, 100, None).await.expect("list");
     page.items
         .into_iter()
         .find(|row| row.sku == sku)

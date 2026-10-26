@@ -9,20 +9,24 @@ use serde::{Deserialize, Serialize};
 pub mod db;
 pub mod error;
 pub mod idempotency;
+pub mod inventory_authority;
 pub mod json_body;
 pub mod money;
 pub mod order_state;
 pub mod price_authority;
 pub mod routes;
 pub mod secrets;
+pub mod stock_source;
 
 pub use error::{AppError, ProblemDetails};
 pub use idempotency::{fingerprint, hash_key, IdempotencyDecision, IdempotencyRecord};
+pub use inventory_authority::{InventoryAuthority, Reservation, ReservationSource};
 pub use json_body::{JsonBody, JsonBodyStrict};
 pub use money::{Currency, Money};
 pub use order_state::{transition, CheckoutState, OrderEvent, ReservationState, TransitionRefusal};
 pub use price_authority::{PriceAuthority, PriceSource};
 pub use routes::{owner_of, ServiceId};
+pub use stock_source::{StockAuthority, StockLevel, StockSource};
 
 /// Correlation / trace identifiers threaded through every request and event.
 #[derive(Debug, Clone, Default)]

@@ -49,7 +49,20 @@ use crate::{InventoryStore, Reservation, SharedInventory, StockLevel, StockLevel
 #[async_trait]
 pub trait InventoryRepository: Send + Sync {
     /// `inventory.list` — a page of the stock levels.
-    async fn list(&self, offset: usize, limit: usize) -> Result<StockPage, AppError>;
+    async fn list(
+        &self,
+        offset: usize,
+        limit: usize,
+        skus: Option<&[String]>,
+    ) -> Result<StockPage, AppError>;
+
+    /// The reservations one order holds.
+    ///
+    /// The ledger is the authority on what an order holds: an order with
+    /// several lines has several reservations, and the order service asks for
+    /// them when it settles the order later — at reconciliation time, when the
+    /// request that created them is long gone.
+    async fn list_reservations(&self, order_id: &str) -> Result<Vec<Reservation>, AppError>;
 
     /// `inventory.reserve` — idempotent per order and SKU.
     async fn reserve(
@@ -82,11 +95,20 @@ impl MemoryInventoryRepository {
 
 #[async_trait]
 impl InventoryRepository for MemoryInventoryRepository {
-    async fn list(&self, offset: usize, limit: usize) -> Result<StockPage, AppError> {
+    async fn list(
+        &self,
+        offset: usize,
+        limit: usize,
+        skus: Option<&[String]>,
+    ) -> Result<StockPage, AppError> {
         let guard = self
             .store
             .read()
             .map_err(|_| AppError::Internal("inventory lock poisoned".into()))?;
+        let wanted = |sku: &str| match skus {
+            None => true,
+            Some(list) => list.iter().any(|wanted| wanted == sku),
+        };
 
         // Sorted by SKU so a page is stable: the same cursor returns the same
         // rows as long as the store does not change underneath it.
@@ -96,6 +118,7 @@ impl InventoryRepository for MemoryInventoryRepository {
             .map(|(sku, level)| (sku.as_str(), level))
             .collect();
         sorted.sort_by(|a, b| a.0.cmp(b.0));
+        sorted.retain(|(sku, _)| wanted(sku));
 
         let total = sorted.len();
         let items: Vec<StockLevelRow> = sorted
@@ -113,6 +136,21 @@ impl InventoryRepository for MemoryInventoryRepository {
         let next_cursor =
             (offset + items.len() < total).then(|| (offset + items.len()).to_string());
         Ok(StockPage { items, next_cursor })
+    }
+
+    async fn list_reservations(&self, order_id: &str) -> Result<Vec<Reservation>, AppError> {
+        let guard = self
+            .store
+            .read()
+            .map_err(|_| AppError::Internal("inventory lock poisoned".into()))?;
+        let mut reservations: Vec<Reservation> = guard
+            .reservations
+            .values()
+            .filter(|reservation| reservation.order_id == order_id)
+            .cloned()
+            .collect();
+        reservations.sort_by(|a, b| a.reservation_id.cmp(&b.reservation_id));
+        Ok(reservations)
     }
 
     async fn reserve(
@@ -157,15 +195,22 @@ impl DbInventoryRepository {
 
     /// Put the demo stock levels into the ledger.
     ///
-    /// A SKU that is already there keeps its level: the reserved units of a
-    /// live reservation must not be overwritten by a boot. A SKU that is
-    /// missing is added, so a catalogue that grows a SKU shows up in the
-    /// ledger the next time the service starts.
+    /// A SKU that is already there keeps its level — and is topped **up** to
+    /// the seeded level if it fell below it. The levels are the demo
+    /// catalogue's stock, so a boot restores them: the demo store does not
+    /// slowly sell itself out over weeks.
+    ///
+    /// Between boots the ledger is the truth, and that is what the storefront
+    /// shows: a sale takes the units out and the level says so until the
+    /// next boot puts the demo's numbers back.
+    ///
+    /// The reservations are never touched: a unit that an unsettled order is
+    /// holding stays held.
     pub async fn seed(&self, levels: &[(&str, i64)]) -> Result<(), AppError> {
         for (sku, on_hand) in levels {
             sqlx::query(
                 "INSERT INTO stock (sku_id, on_hand, reserved) VALUES ($1, $2, 0) \
-                 ON CONFLICT (sku_id) DO NOTHING",
+                 ON CONFLICT (sku_id) DO UPDATE SET on_hand = GREATEST(stock.on_hand, EXCLUDED.on_hand)",
             )
             .bind(sku)
             .bind(on_hand)
@@ -182,21 +227,32 @@ const ID_BLOCK: u64 = 4;
 
 #[async_trait]
 impl InventoryRepository for DbInventoryRepository {
-    async fn list(&self, offset: usize, limit: usize) -> Result<StockPage, AppError> {
+    async fn list(
+        &self,
+        offset: usize,
+        limit: usize,
+        skus: Option<&[String]>,
+    ) -> Result<StockPage, AppError> {
         let rows = sqlx::query(
-            "SELECT sku_id, on_hand, reserved FROM stock ORDER BY sku_id \
-             LIMIT $1 OFFSET $2",
+            "SELECT sku_id, on_hand, reserved FROM stock \
+             WHERE ($3::text[] IS NULL OR sku_id = ANY($3)) \
+             ORDER BY sku_id LIMIT $1 OFFSET $2",
         )
         .bind(limit as i64)
         .bind(offset as i64)
+        .bind(skus.map(|list| list.to_vec()))
         .fetch_all(&self.pool)
         .await
         .map_err(db_error)?;
 
-        let total: i64 = sqlx::query_scalar("SELECT count(*) FROM stock")
-            .fetch_one(&self.pool)
-            .await
-            .map_err(db_error)?;
+        let total: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM stock \
+             WHERE ($1::text[] IS NULL OR sku_id = ANY($1))",
+        )
+        .bind(skus.map(|list| list.to_vec()))
+        .fetch_one(&self.pool)
+        .await
+        .map_err(db_error)?;
 
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
@@ -214,6 +270,30 @@ impl InventoryRepository for DbInventoryRepository {
         let next_cursor =
             (offset + items.len() < total as usize).then(|| (offset + items.len()).to_string());
         Ok(StockPage { items, next_cursor })
+    }
+
+    async fn list_reservations(&self, order_id: &str) -> Result<Vec<Reservation>, AppError> {
+        let rows = sqlx::query(
+            "SELECT reservation_id, sku_id, order_id, quantity, state, expires_at_ms \
+             FROM inventory_reservation WHERE order_id = $1 ORDER BY reservation_id",
+        )
+        .bind(order_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_error)?;
+        let mut reservations = Vec::with_capacity(rows.len());
+        for row in rows {
+            let state: String = row.try_get("state").map_err(read_error)?;
+            reservations.push(Reservation {
+                reservation_id: row.try_get("reservation_id").map_err(read_error)?,
+                sku: row.try_get("sku_id").map_err(read_error)?,
+                order_id: row.try_get("order_id").map_err(read_error)?,
+                quantity: row.try_get("quantity").map_err(read_error)?,
+                state: state_of(&state)?,
+                expires_at_ms: row.try_get("expires_at_ms").map_err(read_error)?,
+            });
+        }
+        Ok(reservations)
     }
 
     async fn reserve(

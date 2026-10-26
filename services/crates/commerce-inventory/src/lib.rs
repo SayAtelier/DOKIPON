@@ -66,15 +66,11 @@ impl StockLevel {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Reservation {
-    pub reservation_id: String,
-    pub sku: String,
-    pub order_id: String,
-    pub quantity: i64,
-    pub state: ReservationState,
-    pub expires_at_ms: i64,
-}
+/// A stock reservation.
+///
+/// The same type the order service asks about, so the two do not have to be
+/// translated into each other at every boundary.
+pub use commerce_core::inventory_authority::Reservation;
 
 #[derive(Debug, Default)]
 pub struct InventoryStore {
@@ -284,6 +280,12 @@ pub struct ReservationPath {
 pub struct ListQuery {
     pub cursor: Option<String>,
     pub limit: Option<i64>,
+    /// The SKUs to ask about, comma-separated.
+    ///
+    /// The catalogue asks about the SKUs it is listing, so a page of
+    /// products is one question rather than one per product. Absent means
+    /// "every SKU", which is what the operator's console wants.
+    pub skus: Option<String>,
 }
 
 /// One row of `GET /v1/inventory`.
@@ -320,7 +322,13 @@ pub struct StockPage {
 pub fn router(state: Arc<dyn InventoryRepository>) -> Router {
     Router::new()
         .route("/v1/inventory", get(list_inventory))
-        .route("/v1/inventory/reservations", post(reserve))
+        .route(
+            "/v1/inventory/reservations",
+            // The ledger is the authority on what an order holds: the order
+            // service asks for the reservations when it settles the order
+            // later, and the request that created them is long gone.
+            get(list_reservations).post(reserve),
+        )
         .route(
             "/v1/inventory/reservations/{reservation_id}/commit",
             post(commit),
@@ -358,7 +366,49 @@ async fn list_inventory(
         .and_then(|c| c.parse::<usize>().ok())
         .unwrap_or(0);
 
-    Ok(Json(store.list(offset, limit).await?))
+    // An empty filter means "every SKU": the operator's console pages the
+    // whole ledger.
+    let skus: Vec<String> = q
+        .skus
+        .as_deref()
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|sku| !sku.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let skus = if skus.is_empty() { None } else { Some(skus) };
+    Ok(Json(store.list(offset, limit, skus.as_deref()).await?))
+}
+
+/// The query of `GET /v1/inventory/reservations`.
+#[derive(Debug, Deserialize)]
+pub struct ReservationQuery {
+    /// The order whose reservations are asked for.
+    pub order_id: Option<String>,
+}
+
+/// The reservations one order holds.
+///
+/// The ledger answers, not the order service: the reservations are the
+/// ledger's rows, and the order service asks about them when it settles the
+/// order later — at reconciliation time, when the request that created them
+/// is long gone.
+async fn list_reservations(
+    State(store): State<Arc<dyn InventoryRepository>>,
+    Query(q): Query<ReservationQuery>,
+) -> Result<Json<Vec<Reservation>>, AppError> {
+    const TRACE: &str = "inventory.reservations";
+    let Some(order_id) = q.order_id.filter(|id| !id.trim().is_empty()) else {
+        return Err(status::bad_request(
+            "inventory.missing_order_id",
+            "order_id is required",
+            TRACE,
+        ));
+    };
+    Ok(Json(store.list_reservations(&order_id).await?))
 }
 
 async fn reserve(

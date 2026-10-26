@@ -25,7 +25,8 @@ use commerce_core::JsonBody;
 use commerce_core::{
     error::{status, AppError},
     idempotency::{self, IdempotencyDecision, IdempotencyRecord, IdempotencyState},
-    CheckoutState, Currency, DomainEvent, Money, OrderEvent, PriceSource, TransitionRefusal,
+    CheckoutState, Currency, DomainEvent, Money, OrderEvent, PriceSource, ReservationSource,
+    TransitionRefusal,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -38,6 +39,17 @@ pub mod repo;
 pub use repo::{DbOrderRepository, MemoryOrderRepository, OrderRepository};
 
 pub type SharedOrder = Arc<RwLock<OrderStore>>;
+
+/// The order service's dependencies, as the router hands them to a handler.
+///
+/// A name instead of the tuple spelled out in every handler: the third
+/// dependency — the inventory ledger — pushed the spelled-out tuple past the
+/// complexity clippy tolerates.
+type OrderState = (
+    Arc<dyn OrderRepository>,
+    Arc<dyn PriceSource>,
+    Arc<dyn ReservationSource>,
+);
 
 /// What the downstream services reported back to the orchestrator. The Order
 /// service never calls an external system itself in this build; the caller
@@ -178,6 +190,40 @@ pub struct TrailEntry {
     pub to_state: CheckoutState,
 }
 
+/// What `begin_submit` decided.
+#[derive(Debug, Clone)]
+pub enum SubmitStart {
+    /// The key was used before: here is the answer, and nothing is reserved.
+    Replay {
+        checkout_id: String,
+        order_id: String,
+        state: CheckoutState,
+    },
+    /// The saga is ready to continue. The stock is **not** reserved yet.
+    ///
+    /// Boxed: the two variants are far apart in size, and the small one — a
+    /// replay — is the common case, so the enum should not carry the big
+    /// variant's bytes around.
+    Begin(Box<SubmitBegin>),
+}
+
+/// What `begin_submit` hands to the caller.
+#[derive(Debug, Clone)]
+pub struct SubmitBegin {
+    /// The buyer's session id — the order's owner.
+    pub buyer_id: String,
+    /// The checkout's id.
+    pub checkout_id: String,
+    /// The order's id — the ledger's reservation is made for it.
+    pub order_id: String,
+    /// The order, waiting for the stock to be reserved.
+    pub order: Order,
+    /// The idempotency key, scoped to the buyer and the operation.
+    pub scoped_key: String,
+    /// The fingerprint of the payload the key is bound to.
+    pub fingerprint: String,
+}
+
 #[derive(Debug, Default)]
 pub struct OrderStore {
     pub orders: HashMap<String, Order>,
@@ -241,6 +287,12 @@ impl OrderStore {
     ///
     /// Returns `(state, payment_outcome)` so tests and the BFF can assert the
     /// exact branch taken.
+    ///
+    /// This is the whole saga **for the callers that have no stock to
+    /// reserve**: the reservation is an id and nothing else. A service that
+    /// talks to the inventory service uses [`OrderStore::begin_submit`] and
+    /// [`OrderStore::finish_submit`] instead, because reserving the stock is a
+    /// call out of the process and the saga has to wait for it.
     pub fn submit(
         &mut self,
         buyer_id: &str,
@@ -248,6 +300,35 @@ impl OrderStore {
         idempotency_key: &str,
         payment_outcome: PaymentOutcome,
     ) -> Result<(String, CheckoutState, PaymentOutcome), AppError> {
+        match self.begin_submit(buyer_id, lines, idempotency_key)? {
+            SubmitStart::Replay {
+                checkout_id,
+                order_id: _,
+                state,
+            } => Ok((checkout_id, state, payment_outcome)),
+            SubmitStart::Begin(begin) => {
+                // There is no inventory service here, so the reservation is
+                // the id alone.
+                let reservation_id = self.next_id("res");
+                self.finish_submit(*begin, reservation_id, payment_outcome)
+            }
+        }
+    }
+
+    /// The first half of `checkout.submit`: everything up to the point where
+    /// the stock has to be reserved.
+    ///
+    /// The saga stops here because the next step is not the saga's to take:
+    /// the stock is reserved by the **inventory service**, and that is a call
+    /// out of the process. The order exists by now, so the reservation can be
+    /// made **for it** — the ledger holds the units against a real order id
+    /// instead of a provisional one.
+    pub fn begin_submit(
+        &mut self,
+        buyer_id: &str,
+        lines: Vec<OrderLine>,
+        idempotency_key: &str,
+    ) -> Result<SubmitStart, AppError> {
         const TRACE: &str = "checkout.submit";
 
         if lines.is_empty() {
@@ -287,7 +368,11 @@ impl OrderStore {
                     .map(|o| o.state)
                     .unwrap_or(CheckoutState::Confirmed);
                 let _ = status_code;
-                return Ok((checkout_id, state, payment_outcome));
+                return Ok(SubmitStart::Replay {
+                    checkout_id,
+                    order_id,
+                    state,
+                });
             }
             IdempotencyDecision::InFlightConflict | IdempotencyDecision::KeyReuseConflict => {
                 return Err(status::conflict(
@@ -330,15 +415,48 @@ impl OrderStore {
         );
 
         // --- Step 1: reserve stock -------------------------------------------
-        // Inventory is called by the BFF in the deployed topology; here the
-        // reservation id is allocated here so the Saga is self-contained and
-        // replayable in tests.
+        // The saga stops here: the stock is reserved by the inventory service,
+        // and that is a call out of the process. `finish_submit` continues
+        // once the reservation exists.
         self.apply(&mut order, OrderEvent::BeginReserve)
             .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
-        let reservation_id = self.next_id("res");
+
+        Ok(SubmitStart::Begin(Box::new(SubmitBegin {
+            buyer_id: buyer_id.to_string(),
+            checkout_id,
+            order_id,
+            order,
+            scoped_key: scoped,
+            fingerprint: fp,
+        })))
+    }
+
+    /// The second half of `checkout.submit`: the stock is reserved, so the saga
+    /// can go on.
+    ///
+    /// `reservation_id` is the one the **inventory service** minted. The
+    /// ledger's row and the order's trail must name the same reservation, or
+    /// the units that were held cannot be found again to commit or release
+    /// them.
+    pub fn finish_submit(
+        &mut self,
+        begin: SubmitBegin,
+        reservation_id: String,
+        payment_outcome: PaymentOutcome,
+    ) -> Result<(String, CheckoutState, PaymentOutcome), AppError> {
+        let SubmitBegin {
+            buyer_id: _,
+            checkout_id,
+            order_id,
+            mut order,
+            scoped_key,
+            fingerprint,
+        } = begin;
+
+        // --- Step 1 (continued): the stock is reserved ------------------------
         order.reservation_id = Some(reservation_id.clone());
         self.apply(&mut order, OrderEvent::StockReserved)
-            .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
+            .map_err(|e| self.fail_and_cleanup(&scoped_key, e))?;
         self.record(
             &mut order,
             DomainEvent::StockReserved {
@@ -349,14 +467,14 @@ impl OrderStore {
 
         // --- Step 2: request payment ------------------------------------------
         self.apply(&mut order, OrderEvent::RequestPayment)
-            .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
+            .map_err(|e| self.fail_and_cleanup(&scoped_key, e))?;
         let provider_ref = self.next_id("pref");
 
         // --- Step 3: act on the payment outcome --------------------------------
         match payment_outcome {
             PaymentOutcome::Declined => {
                 self.apply(&mut order, OrderEvent::PaymentDeclined)
-                    .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
+                    .map_err(|e| self.fail_and_cleanup(&scoped_key, e))?;
                 order.provider_ref = Some(provider_ref.clone());
                 self.record(
                     &mut order,
@@ -376,7 +494,7 @@ impl OrderStore {
             PaymentOutcome::Unknown => {
                 // NOT a failure and NOT a success. No re-charge path exists here.
                 self.apply(&mut order, OrderEvent::PaymentTimedOut)
-                    .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
+                    .map_err(|e| self.fail_and_cleanup(&scoped_key, e))?;
                 order.provider_ref = Some(provider_ref.clone());
                 order.awaiting_reconciliation = true;
                 self.record(
@@ -390,7 +508,7 @@ impl OrderStore {
             PaymentOutcome::Authorized => {
                 order.provider_ref = Some(provider_ref.clone());
                 self.apply(&mut order, OrderEvent::PaymentAuthorized)
-                    .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
+                    .map_err(|e| self.fail_and_cleanup(&scoped_key, e))?;
                 self.record(
                     &mut order,
                     DomainEvent::PaymentAuthorized {
@@ -399,7 +517,7 @@ impl OrderStore {
                     },
                 );
                 self.apply(&mut order, OrderEvent::Confirmed)
-                    .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
+                    .map_err(|e| self.fail_and_cleanup(&scoped_key, e))?;
                 self.record(
                     &mut order,
                     DomainEvent::OrderConfirmed {
@@ -410,9 +528,9 @@ impl OrderStore {
             PaymentOutcome::AuthorizedButOrderWriteFailed => {
                 // The capture succeeded. We MUST NOT report success.
                 self.apply(&mut order, OrderEvent::PaymentAuthorized)
-                    .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
+                    .map_err(|e| self.fail_and_cleanup(&scoped_key, e))?;
                 self.apply(&mut order, OrderEvent::ConfirmationFailed)
-                    .map_err(|e| self.fail_and_cleanup(&scoped, e))?;
+                    .map_err(|e| self.fail_and_cleanup(&scoped_key, e))?;
                 order.provider_ref = Some(provider_ref.clone());
                 order.awaiting_reconciliation = true;
                 self.record(
@@ -443,7 +561,7 @@ impl OrderStore {
         let state = order.state;
 
         // Persist the completed idempotency record with the response body.
-        let mut rec = IdempotencyRecord::in_progress(scoped.clone(), fp, self.now_ms);
+        let mut rec = IdempotencyRecord::in_progress(scoped_key.clone(), fingerprint, self.now_ms);
         rec.state = IdempotencyState::Completed {
             status_code: if state.is_terminal() && state == CheckoutState::Confirmed {
                 201
@@ -456,7 +574,7 @@ impl OrderStore {
                 "status": state.as_str(),
             }),
         };
-        self.idempotency.insert(scoped, rec);
+        self.idempotency.insert(scoped_key, rec);
         self.orders.insert(order_id, order);
 
         Ok((checkout_id, state, payment_outcome))
@@ -625,7 +743,11 @@ pub struct ReconcileBody {
 /// and the only way in is the facade's own upstream call.
 const OPERATOR_TOKEN_HEADER: &str = "x-service-token";
 
-pub fn router(state: Arc<dyn OrderRepository>, prices: Arc<dyn PriceSource>) -> Router {
+pub fn router(
+    state: Arc<dyn OrderRepository>,
+    prices: Arc<dyn PriceSource>,
+    reservations: Arc<dyn ReservationSource>,
+) -> Router {
     Router::new()
         .route("/v1/checkouts", post(submit_checkout))
         .route("/v1/checkouts/{checkout_id}", get(checkout_status))
@@ -639,7 +761,7 @@ pub fn router(state: Arc<dyn OrderRepository>, prices: Arc<dyn PriceSource>) -> 
             post(operator_reconcile_checkout),
         )
         .route("/healthz", get(health))
-        .with_state((state, prices))
+        .with_state((state, prices, reservations))
 }
 
 async fn health() -> StatusCode {
@@ -764,7 +886,7 @@ async fn reprice(
 }
 
 async fn submit_checkout(
-    State((repo, prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
+    State((repo, prices, reservations)): State<OrderState>,
     headers: HeaderMap,
     JsonBody(body): JsonBody<SubmitBody>,
 ) -> Result<Response, AppError> {
@@ -815,13 +937,167 @@ async fn submit_checkout(
     // In production this comes from the payment adapter; the BFF supplies the
     // observed outcome. `Unknown` is the safe default for an unresolved call.
     let outcome = header_outcome(&headers);
-    let (checkout_id, state, _) = repo.submit(&buyer, lines, &key, outcome).await?;
 
-    // The contract (`contracts/openapi.yaml` -> `POST /v1/checkouts`) says
-    // `201` when the order reached `confirmed` and `202` while it is still
-    // processing. This is the same rule the idempotency record on this code
-    // path already writes, so a replayed response carries the status the
-    // first one had.
+    // --- Begin: everything up to the reservation ---------------------------
+    //
+    // The saga stops here because the next step is not the saga's to take:
+    // the stock is reserved by the inventory service.
+    let begin = match repo.begin_submit(&buyer, lines, &key).await? {
+        SubmitStart::Replay {
+            checkout_id,
+            order_id,
+            state,
+        } => {
+            // The key was used before: the same answer, and **no** second
+            // order. Nothing is reserved either — the first request settled
+            // its own reservation.
+            return Ok(checkout_response(&checkout_id, Some(&order_id), state));
+        }
+        SubmitStart::Begin(begin) => *begin,
+    };
+
+    // --- Reserve the stock -------------------------------------------------
+    //
+    // The units are held against the **real** order id, so the ledger says
+    // which order is holding them.
+    //
+    // If the stock cannot be held, the checkout is refused and nothing is
+    // left behind: what was held is given back, and the idempotency key is
+    // released so the shopper may try again. A checkout that could not
+    // reserve its stock has not happened yet.
+    let mut held: Vec<String> = Vec::new();
+    // The lines are copied out, so the borrow does not outlive the loop: the
+    // failure path gives the reservation back and abandons the checkout.
+    let lines = begin.order.lines.clone();
+    for line in &lines {
+        match reservations
+            .reserve(&line.sku, &begin.order_id, i64::from(line.quantity))
+            .await
+        {
+            Ok(reservation) => held.push(reservation.reservation_id),
+            Err(error) => {
+                tracing::error!(
+                    error = %error,
+                    sku = %line.sku,
+                    "the stock could not be reserved"
+                );
+                for id in &held {
+                    if let Err(error) = reservations.release(id).await {
+                        tracing::error!(error = %error, reservation = %id, "the units were not given back");
+                    }
+                }
+                let _ = repo.abandon(begin).await;
+                return Err(status::conflict(
+                    "order.inventory_unavailable",
+                    format!("the stock for {} could not be reserved", line.sku),
+                    "checkout.submit",
+                ));
+            }
+        }
+    }
+    // The saga's own record names one reservation: the first. An order with
+    // several lines holds several, and the ledger is the authority on all of
+    // them — the order service asks it when the order is settled later.
+    let reservation_id = held.first().cloned().unwrap_or_default();
+
+    // --- Finish: the saga goes on -------------------------------------------
+    let (checkout_id, state, _) = match repo.finish_submit(begin, reservation_id, outcome).await {
+        Ok(result) => result,
+        Err(error) => {
+            for id in &held {
+                if let Err(error) = reservations.release(id).await {
+                    tracing::error!(error = %error, reservation = %id, "the units were not given back");
+                }
+            }
+            return Err(error);
+        }
+    };
+
+    // --- Settle the reservation ---------------------------------------------
+    //
+    // A confirmed order takes the units out of the warehouse; a rejected one
+    // gives them back. `PaymentUnknown` keeps them held: giving them back
+    // before the provider has answered would sell them twice.
+    //
+    // A failure here is logged and not fatal: the payment already happened,
+    // and refusing the answer would tell the shopper their purchase failed
+    // when it did not. The units stay held, and the operator settles them.
+    match state {
+        CheckoutState::Confirmed => {
+            for id in &held {
+                if let Err(error) = reservations.commit(id).await {
+                    tracing::error!(error = %error, reservation = %id, "the reservation was not committed");
+                }
+            }
+        }
+        CheckoutState::Rejected | CheckoutState::Cancelled => {
+            for id in &held {
+                if let Err(error) = reservations.release(id).await {
+                    tracing::error!(error = %error, reservation = %id, "the units were not given back");
+                }
+            }
+        }
+        _ => {}
+    }
+
+    let order_id = repo
+        .by_checkout(&checkout_id)
+        .await
+        .ok()
+        .map(|order| order.order_id);
+
+    Ok(checkout_response(&checkout_id, order_id.as_deref(), state))
+}
+
+/// Settle the reservations an order holds.
+///
+/// A confirmed order takes the units out of the warehouse; a rejected one
+/// gives them back. The **ledger** is asked which reservations the order
+/// holds, because it is the ledger's rows: the request that created them is
+/// long gone by the time an order is reconciled.
+///
+/// A failure here is logged and not fatal: the payment already happened, and
+/// refusing the answer would tell the shopper their purchase failed when it
+/// did not. The units stay held, and the operator settles them.
+async fn settle_reservations(
+    reservations: &Arc<dyn ReservationSource>,
+    order_id: &str,
+    authorized: bool,
+) {
+    let held = match reservations.list_for_order(order_id).await {
+        Ok(held) => held,
+        Err(error) => {
+            tracing::error!(
+                error = %error,
+                order = %order_id,
+                "the ledger could not be asked about the reservations"
+            );
+            return;
+        }
+    };
+    for reservation in held {
+        let result = if authorized {
+            reservations.commit(&reservation.reservation_id).await
+        } else {
+            reservations.release(&reservation.reservation_id).await
+        };
+        if let Err(error) = result {
+            tracing::error!(
+                error = %error,
+                reservation = %reservation.reservation_id,
+                "the reservation was not settled"
+            );
+        }
+    }
+}
+
+/// The checkout's answer, as the contract spells it.
+///
+/// `201` when the order reached `confirmed` and `202` while it is still
+/// processing. This is the same rule the idempotency record on this code path
+/// already writes, so a replayed response carries the status the first one
+/// had.
+fn checkout_response(checkout_id: &str, order_id: Option<&str>, state: CheckoutState) -> Response {
     let code = if state.is_terminal() && state == CheckoutState::Confirmed {
         StatusCode::CREATED
     } else {
@@ -833,13 +1109,7 @@ async fn submit_checkout(
     // them, only `pollable` — so a client that had just bought something had
     // no order id to navigate to, and the Dart client reads `orderId` from
     // this very response.
-    let order_id = repo
-        .by_checkout(&checkout_id)
-        .await
-        .ok()
-        .map(|order| order.order_id);
-
-    Ok((
+    (
         code,
         Json(serde_json::json!({
             "checkoutId": checkout_id,
@@ -851,7 +1121,7 @@ async fn submit_checkout(
             "traceId": commerce_core::idempotency::now_ms().to_string(),
         })),
     )
-        .into_response())
+        .into_response()
 }
 
 fn header_outcome(headers: &HeaderMap) -> PaymentOutcome {
@@ -867,7 +1137,7 @@ fn header_outcome(headers: &HeaderMap) -> PaymentOutcome {
 }
 
 async fn checkout_status(
-    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
+    State((repo, _prices, _reservations)): State<OrderState>,
     Path(checkout_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -892,7 +1162,7 @@ async fn checkout_status(
 }
 
 async fn order_detail(
-    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
+    State((repo, _prices, _reservations)): State<OrderState>,
     Path(order_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -913,7 +1183,7 @@ async fn order_detail(
 /// Server-only: the payment adapter's verdict, not the client's. The owner
 /// check still applies so a caller cannot reconcile somebody else's order.
 async fn reconcile_checkout(
-    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
+    State((repo, _prices, reservations)): State<OrderState>,
     Path(order_id): Path<String>,
     headers: HeaderMap,
     JsonBody(body): JsonBody<ReconcileBody>,
@@ -930,6 +1200,10 @@ async fn reconcile_checkout(
         }
     }
     let final_state = repo.reconcile(&order_id, body.authorized).await?;
+    // The order is settled, so the units it was holding are settled too: a
+    // confirmed order takes them out of the warehouse, a rejected one gives
+    // them back.
+    settle_reservations(&reservations, &order_id, body.authorized).await;
     Ok(Json(serde_json::json!({
         "orderId": order_id,
         "state": final_state,
@@ -938,7 +1212,7 @@ async fn reconcile_checkout(
 }
 
 async fn list_orders(
-    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
+    State((repo, _prices, _reservations)): State<OrderState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let session = actor(&headers)?;
@@ -1003,7 +1277,7 @@ fn require_operator(headers: &HeaderMap) -> Result<(), AppError> {
 /// facade's list was always empty: the operator console showed a table with
 /// no rows, and no order could be opened from it.
 async fn operator_list_orders(
-    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
+    State((repo, _prices, _reservations)): State<OrderState>,
     Query(query): Query<OperatorOrdersQuery>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -1053,7 +1327,7 @@ async fn operator_list_orders(
 /// for a customer, useless for the operator, whose job is to read exactly
 /// those orders.
 async fn operator_order_detail(
-    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
+    State((repo, _prices, _reservations)): State<OrderState>,
     Path(order_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -1068,13 +1342,17 @@ async fn operator_order_detail(
 /// reconcile somebody else's order. The operator may, because recovering a
 /// payment the provider already answered for is the operator's job.
 async fn operator_reconcile_checkout(
-    State((repo, _prices)): State<(Arc<dyn OrderRepository>, Arc<dyn PriceSource>)>,
+    State((repo, _prices, reservations)): State<OrderState>,
     Path(order_id): Path<String>,
     headers: HeaderMap,
     JsonBody(body): JsonBody<ReconcileBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_operator(&headers)?;
     let final_state = repo.reconcile(&order_id, body.authorized).await?;
+    // The order is settled, so the units it was holding are settled too: a
+    // confirmed order takes them out of the warehouse, a rejected one gives
+    // them back.
+    settle_reservations(&reservations, &order_id, body.authorized).await;
     Ok(Json(serde_json::json!({
         "orderId": order_id,
         "state": final_state,
@@ -1620,12 +1898,81 @@ mod tests {
         }
     }
 
+    /// A reservation source that always succeeds.
+    ///
+    /// The tests here are about the **saga**, not about the ledger: the
+    /// reservation is a call to the inventory service, and here it is a
+    /// function that says "yes" and hands back an id.
+    struct FakeReservations;
+
+    #[async_trait::async_trait]
+    impl ReservationSource for FakeReservations {
+        async fn reserve(
+            &self,
+            sku: &str,
+            order_id: &str,
+            quantity: i64,
+        ) -> Result<commerce_core::Reservation, String> {
+            Ok(commerce_core::Reservation {
+                reservation_id: "res-000001".to_string(),
+                sku: sku.to_string(),
+                order_id: order_id.to_string(),
+                quantity,
+                state: commerce_core::ReservationState::Reserved,
+                expires_at_ms: 0,
+            })
+        }
+
+        async fn commit(&self, reservation_id: &str) -> Result<commerce_core::Reservation, String> {
+            Ok(commerce_core::Reservation {
+                reservation_id: reservation_id.to_string(),
+                sku: "sku-tee-01".to_string(),
+                order_id: "ord-000001".to_string(),
+                quantity: 1,
+                state: commerce_core::ReservationState::Committed,
+                expires_at_ms: 0,
+            })
+        }
+
+        async fn release(
+            &self,
+            reservation_id: &str,
+        ) -> Result<commerce_core::Reservation, String> {
+            Ok(commerce_core::Reservation {
+                reservation_id: reservation_id.to_string(),
+                sku: "sku-tee-01".to_string(),
+                order_id: "ord-000001".to_string(),
+                quantity: 1,
+                state: commerce_core::ReservationState::Released,
+                expires_at_ms: 0,
+            })
+        }
+
+        async fn list_for_order(
+            &self,
+            order_id: &str,
+        ) -> Result<Vec<commerce_core::Reservation>, String> {
+            Ok(vec![commerce_core::Reservation {
+                reservation_id: "res-000001".to_string(),
+                sku: "sku-tee-01".to_string(),
+                order_id: order_id.to_string(),
+                quantity: 1,
+                state: commerce_core::ReservationState::Reserved,
+                expires_at_ms: 0,
+            }])
+        }
+    }
+
     /// Serve the order router on a loopback port, so a test drives the real
     /// HTTP boundary rather than a handler's signature.
     async fn serve(state: SharedOrder, prices: Arc<dyn PriceSource>) -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address: SocketAddr = listener.local_addr().unwrap();
-        let app = router(Arc::new(MemoryOrderRepository::new(state)), prices);
+        let app = router(
+            Arc::new(MemoryOrderRepository::new(state)),
+            prices,
+            Arc::new(FakeReservations),
+        );
         tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
